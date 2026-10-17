@@ -12,7 +12,18 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from model_router import build_routing, parse_route, resolve_route
+from model_router import (
+    build_routing,
+    parse_route,
+    resolve_route,
+    classify_complexity,
+    escalate_complexity,
+    COMPLEXITY_CHAR_THRESHOLD,
+    RAG_MIN_SCORE,
+    LOCAL_MODE_LABEL,
+    CLOUD_MODE_LABEL,
+    DYNAMIC_STAGES,
+)
 
 
 DEFAULTS = {
@@ -153,6 +164,121 @@ class TestGatewayScenario(unittest.TestCase):
             tier, _, reason = resolve_route(self.routing, stage, False)
             self.assertEqual(tier, "local")
             self.assertTrue(reason)
+
+
+class TestClassifyComplexity(unittest.TestCase):
+    """动态路由：按输入长度 + RAG 是否命中决定档位。"""
+
+    def test_short_input_stays_local(self):
+        c = classify_complexity("250bar 80度 有断层")
+        self.assertEqual(c["mode"], "local")
+        self.assertEqual(c["label"], LOCAL_MODE_LABEL)
+
+    def test_long_input_goes_cloud(self):
+        c = classify_complexity("某" * 80)
+        self.assertEqual(c["mode"], "cloud")
+        self.assertEqual(c["label"], CLOUD_MODE_LABEL)
+
+    def test_exactly_threshold_stays_local(self):
+        """边界用 >：恰好 50 字仍算简单查询。"""
+        c = classify_complexity("a" * COMPLEXITY_CHAR_THRESHOLD)
+        self.assertEqual(c["mode"], "local")
+
+    def test_one_over_threshold_goes_cloud(self):
+        c = classify_complexity("a" * (COMPLEXITY_CHAR_THRESHOLD + 1))
+        self.assertEqual(c["mode"], "cloud")
+
+    def test_rag_hit_escalates_short_input(self):
+        """短输入但知识库确实命中 → 云端。"""
+        c = classify_complexity("断层活化风险", rag_triggered=True, top_score=0.74)
+        self.assertEqual(c["mode"], "cloud")
+        self.assertIn("知识库命中", c["reason"])
+
+    def test_rag_false_hit_keeps_local(self):
+        """
+        图谱对无关提问也会返回片段，但相关度接近 0。
+        这种"假命中"不该把请求推到云端。
+        """
+        c = classify_complexity("今天天气怎么样", rag_triggered=False, top_score=0.0001)
+        self.assertEqual(c["mode"], "local")
+        self.assertIn("0.0001", c["reason"])
+
+    def test_rag_threshold_boundary(self):
+        c_low = classify_complexity("x", rag_triggered=False, top_score=RAG_MIN_SCORE - 0.001)
+        c_eq = classify_complexity("x", rag_triggered=True, top_score=RAG_MIN_SCORE)
+        self.assertEqual(c_low["mode"], "local")
+        self.assertEqual(c_eq["mode"], "cloud")
+
+    def test_top_score_overrides_inconsistent_flag(self):
+        """
+        分数与布尔值冲突时以分数为准。
+        否则日志会打出"未命中（相关度 0.7400 < 0.05）"这种自相矛盾的话。
+        """
+        c = classify_complexity("短问题", rag_triggered=False, top_score=0.74)
+        self.assertEqual(c["mode"], "cloud")
+        self.assertTrue(c["rag_triggered"])
+        self.assertIn("命中", c["reason"])
+        self.assertNotIn("未命中", c["reason"])
+
+    def test_flag_used_when_score_unknown(self):
+        c = classify_complexity("短问题", rag_triggered=True, top_score=None)
+        self.assertEqual(c["mode"], "cloud")
+        self.assertIn("知识库命中", c["reason"])
+
+    def test_reasons_are_explainable(self):
+        """判定必须能解释：日志里要能看出为什么选了这个档位。"""
+        c = classify_complexity("a" * 60, rag_triggered=True, top_score=0.3)
+        self.assertGreaterEqual(len(c["reasons"]), 2)
+        self.assertIn("→ 云端", c["reason"])
+        self.assertIn("60 字", c["reason"])
+
+    def test_chars_recorded(self):
+        c = classify_complexity("一二三四五")
+        self.assertEqual(c["chars"], 5)
+
+    def test_label_constant_wording(self):
+        """日志标签是需求明确要求的字符串，不能改。"""
+        self.assertEqual(LOCAL_MODE_LABEL, "[Cost-Saving: Local Mode]")
+        self.assertEqual(CLOUD_MODE_LABEL, "[Premium: Cloud Mode]")
+
+    def test_dynamic_stages_only_extract_and_report(self):
+        """
+        report_plan 不在动态路由管辖内：它只输出几十个 token 的 JSON，
+        无论请求多复杂都该留在本地。
+        """
+        self.assertEqual(set(DYNAMIC_STAGES), {"extract", "report"})
+
+
+class TestEscalate(unittest.TestCase):
+    def test_local_to_cloud_upgrade(self):
+        prev = classify_complexity("短问题")
+        new = classify_complexity("短问题", rag_triggered=True, top_score=0.5)
+        merged = escalate_complexity(prev, new)
+        self.assertEqual(merged["mode"], "cloud")
+        self.assertIn("retrieve 阶段升级", merged["reason"])
+
+    def test_cloud_never_downgrades(self):
+        """
+        extract 已按长输入付过云端的钱，retrieve 不该再降回本地。
+
+        用手工构造的判定结果来测，而不是走 classify_complexity ——
+        因为输入长度在同一次请求里是常量，"长输入在 retrieve 阶段变短"
+        不可能发生，走真实函数永远测不到这个防御分支。
+        """
+        prev = {"mode": "cloud", "reason": "输入 80 字 > 50 字阈值", "chars": 80}
+        new = {"mode": "local", "reason": "知识库未命中", "chars": 80}
+        merged = escalate_complexity(prev, new)
+        self.assertEqual(merged["mode"], "cloud")
+        self.assertIn("不再降级", merged["reason"])
+
+    def test_no_prev_returns_new(self):
+        new = classify_complexity("x")
+        self.assertEqual(escalate_complexity(None, new)["mode"], new["mode"])
+
+    def test_same_mode_returns_new(self):
+        prev = classify_complexity("x")
+        new = classify_complexity("x", rag_triggered=False, top_score=0.0)
+        self.assertEqual(escalate_complexity(prev, new)["mode"], "local")
 
 
 if __name__ == "__main__":

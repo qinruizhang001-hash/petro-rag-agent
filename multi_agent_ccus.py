@@ -44,6 +44,12 @@ from file_memory import (
 # ─── 图表生成（Function Calling 工具）──────────────────────
 from chart_tools import generate_pressure_curve
 
+# ─── 上下文压缩（Context Pruning）──────────────────────────
+from context_pruner import prune_context, needs_pruning, context_char_count
+
+# ─── 成本核算（Token Cost Model）───────────────────────────
+from cost_model import estimate_cost, caption_text
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,16 +78,25 @@ CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
 # （magpie / one-api / LiteLLM 这类），不同厂商的模型会统一暴露成
 # "provider/model" 命名，且各角色可以用不同厂商的模型 —— 这正是路由表的价值。
 DEFAULT_ROUTING = {
-    "extract": "local",      # Agent 1 参数提取
-    "report_plan": "local",  # 工具规划：结构化短输出，本地足够
-    "report": "cloud",       # Agent 3 报告生成（核心产出，用云端）
+    "extract": "local",      # Agent 1 参数提取（受动态复杂度路由管辖）
+    "report_plan": "local",  # 工具规划：结构化短输出，本地足够（不参与动态路由）
+    "report": "cloud",       # Agent 3 报告生成（受动态复杂度路由管辖）
     "evaluate": "local",     # Agent 4 评审员
     "history": "local",      # 文件记忆的结论压缩
     "summary": "local",      # 历史记忆的批量压缩（提炼核心经验）
+    "prune": "local",        # 上下文压缩（用本地便宜模型换云端输入费）
 }
 
 # 路由解析是纯逻辑，已抽到 model_router.py 以便离线单测（见 tests/test_model_router.py）
-from model_router import build_routing, resolve_route as _resolve_route
+from model_router import (
+    build_routing,
+    resolve_route as _resolve_route,
+    classify_complexity,
+    escalate_complexity,
+    DYNAMIC_STAGES,
+    COMPLEXITY_CHAR_THRESHOLD,
+    RAG_MIN_SCORE,
+)
 
 # 允许用 ROUTE_<STAGE> 环境变量覆盖默认路由，例如 ROUTE_REPORT=cloud:kimi/kimi-k2
 MODEL_ROUTING = build_routing(DEFAULT_ROUTING, os.environ)
@@ -121,30 +136,59 @@ def cloud_available() -> bool:
     return cloud_client is not None
 
 
-def resolve_route_detail(stage: str) -> tuple[str, str, str]:
+def resolve_route_detail(stage: str, mode: str | None = None) -> tuple[str, str, str]:
     """
     把 stage 解析成 (tier, model_override, 降级原因)。
 
     model_override 为空表示用该档位的默认模型（LOCAL_MODEL / CLOUD_MODEL）。
+
+    `mode` 是本次请求的复杂度档位（"local" / "cloud" / None）。
+    对 DYNAMIC_STAGES（extract / report）它是**权威**的：静态路由表回答
+    "这个角色通常该用什么"，复杂度路由回答"这一次值不值得"，后者更具体，
+    所以优先级更高。其它角色（report_plan / evaluate / history / summary / prune）
+    不受影响 —— 它们本来就该固定走便宜的本地模型。
     """
-    return _resolve_route(MODEL_ROUTING, stage, cloud_available())
+    tier, model_override, reason = _resolve_route(MODEL_ROUTING, stage, cloud_available())
+
+    if not mode or stage not in DYNAMIC_STAGES:
+        return tier, model_override, reason
+
+    forced = "local" if mode == "local" else "cloud"
+    if forced == tier:
+        return tier, model_override, reason
+
+    if forced == "cloud":
+        if not cloud_available():
+            return "local", model_override, "复杂度判定需云端，但 CLOUD_API_KEY 未配置"
+        # 升到云端时沿用模型覆盖，但**仅当它本来就是云端 spec**：
+        # `ROUTE_REPORT=cloud:kimi/kimi-k2` 的 kimi/kimi-k2 对云端端点有效，保留；
+        # `ROUTE_REPORT=local:qwen2.5:14b` 的 qwen2.5:14b 是本地模型名，
+        # 发给云端端点必然 404 —— 丢掉，回落到 CLOUD_MODEL。
+        cloud_model = model_override if tier == "cloud" else ""
+        return "cloud", cloud_model, f"复杂度路由 → 云端（原档位 {tier}）"
+
+    # 降到本地：若原 spec 是云端专有模型名（如 ollama/qwen2.5:latest、
+    # deepseek/deepseek-chat），这个模型名对本地端点毫无意义，必须丢弃，
+    # 否则会把云端模型名发给 Ollama，直接 404。
+    local_model = model_override if tier == "local" else ""
+    return "local", local_model, f"复杂度路由 → 本地（原档位 {tier}）"
 
 
-def resolve_route(stage: str) -> tuple[str, str]:
+def resolve_route(stage: str, mode: str | None = None) -> tuple[str, str]:
     """把 stage 解析成实际执行的档位。返回 (tier, 降级原因)。"""
-    tier, _model, reason = resolve_route_detail(stage)
+    tier, _model, reason = resolve_route_detail(stage, mode)
     return tier, reason
 
 
-def get_llm(stage: str):
+def get_llm(stage: str, mode: str | None = None):
     """按路由表返回 (client, model_name, 实际档位, 降级原因)。"""
-    tier, model_override, reason = resolve_route_detail(stage)
+    tier, model_override, reason = resolve_route_detail(stage, mode)
     if tier == "cloud":
         return cloud_client, (model_override or CLOUD_MODEL), "cloud", ""
     return local_client, (model_override or LOCAL_MODEL), "local", reason
 
 
-def llm_chat(stage: str, messages: list, temperature: float):
+def llm_chat(stage: str, messages: list, temperature: float, mode: str | None = None):
     """
     统一的大模型调用入口。
 
@@ -152,7 +196,7 @@ def llm_chat(stage: str, messages: list, temperature: float):
     也才能把 model / tier 如实记进 token_usage 供事后审计。
     """
     global _cloud_warned
-    cli, model, tier, reason = get_llm(stage)
+    cli, model, tier, reason = get_llm(stage, mode)
 
     if reason and not _cloud_warned:
         print(
@@ -185,7 +229,8 @@ class _StreamResult:
         self.usage_estimated = usage_estimated
 
 
-def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None):
+def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None,
+                      mode: str | None = None):
     """
     流式版本的大模型调用：每收到一个 delta 就交给 `sink`，同时攒全文。
 
@@ -200,7 +245,7 @@ def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None)
     所以拿不到就按 tiktoken 估算，并在 token_usage 里标 usage_estimated=True ——
     宁可标"估算"，也不要让成本统计悄悄变成 0。
     """
-    cli, model, tier, reason = get_llm(stage)
+    cli, model, tier, reason = get_llm(stage, mode)
     label = f"{tier}:{model}" + (f"（降级：{reason}）" if reason else "")
     print(f"  [Router] {stage} → {label}（流式）")
 
@@ -389,6 +434,12 @@ class AgentState(TypedDict):
     memory_compression: dict       # 本次是否触发历史压缩及压缩统计
     # ─── 图表 ───
     chart_info: dict               # generate_pressure_curve 的结果（路径/结论）
+    # ─── Token 经济学：动态路由 ───
+    complexity_mode: str           # 本次请求判定的档位："local" | "cloud"
+    complexity_info: dict          # 判定依据（字符数/是否命中/RAG 相关度/日志标签）
+    # ─── Token 经济学：上下文压缩 ───
+    context_pruning: dict          # 压缩统计（前后字符数/状态/原因）
+    cost_estimation: dict          # 本次任务的成本估算（人民币）
 
 
 # ============================================================
@@ -504,15 +555,27 @@ def inject_memory(state: AgentState):
 # ============================================================
 def extract_params(state: AgentState):
     print("\n[Agent 1] 正在提取 CCUS 项目关键参数...")
+
+    # ─── 动态路由判定（入口）─────────────────────────────
+    # 这是整个流程里第一次能看到 user_input 长度的位置，所以复杂度判定放这里。
+    # 此时还没检索，rag_triggered=False 表示"尚未检索"而非"确定没命中"；
+    # retrieve_knowledge 拿到 rerank 分数后会做单向升级。
+    complexity = classify_complexity(state["user_input"])
+    mode = complexity["mode"]
+    print(f"  [Router] {complexity['label']} {complexity['reason']}")
+
     prompt = f"你是一个CCUS专家。请从以下描述中提取评估碳封存风险所需的关键参数：\n{state['user_input']}"
-    _, model, tier, _ = get_llm("extract")
+    _, model, tier, _ = get_llm("extract", mode)
     response = llm_chat(
         "extract",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
+        mode=mode,
     )
     return {
         "extracted_params": response.choices[0].message.content,
+        "complexity_mode": mode,
+        "complexity_info": complexity,
         **record_llm_usage(state, "extract", response, model, tier),
     }
 
@@ -520,6 +583,25 @@ def extract_params(state: AgentState):
 # ============================================================
 # 6. 知识检索（GraphRAG 图谱检索 + 本地 Rerank 精排）
 # ============================================================
+def _env_int(name: str, default: int) -> int:
+    """读取整数型环境变量；非法值退回默认，不让配置失误炸掉主流程。"""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"  [Config] {name}={raw!r} 不是合法整数，使用默认值 {default}")
+        return default
+
+
+# 注入给下游的片段数。调大能提高召回覆盖，但也直接抬高云端输入费 ——
+# 这两个目标在 token 经济学里天然对立，所以做成显式配置而不是写死在代码里。
+RAG_TOP_K = _env_int("RAG_TOP_K", 2)
+# 上下文压缩阈值（字符）。超过就把长文本交给本地模型压成要点，再送给云端。
+CONTEXT_PRUNE_THRESHOLD = _env_int("CONTEXT_PRUNE_THRESHOLD", 4000)
+
+
 def retrieve_knowledge(state: AgentState):
     print("\n[Agent 2] 正在通过 LightRAG 知识图谱检索，并执行本地 Rerank 精排...")
     query = state["extracted_params"]
@@ -542,7 +624,18 @@ def retrieve_knowledge(state: AgentState):
             },
         )
         print("  -> Token 消耗 [retrieve]: 图谱中无相关记录")
-        return {"retrieved_knowledge": "知识库中无相关记录", "token_usage": empty_usage}
+        # 没召回到东西 = RAG 未命中，复杂度判定维持 extract 阶段的结论
+        complexity = classify_complexity(
+            state["user_input"], rag_triggered=False, top_score=None
+        )
+        complexity = escalate_complexity(state.get("complexity_info"), complexity)
+        print(f"  [Router] {complexity['label']} {complexity['reason']}")
+        return {
+            "retrieved_knowledge": "知识库中无相关记录",
+            "token_usage": empty_usage,
+            "complexity_mode": complexity["mode"],
+            "complexity_info": complexity,
+        }
 
     print(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
 
@@ -552,40 +645,153 @@ def retrieve_knowledge(state: AgentState):
     scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, raw_docs), key=lambda x: x[0], reverse=True)
 
-    # 只保留语义最相关的 Top-2，降低后续 LLM 上下文 Token
-    top_docs = [doc for score, doc in ranked[:2]]
+    # 只保留语义最相关的 Top-K，降低后续 LLM 上下文 Token
+    top_docs = [doc for score, doc in ranked[:RAG_TOP_K]]
     retrieved_text = "\n\n".join(top_docs)
+    top_score = float(ranked[0][0]) if ranked else 0.0
+
+    # ─── 复杂度升级：RAG 是否真的命中 ──────────────────────
+    # 注意"召回了"≠"命中"：图谱对无关提问也会返回片段，但 rerank 分数接近 0。
+    # 本项目实测无关提问的 Top-1 是 0.0001、真实 CCUS 提问在 0.27~0.74，
+    # 所以用 RAG_MIN_SCORE 这条线把"有内容可用"和"凑数片段"分开，
+    # 避免为了一个假命中就把整条链路推到云端。
+    rag_triggered = top_score >= RAG_MIN_SCORE
+    complexity = classify_complexity(
+        state["user_input"], rag_triggered=rag_triggered, top_score=top_score
+    )
+    complexity = escalate_complexity(state.get("complexity_info"), complexity)
+    mode = complexity["mode"]
+    print(f"  [Router] {complexity['label']} {complexity['reason']}")
 
     query_tokens = count_tokens(query)
     candidate_tokens = sum(count_tokens(doc) for doc in raw_docs)
     rerank_input_tokens = query_tokens * len(raw_docs) + candidate_tokens
-    injected_context_tokens = count_tokens(retrieved_text)
 
     print(f"  -> 精排完成！已从 {len(raw_docs)} 个片段中过滤出最相关的 {len(top_docs)} 个。")
-    print(
-        f"  -> Token 消耗 [retrieve]: query={query_tokens}, "
-        f"candidates={candidate_tokens}, rerank_input≈{rerank_input_tokens}, "
-        f"injected_context={injected_context_tokens}"
-    )
     for i, (score, doc) in enumerate(ranked[:5], start=1):
         print(f"     #{i} score={float(score):.4f} tokens={count_tokens(doc)}")
 
-    return {
-        "retrieved_knowledge": retrieved_text,
-        "token_usage": merge_token_usage(
-            state,
-            "retrieve",
-            {
-                "query_tokens": query_tokens,
-                "candidate_docs": len(raw_docs),
-                "candidate_tokens": candidate_tokens,
-                "rerank_input_tokens": rerank_input_tokens,
-                "injected_context_tokens": injected_context_tokens,
-                "top_k": len(top_docs),
-                "engine": "lightrag",
-            },
-        ),
+    # ─── 第三阶段：上下文压缩（Context Pruning）────────────
+    # 用本地便宜模型把长文本压成要点，再送给云端。
+    # 为什么放在 retrieve 而不是 report 里：压缩的对象是"检索结果"，
+    # 让它在这一节点就地变短，下游（报告 + 评审）拿到的就是精简版，
+    # 两处都省 token，而不是只在报告那一步省。
+    base_usage = merge_token_usage(
+        state,
+        "retrieve",
+        {
+            "query_tokens": query_tokens,
+            "candidate_docs": len(raw_docs),
+            "candidate_tokens": candidate_tokens,
+            "rerank_input_tokens": rerank_input_tokens,
+            "injected_context_tokens": count_tokens(retrieved_text),
+            "top_k": len(top_docs),
+            "top_score": round(top_score, 4),
+            "rag_triggered": rag_triggered,
+            "engine": "lightrag",
+        },
+    )
+
+    prune_result = {
+        "status": "skipped",
+        "before_chars": context_char_count(retrieved_text),
+        "after_chars": context_char_count(retrieved_text),
+        "saved_chars": 0,
+        "saved_ratio": 0.0,
+        "reason": f"未达阈值（{CONTEXT_PRUNE_THRESHOLD} 字）",
     }
+    prune_update: dict = {}
+
+    if needs_pruning(retrieved_text, CONTEXT_PRUNE_THRESHOLD):
+        print(f"  [Prune] 检索上下文 {context_char_count(retrieved_text)} 字 "
+              f"> {CONTEXT_PRUNE_THRESHOLD} 字阈值 → 调用本地模型压缩")
+        # 超长上下文会被切成多块分别压缩（本地模型只有 4096 tokens 上下文），
+        # 所以这里必须**累加**每次调用的 token，不能只记最后一次 ——
+        # 否则分 3 块压缩时成本统计只算 1/3。
+        captured: dict = {
+            "prompt_tokens": 0, "completion_tokens": 0, "calls": 0,
+            "model": "", "tier": "", "estimated": False,
+        }
+
+        def _summarizer(prompt: str) -> str:
+            _, p_model, p_tier, _ = get_llm("prune")
+            resp = llm_chat(
+                "prune",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            usage = getattr(resp, "usage", None)
+            captured["prompt_tokens"] += int(getattr(usage, "prompt_tokens", 0) or 0)
+            captured["completion_tokens"] += int(
+                getattr(usage, "completion_tokens", 0) or 0
+            )
+            captured["calls"] += 1
+            captured["model"] = p_model
+            captured["tier"] = p_tier
+            if usage is None:
+                captured["estimated"] = True
+            return resp.choices[0].message.content
+
+        prune_result = prune_context(
+            retrieved_text, summarizer=_summarizer, threshold=CONTEXT_PRUNE_THRESHOLD
+        )
+
+        if captured["calls"] > 0:
+            # 压缩本身也是真实调用，必须记账，否则成本统计会漏掉自己
+            prune_update = record_usage_payload(
+                {**state, "token_usage": base_usage},
+                "prune",
+                captured["prompt_tokens"],
+                captured["completion_tokens"],
+                captured["model"],
+                captured["tier"],
+                estimated=captured["estimated"],
+            )
+
+        if prune_result["status"] == "pruned":
+            retrieved_text = prune_result["compressed"]
+            print(f"  [Prune] 🗜️ {prune_result['before_chars']} → "
+                  f"{prune_result['after_chars']} 字"
+                  f"（省 {prune_result['saved_chars']} 字 / "
+                  f"{prune_result['saved_ratio'] * 100:.0f}%，"
+                  f"{prune_result['chunks']} 块 / {prune_result['calls']} 次调用）")
+        else:
+            print(f"  [Prune] ⚠️ 压缩未生效，保留原文：{prune_result['reason']}")
+
+    # 压缩后重新统计实际注入量（这是真正花在云端输入上的那份）
+    injected_tokens = count_tokens(retrieved_text)
+    if prune_result["status"] == "pruned":
+        base_usage["retrieve"]["injected_context_tokens"] = injected_tokens
+        base_usage["retrieve"]["prune_saved_chars"] = prune_result["saved_chars"]
+    base_usage["retrieve"]["prune_status"] = prune_result["status"]
+
+    print(
+        f"  -> Token 消耗 [retrieve]: query={query_tokens}, "
+        f"candidates={candidate_tokens}, rerank_input≈{rerank_input_tokens}, "
+        f"injected_context={injected_tokens}"
+    )
+
+    update = {
+        "retrieved_knowledge": retrieved_text,
+        "token_usage": prune_update.get("token_usage", base_usage),
+        "context_pruning": {
+            k: prune_result.get(k)
+            for k in ("status", "before_chars", "after_chars",
+                      "saved_chars", "saved_ratio", "reason",
+                      "chunks", "calls")
+        },
+        "complexity_mode": mode,
+        "complexity_info": complexity,
+    }
+    # ⚠️ model_routing 只在压缩真的发生时才回写。
+    # LangGraph 对 dict 字段是**替换**语义，不是合并：早先这里写成
+    # `"model_routing": prune_update.get("model_routing", {})`，未压缩时
+    # 返回空字典，把 extract 节点刚记好的路由整条抹掉了 —— 结果是
+    # 审计用的 model_routing 里永远看不到 extract，而日志一切正常。
+    # 这类"只在审计字段上丢信息"的 bug 不会报错，只能靠 E2E 断言兜住。
+    if prune_update.get("model_routing"):
+        update["model_routing"] = prune_update["model_routing"]
+    return update
 
 
 # ============================================================
@@ -656,6 +862,29 @@ def strip_tool_json(text: str) -> str:
     # 清理因删除而产生的多余空行（保留段落间的单个空行）
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+# ============================================================
+# 6-B. 成本核算（Token Cost Dashboard）
+# ============================================================
+def compute_cost_estimation(state: dict) -> dict:
+    """
+    从最终状态算出本次任务的预估成本（人民币）。
+
+    为什么不把这个计算塞进某个节点：
+    成本要在**所有** token 都记完之后才算得准，而最后一个节点是
+    save_file_memory（它自己也会调一次模型）。放在节点里就得处理
+    "早退分支没算成本"的问题；做成纯函数、由 API 层在收尾时调用，
+    同步与流式两条路径共用同一份逻辑，两个数字不可能对不上。
+
+    `caption` 一并算好，前端直接渲染 —— 见 cost_model.caption_text 的说明。
+    """
+    est = estimate_cost(
+        state.get("token_usage") or {},
+        state.get("model_routing") or {},
+    )
+    est["caption"] = caption_text(est)
+    return est
 
 
 SUMMARY_PROMPT = """你是一名 CCUS 项目档案管理员。下面是该项目的历次评估记录（旧记录）。
@@ -906,8 +1135,17 @@ def generate_report(state: AgentState, config=None):
         {"role": "user", "content": final_user},
     ]
 
-    _, model, tier, _ = get_llm("report")
-    streamed = llm_chat_streamed("report", final_msgs, 0.3, sink=sink)
+    # ─── 动态路由：沿用本次请求的复杂度档位 ────────────────
+    # 档位在 extract_params 里判定、在 retrieve_knowledge 里按 RAG 命中情况
+    # 单向升级，这里只是消费它 —— 报告生成是整条链路里最贵的一步，
+    # 简单请求不该为它付云端的钱。
+    report_mode = state.get("complexity_mode") or "cloud"
+    complexity = state.get("complexity_info") or {}
+    if complexity.get("label"):
+        print(f"  [Router] {complexity['label']} {complexity.get('reason', '')}")
+
+    _, model, tier, _ = get_llm("report", report_mode)
+    streamed = llm_chat_streamed("report", final_msgs, 0.3, sink=sink, mode=report_mode)
     report_text = strip_tool_json(streamed.text)
     state_update = record_usage_payload(
         usage_state, "report",
@@ -1055,7 +1293,7 @@ def save_file_memory(state: AgentState):
         usage_update = {}
 
     size = append_project_history(entry)
-    print(f"  -> 已追加到 project_history.md（当前 {size} 字节）")
+    print(f"  -> 已追加到 project_history.md（当前 {size} 字符）")
 
     return {
         "history_entry": entry,

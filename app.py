@@ -144,6 +144,14 @@ if st.button("启动评估", type="primary"):
         done = meta.get("done")
         if done:
             st.success(f"✅ 评估完成（{done.get('elapsed_s', '-')} 秒）")
+
+            # ─── 成本仪表盘 ───
+            # caption 由后端算好（cost_estimation.caption）：成本与"节省"必须
+            # 来自同一次计算，前端各算一遍很容易出现量级错配。
+            cost = done.get("cost_estimation") or {}
+            if cost.get("caption"):
+                st.caption(cost["caption"])
+
             with st.expander("🔍 查看底层详情"):
                 score = done.get("score")
                 c1, c2, c3 = st.columns(3)
@@ -157,6 +165,52 @@ if st.button("启动评估", type="primary"):
                 if done.get("model_routing"):
                     st.write("**模型路由（实际使用）：**")
                     st.json(done["model_routing"])
+
+                # ─── Token 经济学明细 ───
+                if cost:
+                    st.write("**成本构成（人民币）：**")
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("本次成本", f"¥{cost.get('total_cny', 0):.6f}")
+                    k2.metric("全云端基线", f"¥{cost.get('baseline_cny', 0):.6f}")
+                    k3.metric("节省比例", f"{(cost.get('saved_pct') or 0) * 100:.0f}%")
+                    if cost.get("breakdown"):
+                        st.dataframe(
+                            [
+                                {
+                                    "阶段": b.get("stage"),
+                                    "档位": b.get("tier"),
+                                    "模型": b.get("model"),
+                                    "输入 tokens": b.get("input_tokens"),
+                                    "输出 tokens": b.get("output_tokens"),
+                                    "金额 ¥": b.get("cny"),
+                                }
+                                for b in cost["breakdown"]
+                            ],
+                            use_container_width=True,
+                        )
+                    if cost.get("baseline_note"):
+                        st.caption(cost["baseline_note"])
+                    if cost.get("estimated"):
+                        st.caption("⚠️ 部分阶段未返回 usage，token 数由本地估算。")
+
+                complexity = done.get("complexity") or {}
+                if complexity:
+                    st.write("**动态路由判定：**")
+                    st.code(
+                        f"{complexity.get('label', '')} {complexity.get('reason', '')}",
+                        language="text",
+                    )
+
+                pruning = done.get("context_pruning") or {}
+                if pruning:
+                    st.write("**上下文压缩：**")
+                    st.code(
+                        f"{pruning.get('status')}  "
+                        f"{pruning.get('before_chars')} → {pruning.get('after_chars')} 字"
+                        f"（省 {pruning.get('saved_chars')} 字）"
+                        + (f"\n{pruning['reason']}" if pruning.get("reason") else ""),
+                        language="text",
+                    )
 
                 if done.get("history_entry"):
                     st.write("**已写入 project_history.md：**")

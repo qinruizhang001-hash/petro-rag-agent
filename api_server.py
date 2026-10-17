@@ -20,7 +20,9 @@ SSE 事件格式（每行 `data: {json}`，空行分隔）:
     {"type":"token", "text":"...", "stage":"report"}
     {"type":"chart", "chart":{...,"path":"...","summary":"..."}}
     {"type":"done",  "report":"...", "score":9, "extracted_params":"...",
-                     "model_routing":{...}, "chart":{...}, "elapsed_s":78.2}
+                     "model_routing":{...}, "chart":{...}, "elapsed_s":78.2,
+                     "cost_estimation":{...}, "complexity":{...},
+                     "context_pruning":{...}}
     {"type":"error", "message":"..."}
 
 实现上的两个关键点（都是踩过的坑）:
@@ -51,6 +53,7 @@ from multi_agent_ccus import (
     app as agent_app,
     app_stream,
     NODE_LABELS,
+    compute_cost_estimation,
 )
 from chart_tools import CHART_DIR
 
@@ -102,6 +105,10 @@ async def analyze_sync(request: ProjectRequest):
             "model_routing": final_state.get("model_routing", {}),
             "history_entry": final_state.get("history_entry", ""),
             "chart": final_state.get("chart_info", {}),
+            # ─── Token 经济学 ───
+            "cost_estimation": compute_cost_estimation(final_state),
+            "complexity": final_state.get("complexity_info", {}),
+            "context_pruning": final_state.get("context_pruning", {}),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -205,6 +212,8 @@ async def _event_stream(user_input: str, thread_id: str):
 
         if not done_sent:
             report = node_outputs.get("final_report", "")
+            # 成本必须在所有 token 记完之后算 —— node_outputs 已经攒齐了
+            # 每个节点的 token_usage（每个节点返回的都是累计后的全量字典）
             yield _sse({
                 "type": "done",
                 "report": report,
@@ -213,6 +222,10 @@ async def _event_stream(user_input: str, thread_id: str):
                 "model_routing": node_outputs.get("model_routing", {}),
                 "chart": node_outputs.get("chart_info", {}),
                 "history_entry": node_outputs.get("history_entry", ""),
+                # ─── Token 经济学 ───
+                "cost_estimation": compute_cost_estimation(node_outputs),
+                "complexity": node_outputs.get("complexity_info", {}),
+                "context_pruning": node_outputs.get("context_pruning", {}),
                 "elapsed_s": round(time.time() - started, 1),
             })
             done_sent = True

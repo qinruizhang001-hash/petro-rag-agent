@@ -301,18 +301,134 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 
 ---
 
+## Token Economics
+
+<!-- 中文注释：把"省钱"做成三条可测量、可解释、可复算的机制，而不是口号。
+     关键设计原则：任何一次降级或压缩，都必须在状态里留下原因和数字，
+     否则"以为在用云端、其实在用 7B"这类问题根本查不出来。 -->
+
+Three mechanisms, each answering a different question: *should we call the expensive model at all*, *how much context does it need*, and *what did this run actually cost*.
+
+### 1. Context pruning — cheap tokens in, fewer expensive tokens out
+
+After reranking, if the text about to be injected exceeds **4 000 characters**, the local Qwen2.5 compresses it into a bullet list of numeric thresholds and causal chains, and only the compressed version is handed to the cloud report model. Implemented as `prune_context()` in `context_pruner.py`, exported as `compress_context()` — the same object under both names, no second implementation.
+
+```
+Top-K fragments ──▶ > 4000 chars? ──no──▶ inject as-is
+                          │
+                         yes
+                          ▼
+                  local Qwen2.5 ──▶ "- 注入压力 250 bar 时断层活化风险上升" ──▶ cloud model
+```
+
+**An honest measurement first.** With the current corpus, Top-2 lands at **602–959 characters** — nowhere near 4 000. So this guard is a *safety valve*, not the daily path: it exists for when the graph grows or `RAG_TOP_K` is raised. Rather than claim a feature that never fires, the E2E suite asserts the real numbers (`Top-2 = N 字；全量候选 = M 字`) **and** drives a synthetic 7 000-character context through the real local model to prove the compression path itself works.
+
+**Chunked, because the local model's window is 4 096 tokens.** Measured against Ollama's OpenAI-compatible endpoint: the default context is 4 096 tokens, requests over that return **HTTP 400** rather than being silently truncated, and `extra_body={"options": {"num_ctx": …}}` is **ignored** on that endpoint. With Chinese at roughly 0.74 tokens/char, 4 096 tokens buys about 5 000 characters. A single-shot call on a 7 000-character context would therefore fail and fall back to the original text — the feature would silently do nothing exactly when it is needed.
+
+So input is split on paragraph boundaries into ≤3 000-character chunks, each compressed separately, and the bullets merged with de-duplication and a 12-bullet cap:
+
+```
+7 000 chars ──▶ 3 chunks (2953 / 2863 / 1159) ──▶ 3 local calls ──▶ dedupe ──▶ 401 chars (94% saved)
+```
+
+Three failure modes all fall back to the original text, because losing retrieved context is far worse than paying for it:
+
+| Failure | Detection | Behaviour |
+|---|---|---|
+| Model call errors | exception | original text, `status=failed` |
+| Empty / prose output | no `- ` line | original text, `status=failed` |
+| No real gain | `after ≥ before × 0.85` | original text, `status=failed` |
+
+The last one matters most in practice: a model that paraphrases instead of compressing would otherwise *replace* complete context with an equally long, less faithful version — a paid call that makes the report worse. A single chunk failing does **not** abort the whole prune: successfully compressed chunks still contribute bullets, and the failure is recorded in `reason`.
+
+Configuration: `CONTEXT_PRUNE_THRESHOLD` (default `4000`), `RAG_TOP_K` (default `2`).
+
+### 2. Dynamic routing by complexity — per request, not per role
+
+The static routing table answers *"what model does this role usually need"*. It cannot answer *"is this particular request worth the cloud model"*. So `extract_params` makes a per-run decision and records it:
+
+| Signal | Rule | Why |
+|---|---|---|
+| Input length | `> 50` chars → cloud | short input usually means a parameter-complete simple query |
+| RAG hit | top rerank score `≥ 0.05` → cloud | the knowledge base genuinely has something to say |
+
+Both `extract` and `report` obey the decision; every other role (`report_plan`, `evaluate`, `history`, `summary`, `prune`) stays local by design.
+
+**"Retrieved" is not "relevant."** The graph returns 35–44 fragments for *any* query, including `今天天气怎么样`. The measured rerank scores separate the two cases completely:
+
+| Query | Top-1 score | Decision |
+|---|---|---|
+| 井筒腐蚀 固井质量 泄漏 | **0.7440** | cloud |
+| 注入压力 250 bar 温度 80 ℃ 隐伏断层 风险 | **0.2664** | cloud |
+| 推荐一部电影 | 0.0007 | local |
+| 今天天气怎么样 | 0.0001 | local |
+
+Without that threshold, every request would look like a RAG hit and the "local mode" branch would be dead code.
+
+The log line is explicit, as required:
+
+```
+[Router] [Premium: Cloud Mode] 输入 40 字 ≤ 50 字阈值；知识库命中（相关度 0.2664 ≥ 0.05） → 云端
+[Router] [Cost-Saving: Local Mode] 输入 14 字 ≤ 50 字阈值；知识库未命中（相关度 0.0001 < 0.05） → 本地
+```
+
+Two guards keep the decision honest:
+
+- **Escalation is one-way.** `extract` runs before retrieval, so it can only judge on length; `retrieve` may upgrade `local → cloud` once the rerank score is known. It never downgrades — the money is already spent, and a report half-written by the cloud model and half by a 7B reads inconsistently.
+- **When forcing `local`, the cloud model name is dropped.** If `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`, sending that name to the local endpoint would 404 — it is a gateway identifier, not an Ollama model.
+
+### 3. Cost dashboard — priced by model, not by tier label
+
+Every response now carries `cost_estimation`, computed from per-stage token counts against a hardcoded CNY price table:
+
+| Model | Input ¥/M tok | Output ¥/M tok | Source |
+|---|---|---|---|
+| `deepseek-chat` / `deepseek-flash` | 2.0 | 8.0 | DeepSeek list price, peak hours |
+| `deepseek-v4-pro` | 9.0 | 27.0 | DeepSeek list price, peak hours |
+| `local` (Qwen2.5) | 0.1 | 0.8 | derived from GPU electricity |
+
+Local inference is **not** priced at zero. At roughly 60 tok/s and 250 W, one million output tokens is about 1.16 kWh ≈ ¥0.7 — the same order of magnitude as the numbers above. Modelling it as zero would make "saved" look better than it is.
+
+```
+本次评估预估成本：¥0.0160（已为你节省 ¥0.0181）
+```
+
+Three definitions that make the saving figure meaningful instead of decorative:
+
+1. **Priced by the model that actually ran, not by the tier label.** This project currently points `CLOUD_BASE_URL` at a local magpie gateway whose only upstream is Ollama — so `tier="cloud"` calls are served by the local 7B and cost electricity. Pricing by tier would report a fake ¥0.017 charge and then "save" a fictional amount. `ollama/deepseek-r1` is therefore matched as local: the name says DeepSeek, the compute is on this machine.
+2. **The baseline is a stated counterfactual.** `saved_cny = (all tokens at deepseek-chat list price) − actual`. It is *not* "what your last bill was" — the previous version also ran locally. The response carries `baseline_note` saying exactly this.
+3. **Unknown models fall back to the most expensive tier.** Over-reporting a bill is recoverable; under-reporting it is not.
+
+Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and the E2E suite re-derives every row from the price table rather than trusting the totals. `format_cny` keeps four decimals below ¥1 — two decimals would render ¥0.015 as `0.01`, a 33 % error, and ¥0.0021 as `0.00`, which reads as free.
+
+<!-- 中文注释：三条机制分别回答"要不要用贵模型"、"要用多少上下文"、"这次花了多少"。
+     上下文压缩：实测 Top-2 只有 600~960 字，4000 阈值在当前语料下是安全阀——所以 E2E 既断言真实数字，
+     又用合成 7000 字上下文走真实模型验证压缩路径本身。三种失败（异常/非要点/无收益）一律回退原文，
+     因为丢上下文比多花钱严重得多；"无收益"这一条最实用，防止用一次付费调用把完整上下文换成等长但不忠实的复述。
+     必须分块：实测 Ollama 默认上下文 4096 tokens，超限返回 400 而非静默截断，且 extra_body 的 num_ctx 在
+     OpenAI 兼容端点上无效——不分块的话 7000 字输入会整次失败、悄悄退回原文，功能等于不存在。
+     动态路由：召回≠相关——图谱对任何提问都返回 35~44 个片段，实测无关提问 Top-1 是 0.0001、真实提问 0.27~0.74，
+     用 0.05 分开。升级单向：extract 只看长度，retrieve 拿到分数后只能升不能降（钱已花，风格一致性更重要）。
+     强制 local 时必须丢掉云端模型名，否则 ollama/qwen2.5:latest 发给本地端点会 404。
+     成本：按实际跑的模型计价而非档位标签——当前 CLOUD_BASE_URL 指向本地网关、上游只有 Ollama，
+     按档位算会报出虚假的 ¥0.017 再"省下"一个幻觉数字。基线是明示的反事实（全部按 deepseek-chat 列表价），
+     不是"你上个月账单"。未知模型按最高档估，宁可高估。本地按电费计价而非零，否则"节省"被夸大。 -->
+
+---
+
 ## Core Highlights
 
 <!-- 中文注释：核心亮点，面向评审/面试官的重点。 -->
 
 - **GraphRAG Integration** — A LightRAG knowledge graph is built from CCUS literature, extracting **46 geological entities** and **32 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.). This enables **multi-hop reasoning** that flat vector search cannot express.
-- **Two-Stage Retrieval** — Graph recall surfaces **81 candidate fragments**; fragments are merged into entity-relation-complete segments (average 305 characters) and reranked by a local **bge-reranker-v2-m3** model down to **Top-2** (peak score **0.9971**). Longer, semantically complete segments give the reranker real discriminative power.
-- **Model Routing** — Each role is assigned the cheapest model that still does its job: extraction, evaluation and memory compression run locally on Qwen2.5 at zero marginal cost, while **only** report generation goes to a cloud model. One routing dict, one call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
+- **Two-Stage Retrieval** — Graph recall surfaces **35–44 candidate fragments**; fragments are merged into entity-relation-complete segments (average 305 characters) and reranked by a local **bge-reranker-v2-m3** model down to **Top-2** (peak score **0.99**). Longer, semantically complete segments give the reranker real discriminative power — and the rerank score doubles as the signal for whether the knowledge base actually matched (irrelevant questions score ~0.0001).
+- **Model Routing** — Two layers. A **static** table assigns each role the cheapest model that still does its job; a **per-request** decision then overrides `extract` and `report` based on input length and whether retrieval really hit, logging `[Cost-Saving: Local Mode]` or `[Premium: Cloud Mode]` with the reason. One call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
+- **Token Economics** — Three measurable mechanisms rather than a slogan: **context pruning** (local Qwen2.5 compresses long retrieved text in ≤3 000-char chunks before it reaches the paid model — measured 7 000 → 401 chars, 94 % saved), **dynamic routing** (per-request tier chosen from input length *and* whether the knowledge base actually matched, with a one-way `local → cloud` escalation), and a **cost dashboard** that prices every stage by the model that really ran — local inference at electricity cost, not zero. Every degradation carries a reason in state, so "we thought it was on the cloud" is auditable instead of invisible.
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, 78 offline unit tests, and a 66-assertion end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, **145 offline unit tests**, and a **106-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Runs Fully Offline** — LLM, embeddings, reranker, graph store and checkpoints all run locally. A cloud key is **optional**: without one, the report stage degrades to the local model and records the downgrade explicitly.
 - **Optional Extensions** — Personal long-term memory (Notion + ChromaDB) and web-search auto-ingestion (Tavily) can be enabled without touching the core graph.
@@ -335,6 +451,8 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 | Local LLM | Qwen2.5 7B served by Ollama — extraction, evaluation, memory compression |
 | Cloud LLM *(report stage)* | DeepSeek Chat via OpenAI-compatible API — swappable for any provider |
 | Embeddings | `nomic-embed-text` (768-dim) |
+| Cost accounting | `cost_model.py` — hardcoded CNY price table, recomputable per stage |
+| Context pruning | `context_pruner.py` — paragraph-aware chunking + local summarization |
 | Long-term Memory | File-based (`user_profile.md` + `project_history.md`) |
 | Long-term Memory *(optional)* | Notion API + ChromaDB |
 | Web Search *(optional)* | Tavily |
@@ -353,18 +471,22 @@ petro-rag-agent/
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
+├── context_pruner.py         # Chunked context compression (unit-tested)
+├── cost_model.py             # Token → CNY pricing & savings baseline (unit-tested)
 ├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
-├── model_router.py           # Pure routing logic (unit-tested)
+├── model_router.py           # Pure routing logic + complexity decision (unit-tested)
 ├── check_gateway.py          # Gateway doctor: reachability / models / routes
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
-├── test_graph_rag_e2e.py     # End-to-end regression suite (66 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (106 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
-│   ├── test_model_router.py       # Offline unit tests (routing / degradation)
+│   ├── test_model_router.py       # Offline unit tests (routing / degradation / complexity)
+│   ├── test_context_pruner.py     # Offline unit tests (thresholds / chunking / fallback)
+│   ├── test_cost_model.py         # Offline unit tests (pricing / baseline / formatting)
 │   └── test_chart_tools.py        # Offline unit tests (chart physics & output)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── tools/                    # Optional web search + auto-ingestion (Tavily)
@@ -440,7 +562,7 @@ Open `http://127.0.0.1:8505`, paste a project description, and click **启动评
 data: {"type":"node","node":"extract","label":"提取 CCUS 关键参数","status":"start"}
 data: {"type":"token","text":"###","stage":"report"}
 data: {"type":"chart","chart":{"rel_path":"charts/pressure_curve_....png", ...}}
-data: {"type":"done","score":9,"elapsed_s":73.7, ...}
+data: {"type":"done","score":9,"elapsed_s":73.7,"cost_estimation":{...}, ...}
 ```
 
 **Sync response** (`POST /api/analyze/sync`)
@@ -459,11 +581,39 @@ data: {"type":"done","score":9,"elapsed_s":73.7, ...}
     "history": "local:qwen2.5"
   },
   "chart": { "rel_path": "charts/pressure_curve_....png", "verdict": "ok", "summary": "..." },
-  "history_entry": "**场景**: 含烃碳酸盐岩储层 ... \n**核心结论**: ..."
+  "history_entry": "**场景**: 含烃碳酸盐岩储层 ... \n**核心结论**: ...",
+  "cost_estimation": {
+    "currency": "CNY",
+    "total_cny": 0.001389,
+    "baseline_cny": 0.018606,
+    "saved_cny": 0.017217,
+    "saved_pct": 0.9254,
+    "baseline_model": "deepseek-chat",
+    "caption": "本次评估预估成本：¥0.0014（已为你节省 ¥0.0172）",
+    "breakdown": [
+      { "stage": "extract", "tier": "local", "model": "qwen2.5",
+        "input_tokens": 320, "output_tokens": 180, "cny": 0.000176,
+        "baseline_cny": 0.00208, "estimated": false }
+    ],
+    "estimated": false,
+    "unpriced_models": []
+  },
+  "complexity": {
+    "mode": "cloud",
+    "label": "[Premium: Cloud Mode]",
+    "chars": 43,
+    "rag_triggered": true,
+    "top_score": 0.9995,
+    "reason": "extract 阶段：输入 43 字 ≤ 50 字阈值；知识库未命中 → 本地；retrieve 阶段升级：… → 云端"
+  },
+  "context_pruning": {
+    "status": "skipped", "before_chars": 465, "after_chars": 465,
+    "saved_chars": 0, "reason": "未达阈值（4000 字）", "chunks": 0, "calls": 0
+  }
 }
 ```
 
-`model_routing` reports the model **actually used** per stage, so a degraded run (no cloud key) is visible in the response instead of being silently hidden.
+`model_routing` reports the model **actually used** per stage, so a degraded run (no cloud key) is visible in the response instead of being silently hidden. `cost_estimation` is priced from those same records, and `complexity` / `context_pruning` explain *why* each routing and compression decision went the way it did — a cost figure with no reasoning behind it is not auditable.
 
 Typical end-to-end latency: **~70–120 s** on CPU-only local inference. Note where the time actually goes: retrieval dominates (reranking 40+ s), so the first token arrives around 60 s and the report then streams for ~10 s. Streaming doesn't make the pipeline faster — it makes the wait legible: node-level progress events start at 0.04 s, so the user sees which stage is running instead of a frozen spinner.
 
@@ -482,15 +632,17 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 78 tests in 3.633s
+Ran 145 tests in 0.226s
 OK
 ```
 
-Four suites:
+Six suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
-- `test_model_router.py` — routing: `provider/model` names with slashes parse correctly, a blank `ROUTE_*` env var does not silently wipe the default, missing cloud keys degrade **with a reason**, unknown tiers degrade instead of crashing, and each stage can be pinned to a different vendor's model behind one gateway.
+- `test_model_router.py` — routing: `provider/model` names with slashes parse correctly, a blank `ROUTE_*` env var does not silently wipe the default, missing cloud keys degrade **with a reason**, unknown tiers degrade instead of crashing, and each stage can be pinned to a different vendor's model behind one gateway. Plus the complexity decision: the 50-char boundary is `>` not `≥`, a RAG score below `0.05` must not count as a hit, a rerank score overrides a contradictory boolean flag, and escalation never downgrades.
+- `test_context_pruner.py` — pruning: threshold is character-based and exclusive at the boundary, chunking never loses a character and never exceeds the per-chunk cap, oversized paragraphs are hard-split, duplicate bullets collapse, a single failing chunk does not discard the successful ones, and **all three failure modes fall back to the original text byte-for-byte**.
+- `test_cost_model.py` — pricing: `ollama/deepseek-r1` prices as local (the name says DeepSeek, the compute is local), unknown models fall back to the most expensive tier, `retrieve` statistics are not billed as tokens, `llm_total_tokens` is not double-counted, every stage row is recomputable by hand, savings never go negative, and `format_cny` keeps enough decimals that ¥0.015 does not render as `0.01`.
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
 
 ### End-to-end regression — requires local Ollama + built graph
@@ -499,18 +651,18 @@ Four suites:
 python test_graph_rag_e2e.py
 ```
 
-The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine.
+The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 13 PASS / 0 FAIL
+Test summary: 106 PASS / 0 FAIL，耗时 214s
 ```
 
 ### Continuous integration
 
 | Workflow | Trigger | Scope |
 |---|---|---|
-| `ci.yml` | every push / PR | byte-compile, secret scan, 15 offline unit tests across Python 3.10–3.12, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 66-assertion pipeline on a self-hosted runner with Ollama |
+| `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, frontend-backend contract check |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 106-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
@@ -532,6 +684,11 @@ Test summary: 13 PASS / 0 FAIL
 - **The streamed request runs without a checkpointer.** `SqliteSaver` is sync-only, so `/api/analyze` uses a separately compiled graph. A streamed request therefore cannot be resumed across connections; a dropped client means the work is discarded rather than resumed.
 - The chart is a two-curve engineering approximation (hydrostatic + a fixed 1.5× fracture gradient). It is meant to make the pressure window legible, not to replace a geomechanical model.
 - **`charts/` grows without bound.** Every assessment writes a new PNG (~100 KB) and nothing prunes them. This is gitignored, so it never reaches the repo, but on a long-running deployment it is the same class of leak as the one fixed for `project_history.md` — retention or content-addressed reuse is on the roadmap rather than done.
+- **The cost figure is an estimate, not a bill.** Prices are hardcoded from DeepSeek's list page and local electricity assumptions; they are not fetched, not currency-converted, and do not account for cache hits, off-peak discounts, or free-tier credits. `unpriced_models` flags anything that fell back to the default tier, and `estimated: true` flags stages whose token counts were inferred because a streaming endpoint omitted `usage`.
+- **"Saved" is measured against a counterfactual, not a past bill.** `saved_cny` is *what this run would have cost entirely on the cloud model at list price* minus what it did cost. If the cloud route is itself pointed at a local upstream (as in the current `.env`), the actual cost is electricity while the baseline is DeepSeek's price — the saving is real in the sense that no money was spent, but it is not a comparison against any previous invoice.
+- **The complexity heuristic is deliberately crude.** Input length plus a rerank threshold is a proxy for "does this request need a bigger model", and proxies are wrong sometimes: a short question with an unusual scenario may deserve the cloud model, and a long paste of boilerplate may not. It is chosen over a learned classifier because it is explainable, costs nothing to evaluate, and every decision is logged with its reason.
+- **Context pruning never fires on the current corpus.** Top-2 is 602–959 characters against a 4 000-character threshold, so the daily path is "inject as-is" and the pruner is a safety valve. It is exercised in tests against a synthetic 7 000-character context, not against real retrievals.
+- **Local inference has a hard 4 096-token window.** Ollama's OpenAI-compatible endpoint rejects longer requests with HTTP 400 and ignores `num_ctx` passed via `extra_body`, which is why pruning chunks at 3 000 characters. Raising `RAG_TOP_K` far enough to matter would also need a model served with a larger context.
 
 **Roadmap**
 
@@ -539,9 +696,11 @@ Test summary: 13 PASS / 0 FAIL
 - [ ] Incremental graph ingestion from PDFs (`ccus_docs/`)
 - [ ] Async task queue for concurrent assessments
 - [ ] Containerized deployment (Docker Compose: backend + frontend + Ollama)
-- [ ] Per-stage cost accounting in `token_usage` (local calls are free, cloud calls are not)
+- [ ] Fetch model prices instead of hardcoding them (and handle off-peak / cache-hit rates)
+- [ ] Feed real per-run costs back into the routing decision (currently the decision is made before the cost is known)
 - [ ] Resume a dropped stream instead of discarding the run (needs an async checkpointer)
 - [ ] Stream node outputs other than the report (e.g. retrieval progress, per-fragment scores)
+- [ ] Serve the local model with a larger context so pruning needs fewer chunks
 - [ ] Bound `charts/`: retention policy or content-addressed filenames so identical inputs reuse one file
 
 <!-- 中文注释：诚实标注——云端路由只验证了"结构与降级"，没有 paid key 就不宣称输出质量对比；文件记忆只有单进程锁。 -->
