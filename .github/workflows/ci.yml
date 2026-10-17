@@ -43,8 +43,8 @@ jobs:
       - name: Verify requirements.txt exists and is non-empty
         run: test -s requirements.txt
 
-  unit:
-    name: Unit tests (offline)
+  unit-core:
+    name: Unit tests · core (stdlib only)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -57,10 +57,46 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 中文注释：单元测试只依赖标准库，故意不装 requirements.txt，
-      # 保证「片段构建」这段核心检索逻辑可被独立验证、不受三方包版本影响。
+      # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 路由解析），
+      # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
+      # 逐个点名而不是 discover：tests/ 下还图表测试，那个需要 matplotlib。
       - name: Run offline unit tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m unittest -v \
+            tests.test_fragment_builder \
+            tests.test_file_memory \
+            tests.test_model_router
+
+  unit-charts:
+    name: Unit tests · chart tool
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：图表工具真的依赖 matplotlib，装它就是承认这个事实，
+      # 而不是把测试排除掉假装没有这层依赖。
+      # matplotlib 在无显示环境靠 Agg 后端，chart_tools 里已强制设置。
+      - name: Install chart dependencies
+        run: python -m pip install --quiet matplotlib
+
+      - name: Verify Agg backend is headless-safe
+        run: |
+          python - <<'PY'
+          import matplotlib
+          matplotlib.use("Agg")
+          import matplotlib.pyplot as plt
+          fig, ax = plt.subplots()
+          ax.plot([0, 1], [0, 1])
+          fig.savefig("/tmp/_probe.png")
+          print("Agg backend OK, headless rendering works")
+          PY
+
+      - name: Run chart unit tests
+        run: python -m unittest -v tests.test_chart_tools
 
   frontend-contract:
     name: Frontend/backend contract
@@ -80,7 +116,7 @@ jobs:
             || { echo "::error::app.py no longer targets the backend API"; exit 1; }
           grep -q '/api/analyze' api_server.py \
             || { echo "::error::api_server.py lost the /api/analyze route"; exit 1; }
-          for banned in langgraph chromadb lightrag ollama sentence_transformers; do
+          for banned in langgraph chromadb lightrag ollama sentence_transformers matplotlib; do
             if grep -qiE "^(import|from) +$banned" app.py; then
               echo "::error::app.py must stay a pure HTTP client (found: $banned)"; exit 1
             fi
