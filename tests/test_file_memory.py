@@ -120,9 +120,9 @@ class TestAppendProjectHistory(FileMemoryTestBase):
         file_memory.append_project_history("   ")
         self.assertEqual(os.path.getsize(file_memory.PROJECT_HISTORY_PATH), before)
 
-    def test_returns_file_size(self):
+    def test_returns_char_count(self):
         size = file_memory.append_project_history("内容")
-        self.assertEqual(size, os.path.getsize(file_memory.PROJECT_HISTORY_PATH))
+        self.assertEqual(size, file_memory.history_char_count())
 
 
 class TestBuildMemoryContext(FileMemoryTestBase):
@@ -152,6 +152,171 @@ class TestBuildMemoryContext(FileMemoryTestBase):
         ctx = file_memory.build_memory_context()
         self.assertIn("用户画像（长期偏好", ctx)
         self.assertIn("历史评估记录", ctx)
+
+
+class FakeSummarizer:
+    """记录调用次数与输入，返回固定的 3 条经验。"""
+
+    def __init__(self, output="- 经验一\n- 经验二\n- 经验三", raises=False):
+        self.output = output
+        self.raises = raises
+        self.calls = []
+
+    def __call__(self, old_text):
+        self.calls.append(old_text)
+        if self.raises:
+            raise RuntimeError("模拟大模型不可用")
+        return self.output
+
+
+class TestHistoryCompression(FileMemoryTestBase):
+    """记忆压缩：超阈值把旧记录提炼成核心经验并原子重写文件。"""
+
+    def seed(self, n=8, entry_chars=600):
+        body = ["# 项目评估历史（Project History）\n\n> 说明行\n\n"]
+        for i in range(1, n + 1):
+            body.append(f"## 2026-03-{i:02d} 10:00\n**场景**: 第{i}次\n"
+                        f"**核心结论**: {'X' * entry_chars}\n\n")
+        self.write_history("".join(body))
+
+    def read(self):
+        with open(file_memory.PROJECT_HISTORY_PATH, encoding="utf-8") as f:
+            return f.read()
+
+    def test_skips_below_threshold(self):
+        self.seed(n=2, entry_chars=50)
+        s = FakeSummarizer()
+        r = file_memory.compress_history_if_needed(summarizer=s, threshold=100000)
+        self.assertEqual(r["status"], "skipped")
+        self.assertEqual(r["reason"], "below_threshold")
+        self.assertEqual(s.calls, [], "未超阈值时不应调用大模型")
+
+    def test_compresses_above_threshold(self):
+        self.seed()
+        s = FakeSummarizer()
+        r = file_memory.compress_history_if_needed(summarizer=s, threshold=1000)
+        self.assertEqual(r["status"], "compressed")
+        self.assertEqual(len(s.calls), 1, "一次压缩只应调用一次大模型")
+        self.assertGreater(r["before_chars"], r["after_chars"])
+        self.assertGreater(r["dropped_entries"], 0)
+
+    def test_keeps_lessons_and_latest_entries(self):
+        self.seed(n=8)
+        file_memory.compress_history_if_needed(
+            summarizer=FakeSummarizer("- 经验A\n- 经验B\n- 经验C"),
+            threshold=1000, keep_recent=2,
+        )
+        text = self.read()
+        self.assertIn(file_memory.LESSONS_HEADING, text)
+        self.assertIn("经验A", text)
+        self.assertIn("第8次", text, "最新记录必须原样保留")
+        self.assertIn("第7次", text)
+        self.assertNotIn("第1次", text, "旧记录应被压缩移除")
+
+    def test_preserves_header(self):
+        self.seed()
+        file_memory.compress_history_if_needed(summarizer=FakeSummarizer(), threshold=1000)
+        self.assertIn("# 项目评估历史（Project History）", self.read())
+
+    def test_failure_leaves_file_untouched(self):
+        self.seed()
+        before = self.read()
+        r = file_memory.compress_history_if_needed(
+            summarizer=FakeSummarizer(raises=True), threshold=1000
+        )
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(self.read(), before, "摘要失败时绝不能改动历史文件")
+
+    def test_empty_summary_leaves_file_untouched(self):
+        self.seed()
+        before = self.read()
+        r = file_memory.compress_history_if_needed(
+            summarizer=FakeSummarizer(output="   "), threshold=1000
+        )
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(r["reason"], "empty_summary")
+        self.assertEqual(self.read(), before)
+
+    def test_skips_without_summarizer(self):
+        self.seed()
+        before = self.read()
+        r = file_memory.compress_history_if_needed(summarizer=None, threshold=1000)
+        self.assertEqual(r["status"], "skipped")
+        self.assertEqual(r["reason"], "no_summarizer")
+        self.assertEqual(self.read(), before)
+
+    def test_no_infinite_compression_loop(self):
+        """
+        自限开关：压缩后旧条目归零，即使文件仍超阈值也不能再次触发。
+        否则每次读取都调一次大模型，延迟爆炸、结论还会反复漂移。
+        """
+        self.seed()
+        s = FakeSummarizer()
+        r1 = file_memory.compress_history_if_needed(summarizer=s, threshold=1000)
+        self.assertEqual(r1["status"], "compressed")
+
+        # 再调一次：内容仍可能 >1000，但旧条目不足，不应再次调用模型
+        r2 = file_memory.compress_history_if_needed(summarizer=s, threshold=1000)
+        self.assertIn(r2["status"], ("skipped",))
+        self.assertEqual(len(s.calls), 1, "第二次不应再调用大模型")
+
+    def test_lessons_merge_on_second_compression(self):
+        """第二次压缩时，上一轮的经验块应作为旧条目被一起再提炼，而不是堆叠。"""
+        self.seed(n=6)
+        file_memory.compress_history_if_needed(
+            summarizer=FakeSummarizer("- 旧经验1"), threshold=1000, keep_recent=1
+        )
+        # 再追加若干条，触发第二轮
+        for i in range(1, 5):
+            file_memory.append_project_history(f"**场景**: 新增{i}\n**核心结论**: {'Y'*400}")
+        s2 = FakeSummarizer("- 融合后经验")
+        file_memory.compress_history_if_needed(
+            summarizer=s2, threshold=1000, keep_recent=1
+        )
+        self.assertEqual(len(s2.calls), 1)
+        self.assertIn("旧经验1", s2.calls[0], "旧经验应作为输入被再次提炼")
+        self.assertEqual(self.read().count(file_memory.LESSONS_HEADING), 1,
+                         "经验块不能重复堆叠")
+
+    def test_build_memory_context_triggers_compression(self):
+        self.seed()
+        s = FakeSummarizer("- 上下文经验")
+        ctx = file_memory.build_memory_context(
+            summarizer=s, compress_threshold=1000
+        )
+        self.assertEqual(len(s.calls), 1)
+        self.assertIn("上下文经验", ctx)
+
+    def test_no_temp_files_left_behind(self):
+        self.seed()
+        file_memory.compress_history_if_needed(summarizer=FakeSummarizer(), threshold=1000)
+        leftovers = [f for f in os.listdir(self._tmp.name) if f.startswith(".history-")]
+        self.assertEqual(leftovers, [], "原子写入不应残留临时文件")
+
+    def test_history_needs_compression_reflects_size(self):
+        self.seed()
+        self.assertTrue(file_memory.history_needs_compression(threshold=1000))
+        self.assertFalse(file_memory.history_needs_compression(threshold=10**9))
+
+    def test_threshold_counts_characters_not_bytes(self):
+        """
+        阈值语义必须是字符数。中文 1 字符 = 3 字节，若用 os.path.getsize
+        比较 3000，会在约 1000 汉字时就误触发压缩（早三倍）。
+        """
+        text = "# 历史\n\n" + "## 2026-01-01 10:00\n" + "汉" * 1200
+        self.write_history(text)
+        self.assertEqual(len(text), file_memory.history_char_count())
+        # 关键前提：字节数已超过 3000（按字节比较会误判），字符数未超（正确判断为不触发）
+        self.assertGreater(os.path.getsize(file_memory.PROJECT_HISTORY_PATH), 3000,
+                           "该用例必须让字节数超过阈值，否则测不出区别")
+        self.assertLess(len(text), 3000)
+        # 1200 字 < 3000 字阈值 → 不应触发；若按字节比较则会误判为超阈值
+        self.assertFalse(file_memory.history_needs_compression(threshold=3000))
+        r = file_memory.compress_history_if_needed(
+            summarizer=FakeSummarizer(), threshold=3000
+        )
+        self.assertEqual(r["status"], "skipped")
+        self.assertEqual(r["reason"], "below_threshold")
 
 
 if __name__ == "__main__":

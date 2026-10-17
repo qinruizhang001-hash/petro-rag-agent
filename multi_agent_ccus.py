@@ -36,6 +36,8 @@ from lightrag_retriever import retrieve_documents, query_graph_answer
 from file_memory import (
     build_memory_context,
     append_project_history,
+    compress_history_if_needed,
+    history_needs_compression,
     ensure_files as ensure_memory_files,
 )
 
@@ -67,6 +69,7 @@ MODEL_ROUTING = {
     "report": "cloud",      # Agent 3 报告生成（核心产出，用云端）
     "evaluate": "local",    # Agent 4 评审员
     "history": "local",     # 文件记忆的结论压缩
+    "summary": "local",     # 历史记忆的批量压缩（提炼核心经验）
 }
 
 local_client = OpenAI(base_url=LOCAL_BASE_URL, api_key=LOCAL_API_KEY)
@@ -240,6 +243,7 @@ class AgentState(TypedDict):
     file_memory_context: str       # 注入 Prompt 的文件记忆文本
     history_entry: str             # 本次评估压成的一条历史记录
     history_saved: bool            # 幂等标记，防止重跑重复追加
+    memory_compression: dict       # 本次是否触发历史压缩及压缩统计
 
 
 # ============================================================
@@ -457,13 +461,86 @@ def _extract_pressure_temperature(params: str) -> tuple[float | None, float | No
     return p_val, t_val
 
 
+SUMMARY_PROMPT = """你是一名 CCUS 项目档案管理员。下面是该项目的历次评估记录（旧记录）。
+
+请把它们提炼成 **3 条最高级别的「项目核心经验」**，供后续评估直接复用。
+
+要求：
+1. 只要 3 条，每条一行，以 "- " 开头，不要编号、不要分小标题、不要开场白。
+2. 每条必须**具体可复用**：包含触发条件 + 后果 + 应对措施，
+   例如"注入压力 > 250 bar 且存在隐伏断层时，断层活化风险显著上升，需布设微地震监测"。
+3. 合并重复场景，只保留规律性认识，不要罗列单次结论。
+4. 若旧记录信息不足以支撑 3 条，有几条写几条，不要编造。
+
+【旧评估记录】：
+{old_text}
+
+直接输出 3 条 "- " 开头的经验，不要输出其他任何内容。"""
+
+
+def compress_history_with_llm(state: AgentState) -> dict:
+    """
+    超阈值时调用本地模型压缩历史记忆，返回可并入节点返回值的状态更新。
+
+    为什么单独包一层而不直接把 llm_chat 塞进 file_memory：
+    压缩是一次真实的 LLM 调用，token 消耗必须被记账（否则成本统计失真）；
+    而 file_memory 模块不允许依赖任何 LLM 客户端（循环导入 + 离线单测）。
+    所以这里做"回调注入"：file_memory 只管文件与阈值判断，模型调用留在本模块。
+    """
+    if not history_needs_compression():
+        return {}
+
+    captured: dict = {}
+
+    def _summarizer(old_text: str) -> str:
+        _, model, tier, _ = get_llm("summary")
+        response = llm_chat(
+            "summary",
+            messages=[{
+                "role": "user",
+                "content": SUMMARY_PROMPT.format(old_text=old_text[:12000]),
+            }],
+            temperature=0.2,
+        )
+        captured["response"] = response
+        captured["model"] = model
+        captured["tier"] = tier
+        return response.choices[0].message.content
+
+    result = compress_history_if_needed(summarizer=_summarizer)
+
+    if result["status"] == "compressed":
+        print(f"  [Memory] 🗜️ 历史压缩：{result['before_chars']} → "
+              f"{result['after_chars']} 字，{result['dropped_entries']} 条旧记录已提炼")
+        print(f"  [Memory] 核心经验：\n{result['lessons']}")
+
+    if "response" not in captured:
+        return {}
+
+    update = record_llm_usage(
+        state, "history_compress", captured["response"],
+        captured["model"], captured["tier"],
+    )
+    update["memory_compression"] = {
+        "status": result["status"],
+        "before_chars": result["before_chars"],
+        "after_chars": result["after_chars"],
+        "dropped_entries": result["dropped_entries"],
+        "lessons": result["lessons"],
+    }
+    return update
+
+
 def generate_report(state: AgentState):
     print("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
 
     # ─── 文件记忆：读取 user_profile.md + project_history.md ───
     # 首次进入本节点时读取一次并写回 state，重写轮次直接复用（避免每轮重复 IO）
     file_memory_block = state.get("file_memory_context")
+    compress_update = {}
     if file_memory_block is None:
+        # 读取前先做"超阈值则压缩"检查（见 compress_history_if_needed）
+        compress_update = compress_history_with_llm(state)
         file_memory_block = build_memory_context()
         if file_memory_block:
             print(f"  -> 文件记忆已加载（{len(file_memory_block)} 字）")
@@ -517,9 +594,11 @@ pressure_bar 和 temperature_celsius 必须取自上方【提取的 CCUS 参数�
     _, model, tier, _ = get_llm("report")
     response = llm_chat("report", messages=messages, temperature=0.3)
     report_text = response.choices[0].message.content
-    state_update = record_llm_usage(state, "report", response, model, tier)
+    state_update = record_llm_usage(
+        {**state, **compress_update}, "report", response, model, tier
+    )
     # 用"已合并的状态"继续记录后续调用，否则第二段会覆盖第一段的 token 统计
-    usage_state = {**state, **state_update}
+    usage_state = {**state, **compress_update, **state_update}
 
     # ─── Function Calling：拦截 JSON 工具指令并二次执行 ────
     tool_match = re.search(r'```json\s*(\{.*?\})\s*```', report_text, re.DOTALL)
@@ -586,6 +665,7 @@ pressure_bar 和 temperature_celsius 必须取自上方【提取的 CCUS 参数�
         "final_report": report_text,
         "retry_count": current_retry + 1,
         "file_memory_context": file_memory_block,
+        **compress_update,
         **state_update,
     }
 

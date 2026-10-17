@@ -10,20 +10,39 @@
 1. **只读最近 N 条**：project_history.md 会随时间无限增长。若整份文件塞进
    Prompt，几十次评估后必然撑爆上下文、并且让模型注意力被历史噪音稀释。
    因此读取时按条目切分，只取最近 `max_entries` 条，再按字符数二次截断。
-2. **路径锚定项目根目录**：api_server 可能从任意 CWD 启动，用 `__file__`
+2. **超阈值自动压缩**：截断只是"少读"，文件本身仍在膨胀、磁盘与启动开销
+   持续增长。超过阈值时把旧条目交给大模型提炼成 3 条核心经验并重写文件。
+   压缩函数通过 **回调注入** 大模型调用，本模块不 import 任何 LLM 客户端——
+   否则会与 multi_agent_ccus 形成循环导入，并且让离线单元测试全部失效。
+3. **路径锚定项目根目录**：api_server 可能从任意 CWD 启动，用 `__file__`
    定位，避免记忆文件落到奇怪的地方。
-3. **写入加锁**：FastAPI 在线程池里跑同步工作流，理论上存在并发追加，
-   用 threading.Lock 保证条目不会交错撕裂。
-4. **写入幂等**：节点可能因重试被再次执行，用 state 里的标记位挡住重复写。
+4. **写入加锁**：FastAPI 在线程池里跑同步工作流，理论上存在并发追加，
+   用 threading.Lock 保证条目不会交错撕裂。压缩的重写是"先写临时文件再
+   os.replace"，保证中途失败不会留下半截文件。
+5. **写入幂等**：节点可能因重试被再次执行，用 state 里的标记位挡住重复写。
 """
 from __future__ import annotations
 
 import os
 import re
+import tempfile
 import threading
 from datetime import datetime
+from typing import Callable, Optional
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _env_int(name: str, default: int) -> int:
+    """读取整数型环境变量；非法值静默退回默认，不让配置失误炸掉主流程。"""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"  [FileMemory] {name}={raw!r} 不是合法整数，使用默认值 {default}")
+        return default
 
 
 def _env_path(name: str, default_filename: str) -> str:
@@ -40,10 +59,20 @@ def _env_path(name: str, default_filename: str) -> str:
 USER_PROFILE_PATH = _env_path("USER_PROFILE_PATH", "user_profile.md")
 PROJECT_HISTORY_PATH = _env_path("PROJECT_HISTORY_PATH", "project_history.md")
 
+# 压缩阈值（字符数）与压缩时保留的最近条目数
+HISTORY_COMPRESS_THRESHOLD = _env_int("HISTORY_COMPRESS_THRESHOLD", 3000)
+KEEP_RECENT_ENTRIES = _env_int("HISTORY_KEEP_RECENT", 2)
+# 至少要有这么多"旧条目"才值得压缩；见 compress_history_if_needed 的自限说明
+MIN_ENTRIES_TO_COMPRESS = 2
+
 _WRITE_LOCK = threading.Lock()
 
 # 条目标题形如 "## 2026-10-17 20:12 | score 9"
 _ENTRY_SPLIT = re.compile(r"(?m)^## ")
+LESSONS_HEADING = "项目核心经验（自动压缩）"
+
+# 压缩回调签名：接收旧条目的 Markdown 文本，返回"3 条核心经验"的 Markdown 正文
+Summarizer = Callable[[str], str]
 
 USER_PROFILE_TEMPLATE = """# 用户画像（User Profile）
 
@@ -103,6 +132,19 @@ def read_user_profile(max_chars: int = 1500) -> str:
     return text
 
 
+def _split_entries(text: str) -> tuple[str, list[str]]:
+    """
+    把历史文件切成 (文件头, 条目列表)。
+
+    条目以 "## " 开头（含压缩生成的"项目核心经验"块 —— 它会作为一条条目
+    参与下一次压缩，因此多次压缩时经验会自然合并而不是重复堆叠）。
+    """
+    parts = _ENTRY_SPLIT.split(text or "")
+    header = parts[0].rstrip() if parts else ""
+    entries = [p.strip() for p in parts[1:] if p.strip()]
+    return header, entries
+
+
 def read_project_history(max_entries: int = 6, max_chars: int = 3000) -> str:
     """
     读取最近的评估历史。
@@ -115,8 +157,7 @@ def read_project_history(max_entries: int = 6, max_chars: int = 3000) -> str:
     if not text.strip():
         return ""
 
-    parts = _ENTRY_SPLIT.split(text)
-    entries = [p.strip() for p in parts[1:] if p.strip()]
+    _, entries = _split_entries(text)
     if not entries:
         return ""
 
@@ -127,16 +168,163 @@ def read_project_history(max_entries: int = 6, max_chars: int = 3000) -> str:
     return body
 
 
+def history_char_count() -> int:
+    """
+    历史文件的**字符数**（不是字节数）。
+
+    阈值语义必须是字符：中文一个字符占 3 字节，用 os.path.getsize 比较 3000
+    会在约 1000 个汉字（≈3000 字节）时就触发压缩，比预期早三倍。
+    Prompt 预算关心的也是字符/token，不是磁盘字节。
+    """
+    return len(_safe_read(PROJECT_HISTORY_PATH))
+
+
+def history_needs_compression(threshold: int | None = None) -> bool:
+    """只读判断：当前历史文件是否已超过压缩阈值（按字符数）。"""
+    ensure_files()
+    limit = HISTORY_COMPRESS_THRESHOLD if threshold is None else threshold
+    return history_char_count() > limit
+
+
+def compress_history_if_needed(
+    summarizer: Optional[Summarizer] = None,
+    threshold: int | None = None,
+    keep_recent: int | None = None,
+) -> dict:
+    """
+    记忆压缩：旧记录 → 大模型提炼 3 条核心经验 → 原子重写文件。
+
+    返回状态字典（便于日志与测试断言）：
+        {"status": "skipped"|"compressed"|"failed", "reason": ...,
+         "before_chars": int, "after_chars": int, "dropped_entries": int,
+         "lessons": str}
+
+    三个刻意的防御：
+
+    1. **只压缩"旧"条目，最新 N 条原样保留。** 最近几次评估是纵向对比的
+       主要依据，被 LLM 摘要成一句话就失去了参数级的可比性。
+    2. **旧条目少于 MIN_ENTRIES_TO_COMPRESS 时直接跳过。** 这条是自限开关：
+       压缩后旧条目归零，必须再积累若干条才会再次触发。否则若最新条目本身
+       就超过阈值，每次读取都会调一次大模型 —— 延迟爆炸且结论反复漂移。
+    3. **摘要失败绝不写文件。** 宁可继续用截断后的原文，也不能把历史写坏。
+       重写走"临时文件 + os.replace"，中途崩溃不会留下半截文件。
+    """
+    ensure_files()
+    limit = HISTORY_COMPRESS_THRESHOLD if threshold is None else threshold
+    keep = KEEP_RECENT_ENTRIES if keep_recent is None else max(1, keep_recent)
+
+    before_chars = history_char_count()
+
+    if before_chars <= limit:
+        return {"status": "skipped", "reason": "below_threshold",
+                "before_chars": before_chars, "after_chars": before_chars,
+                "dropped_entries": 0, "lessons": ""}
+
+    if summarizer is None:
+        # 没接大模型时不能静默跳过——否则"压缩了但没生效"会很难排查
+        print("  [FileMemory] 历史已超阈值，但未提供摘要器，跳过压缩")
+        return {"status": "skipped", "reason": "no_summarizer",
+                "before_chars": before_chars, "after_chars": before_chars,
+                "dropped_entries": 0, "lessons": ""}
+
+    # 在锁内重读：避免与并发 append 交错，导致丢条目
+    with _WRITE_LOCK:
+        text = _safe_read(PROJECT_HISTORY_PATH)
+        header, entries = _split_entries(text)
+
+        if len(entries) <= keep:
+            return {"status": "skipped", "reason": "not_enough_entries",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0, "lessons": ""}
+
+        older, recent = entries[:-keep], entries[-keep:]
+        if len(older) < MIN_ENTRIES_TO_COMPRESS:
+            return {"status": "skipped", "reason": "too_few_old_entries",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0, "lessons": ""}
+
+        old_text = "\n\n".join("## " + e for e in older)
+        print(f"  [FileMemory] 历史 {before_chars} 字 > {limit}，正在压缩 "
+              f"{len(older)} 条旧记录（保留最近 {keep} 条）...")
+
+        try:
+            lessons = (summarizer(old_text) or "").strip()
+        except Exception as e:
+            print(f"  -> 压缩失败（{e}），保留原文件不做修改")
+            return {"status": "failed", "reason": str(e),
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0, "lessons": ""}
+
+        if not lessons:
+            print("  -> 摘要器返回空内容，保留原文件不做修改")
+            return {"status": "failed", "reason": "empty_summary",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0, "lessons": ""}
+
+        new_text = (
+            f"{header}\n\n"
+            f"## {LESSONS_HEADING}\n{lessons}\n\n"
+            + "\n\n".join("## " + e for e in recent)
+            + "\n\n"
+        )
+        if not _atomic_write(PROJECT_HISTORY_PATH, new_text):
+            return {"status": "failed", "reason": "write_failed",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0, "lessons": ""}
+
+        after_chars = len(new_text)
+        print(f"  -> 压缩完成：{before_chars} → {after_chars} 字，"
+              f"已归档 {len(older)} 条旧记录")
+        return {"status": "compressed", "reason": "",
+                "before_chars": before_chars, "after_chars": after_chars,
+                "dropped_entries": len(older), "lessons": lessons}
+
+
+def _atomic_write(path: str, text: str) -> bool:
+    """
+    原子重写：先写同目录临时文件，再 os.replace。
+
+    直接 open(path, "w") 在中途崩溃/掉电时会留下被截断的文件 —— 对记忆文件
+    来说这是不可接受的，历史就永久丢了。
+    """
+    directory = os.path.dirname(path) or "."
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".history-", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        return True
+    except Exception as e:
+        print(f"  [FileMemory] 原子写入失败: {e}")
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        return False
+
+
 def build_memory_context(
     profile_max_chars: int = 1500,
     history_max_entries: int = 6,
     history_max_chars: int = 3000,
+    summarizer: Optional[Summarizer] = None,
+    compress_threshold: int | None = None,
 ) -> str:
     """
     组装成可直接嵌入 System Prompt 的文本块。
 
     两个文件都为空时返回空字符串，调用方据此跳过注入。
+
+    传入 `summarizer` 时，会在读取前先做一次"超阈值则压缩"检查——
+    这样调用方只需一次调用就能同时拿到"压缩旧记录"和"注入最近记录"两个效果。
     """
+    if summarizer is not None:
+        compress_history_if_needed(summarizer=summarizer, threshold=compress_threshold)
+
     profile = read_user_profile(max_chars=profile_max_chars)
     history = read_project_history(
         max_entries=history_max_entries, max_chars=history_max_chars
@@ -155,7 +343,7 @@ def build_memory_context(
 
 def append_project_history(entry: str, timestamp: str | None = None) -> int:
     """
-    追加一条历史记录，返回写入后的文件字符数。
+    追加一条历史记录，返回写入后的文件**字符数**。
 
     `entry` 应是已完成渲染的 Markdown 正文（不含 "## " 标题行），
     标题由本函数统一生成，保证格式一致、便于后续按条切分。
@@ -171,4 +359,4 @@ def append_project_history(entry: str, timestamp: str | None = None) -> int:
     with _WRITE_LOCK:
         with open(PROJECT_HISTORY_PATH, "a", encoding="utf-8") as f:
             f.write(block)
-        return os.path.getsize(PROJECT_HISTORY_PATH)
+        return history_char_count()

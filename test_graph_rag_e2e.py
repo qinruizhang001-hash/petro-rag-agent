@@ -112,6 +112,114 @@ def main():
         check("文件记忆模块", False, str(e))
         history_before = 0
 
+    # ─── Step 1-D: 记忆压缩（Memory Summarization）──────
+    print("\n[Step 1-D] 记忆压缩（真实大模型 + 临时文件，不碰真实历史）")
+    try:
+        import file_memory
+        from multi_agent_ccus import get_llm, llm_chat, SUMMARY_PROMPT
+
+        orig_path = file_memory.PROJECT_HISTORY_PATH
+        tmp_path = orig_path + ".e2e-compress-tmp"
+        try:
+            # 造一份真正超过生产阈值（3000 字符）的历史。
+            # 10 个差异明显的场景 × 2~3 个压力/温度变体 ≈ 24 条 —— 既贴近真实项目
+            # 长期积累的规模，又保证参数各异，模型才能提炼出多条不同规律
+            # （复制同一句话只能提炼出一条，那验证的是数据而不是压缩能力）。
+            scenarios = [
+                ("含烃碳酸盐岩储层，隐伏断层，注入速率偏高", 250, 80,
+                 "断层活化风险高，注入压力接近盖层突破压力，必须布设微地震监测并控制注入速率"),
+                ("砂岩储层，无断层构造，盖层为厚层泥岩", 180, 55,
+                 "盖层完整性良好，主要风险转移到井筒腐蚀与长期密封性，建议定期井中地球物理测井"),
+                ("高盐度地层水，碳酸盐岩储层，含少量 H2S", 300, 90,
+                 "CO2 密度升高叠加高盐度使井筒腐蚀显著加剧，需采用耐腐蚀合金油管并加装缓蚀剂"),
+                ("枯竭气藏改建封存库，地层压力已显著亏空", 120, 45,
+                 "注入能力不足，需评估增压方案与相态变化，同时警惕低压条件下的相变导致注入失败"),
+                ("含隐伏断层且注入速率高，储层非均质性强", 280, 85,
+                 "压力积聚速度快，盖层突破压力是首要控制因素，需实时压力监测与分注调控"),
+                ("咸水层封存，厚泥岩盖层，构造简单", 200, 65,
+                 "封存潜力好，风险集中在长期泄漏监测，建议时移地震与土壤气体通量测量组合"),
+                ("海上咸水层，井筒穿越多套含水层", 220, 70,
+                 "井筒完整性是多层系风险源，需重点核查固井质量与套管腐蚀余量"),
+                ("含天然裂缝的碳酸盐岩，构造应力场复杂", 260, 82,
+                 "天然裂缝可能成为泄漏通道，需结合 InSAR 与微地震联合判别裂缝活化"),
+                ("低渗致密砂岩，需压裂改造后注入", 240, 75,
+                 "压裂可能沟通隐伏断层，需先做断层三维刻画再决定压裂规模"),
+                ("老井密集区改建封存，存在废弃井", 190, 60,
+                 "废弃井是最大泄漏风险点，需逐井排查封堵质量并建立长期完整性档案"),
+            ]
+            blocks = ["# 项目评估历史（Project History）\n\n> 说明行\n\n"]
+            n = 0
+            for sc, p, t, c in scenarios:
+                for dp, dt in ((0, 0), (20, 5), (40, 8)):
+                    n += 1
+                    blocks.append(
+                        f"## 2026-04-{n:02d} 10:00\n"
+                        f"**场景**: {sc}\n"
+                        f"**关键参数**: 注入压力 {p + dp} bar / 温度 {t + dt} ℃\n"
+                        f"**核心结论**: {c}；本工况压力 {p + dp} bar 下该结论依然成立。\n"
+                        f"**评审分**: {8 + (n % 2)}/10\n\n"
+                    )
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write("".join(blocks))
+            file_memory.PROJECT_HISTORY_PATH = tmp_path
+
+            size_before = len(open(tmp_path, encoding="utf-8").read())
+            check("构造的临时历史超过压缩阈值（按字符）",
+                  size_before > file_memory.HISTORY_COMPRESS_THRESHOLD,
+                  f"{size_before} 字符 > {file_memory.HISTORY_COMPRESS_THRESHOLD}")
+            check("阈值确实按字符而非字节比较",
+                  size_before == file_memory.history_char_count())
+
+            # 用真实本地模型做摘要（与生产路径同一个 llm_chat 入口）
+            def _real_summarizer(old_text: str) -> str:
+                _, model, tier, _ = get_llm("summary")
+                resp = llm_chat(
+                    "summary",
+                    messages=[{"role": "user",
+                               "content": SUMMARY_PROMPT.format(old_text=old_text[:12000])}],
+                    temperature=0.2,
+                )
+                return resp.choices[0].message.content
+
+            result = file_memory.compress_history_if_needed(
+                summarizer=_real_summarizer, threshold=file_memory.HISTORY_COMPRESS_THRESHOLD
+            )
+            check("压缩被触发并成功", result["status"] == "compressed",
+                  f"{result['status']} {result.get('reason', '')}")
+            check("压缩后文件变小", result["after_chars"] < result["before_chars"],
+                  f"{result['before_chars']} → {result['after_chars']} 字")
+            check("有旧条目被提炼", result["dropped_entries"] > 0,
+                  f"{result['dropped_entries']} 条")
+
+            with open(tmp_path, encoding="utf-8") as f:
+                text = f.read()
+            check("生成了核心经验块", "项目核心经验" in text)
+            lessons = [ln for ln in text.splitlines() if ln.strip().startswith("- ")]
+            check("提炼了多条可复用经验", 2 <= len(lessons) <= 4, f"{len(lessons)} 条")
+            check("最新记录原样保留", "老井密集区改建封存" in text, "keep_recent=2")
+            check("最旧记录已被压缩移除", "含烃碳酸盐岩储层，隐伏断层，注入速率偏高" not in text)
+            check("文件头未被破坏", text.startswith("# 项目评估历史"))
+
+            # 自限验证：此时旧条目已归零，即便阈值调到极低也不应再次压缩。
+            # 否则单条超长记录会导致每次读取都调一次大模型。
+            size_after_first = os.path.getsize(tmp_path)
+            second = file_memory.compress_history_if_needed(
+                summarizer=lambda _old: "- 不应该被调用", threshold=10
+            )
+            check("不会无限重复压缩", second["status"] == "skipped",
+                  f"{second['status']}/{second.get('reason', '')}")
+            check("第二次调用未改动文件",
+                  os.path.getsize(tmp_path) == size_after_first)
+        finally:
+            file_memory.PROJECT_HISTORY_PATH = orig_path
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            leftover = [f for f in os.listdir(os.path.dirname(orig_path) or ".")
+                        if f.startswith(".history-")]
+            check("原子写入无临时文件残留", not leftover, str(leftover))
+    except Exception as e:
+        check("记忆压缩模块", False, str(e))
+
     # ─── Step 1-C: 多模型路由配置 ──────────────────────
     print("\n[Step 1-C] 多模型路由（Model Routing）")
     try:
