@@ -9,6 +9,7 @@ models/
 chroma_petro/
 chroma_db/
 chroma/
+personal_chroma_db/
 
 # ============================================
 # Checkpoint / runtime databases
