@@ -531,6 +531,7 @@ Test summary: 13 PASS / 0 FAIL
 - **Streaming does not make the pipeline faster, only more legible.** Retrieval dominates (~40 s of reranking), so the first token still lands around 60 s and the report itself streams for ~10 s. What changes is that progress events start at 0.04 s, so the user sees which stage is running. Making the first token arrive sooner would require streaming node *outputs* too, or parallelising retrieval — neither is done here.
 - **The streamed request runs without a checkpointer.** `SqliteSaver` is sync-only, so `/api/analyze` uses a separately compiled graph. A streamed request therefore cannot be resumed across connections; a dropped client means the work is discarded rather than resumed.
 - The chart is a two-curve engineering approximation (hydrostatic + a fixed 1.5× fracture gradient). It is meant to make the pressure window legible, not to replace a geomechanical model.
+- **`charts/` grows without bound.** Every assessment writes a new PNG (~100 KB) and nothing prunes them. This is gitignored, so it never reaches the repo, but on a long-running deployment it is the same class of leak as the one fixed for `project_history.md` — retention or content-addressed reuse is on the roadmap rather than done.
 
 **Roadmap**
 
@@ -541,6 +542,7 @@ Test summary: 13 PASS / 0 FAIL
 - [ ] Per-stage cost accounting in `token_usage` (local calls are free, cloud calls are not)
 - [ ] Resume a dropped stream instead of discarding the run (needs an async checkpointer)
 - [ ] Stream node outputs other than the report (e.g. retrieval progress, per-fragment scores)
+- [ ] Bound `charts/`: retention policy or content-addressed filenames so identical inputs reuse one file
 
 <!-- 中文注释：诚实标注——云端路由只验证了"结构与降级"，没有 paid key 就不宣称输出质量对比；文件记忆只有单进程锁。 -->
 
