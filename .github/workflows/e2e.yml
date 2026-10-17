@@ -28,5 +28,5 @@ jobs:
       - name: Verify graph index exists
         run: test -d lightrag_storage || { echo "::error::Run graph_rag_test.py first"; exit 1; }
 
-      - name: Run 45-assertion E2E suite
+      - name: Run 66-assertion E2E suite
         run: python test_graph_rag_e2e.py

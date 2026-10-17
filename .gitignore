@@ -107,6 +107,11 @@ e2e_test.log
 shot.log
 
 # ============================================
+# Generated charts (runtime output of the chart tool)
+# ============================================
+charts/
+
+# ============================================
 # Unrelated local study material (kept on disk, not in repo)
 # ============================================
 俄语.pdf

@@ -322,6 +322,89 @@ def main():
     except Exception as e:
         check("历史文件落盘校验", False, str(e))
 
+    # ─── Step 5: 图表生成 ─────────────────────────────
+    print("\n[Step 5] 图表生成（Function Calling）")
+    chart = final_state.get("chart_info") or {}
+    check("工作流产出了图表信息", bool(chart), list(chart)[:4] if chart else "缺失")
+    if chart:
+        cpath = chart.get("path") or ""
+        check("图表文件真实存在", os.path.exists(cpath), cpath)
+        if os.path.exists(cpath):
+            size = os.path.getsize(cpath)
+            check("图表文件大小合理（非空图）", size > 15000, f"{size/1024:.0f} KB")
+            with open(cpath, "rb") as f:
+                check("是合法 PNG", f.read(8) == b"\x89PNG\r\n\x1a\n")
+        check("图表带工程结论", bool(chart.get("summary")), (chart.get("summary") or "")[:48])
+        check("结论在三种判定内", chart.get("verdict") in ("ok", "risky", "under"),
+              str(chart.get("verdict")))
+        check("图表有 URL 路径（可静态访问）",
+              str(chart.get("url_path", "")).startswith("/charts/"),
+              chart.get("url_path", "-"))
+        # 报告末尾必须带 Markdown 图片引用
+        check("报告含 Markdown 图片引用",
+              "![地层压力随深度变化曲线]" in report,
+              chart.get("rel_path", "-"))
+
+    # ─── Step 6: 流式输出 ─────────────────────────────
+    print("\n[Step 6] 流式输出（SSE token 级推送）")
+    try:
+        import json as _json
+        import requests as _rq
+
+        tokens, node_names, chart_events = [], [], []
+        done_ev = None
+        first_token_at = None
+        t_start = time.time()
+
+        with _rq.post(
+            "http://127.0.0.1:8000/api/analyze",
+            json={"user_input": "某CCUS项目埋深2000m，注入压力250bar，温度80℃，请评估风险。"},
+            stream=True, timeout=(5, 600),
+            headers={"Accept": "text/event-stream"},
+        ) as resp:
+            check("SSE 端点返回 200", resp.status_code == 200, f"HTTP {resp.status_code}")
+            check("Content-Type 是 event-stream",
+                  "text/event-stream" in (resp.headers.get("content-type") or ""),
+                  resp.headers.get("content-type", "-"))
+            for raw in resp.iter_lines(decode_unicode=True):
+                if not raw or not raw.startswith("data:"):
+                    continue
+                ev = _json.loads(raw[5:].strip())
+                et = ev.get("type")
+                if et == "token":
+                    if first_token_at is None:
+                        first_token_at = time.time() - t_start
+                    tokens.append(ev.get("text", ""))
+                elif et == "node" and ev.get("status") == "start":
+                    node_names.append(ev.get("node"))
+                elif et == "chart":
+                    chart_events.append(ev.get("chart") or {})
+                elif et == "done":
+                    done_ev = ev
+
+        check("收到 token 流", len(tokens) > 100, f"{len(tokens)} 个 token")
+        streamed = "".join(tokens)
+        check("流式文本长度合理", len(streamed) > 300, f"{len(streamed)} 字")
+        check("token 是分批到达的（真流式）", len(tokens) > 50,
+              f"{len(tokens)} 批，若为 1 则说明被缓冲了")
+        check("首 token 延迟可测", first_token_at is not None,
+              f"{first_token_at:.1f}s" if first_token_at else "无")
+        check("推送了节点进度事件", len(node_names) >= 4, " → ".join(node_names))
+        check("流式过程中推送了图表", bool(chart_events),
+              (chart_events[0].get("rel_path") if chart_events else "-"))
+        check("收到 done 事件", done_ev is not None)
+        if done_ev:
+            check("done 带评审分", done_ev.get("score") is not None, str(done_ev.get("score")))
+            check("done 带路由信息", bool(done_ev.get("model_routing")),
+                  str(list((done_ev.get("model_routing") or {}).keys())))
+            check("done 的报告含密度值",
+                  "kg/m" in (done_ev.get("report") or ""))
+            # 流式正文不应出现原始工具 JSON（会以机器指令形式暴露给用户）
+            check("流式正文不含裸 JSON 工具块",
+                  '"tool"' not in streamed and "```json" not in streamed)
+    except Exception as e:
+        check("流式输出（SSE）", False, str(e))
+
     summary(t0)
 
 

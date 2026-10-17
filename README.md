@@ -41,9 +41,9 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 ![Streamlit input UI](docs/ui-home.png)
 
-**Output** — the generated risk report for a 250 bar / 80 °C faulted-carbonate scenario:
+**Output** — the streamed risk report plus a generated formation-pressure chart (250 bar injected at 2 500 m). The chart's verdict here is *hard to inject*, not *fracture risk*: at 2 500 m the formation pressure is 253 bar, slightly above the 250 bar injection pressure:
 
-![Generated risk report](docs/ui-report.png)
+![Generated risk report with chart](docs/ui-stream.png)
 
 **Knowledge graph** — 46 entities / 32 relations extracted by LightRAG. The drawn subgraph is the largest connected component, which is exactly the causal chain the retriever reasons over (`fault activation → caprock → reservoir → wellbore integrity → monitoring`). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
 
@@ -57,7 +57,7 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 ```mermaid
 flowchart TD
-    UI["Streamlit UI<br/>:8505"] -->|"HTTP POST /api/analyze"| API["FastAPI Backend<br/>:8000"]
+    UI["Streamlit UI<br/>:8505"] -->|"POST /api/analyze<br/>SSE stream"| API["FastAPI Backend<br/>:8000"]
     API --> LG["LangGraph Multi-Agent Orchestrator"]
 
     LG --> MR["Memory Router<br/>(personal-context gate)"]
@@ -69,22 +69,75 @@ flowchart TD
     RT --> LR["LightRAG GraphRAG<br/>46 entities · 32 relations"]
     LR --> RR["bge-reranker-v2-m3<br/>two-stage rerank → Top-2"]
     RR --> RP["Agent 3 · Report Generation"]
-    RP --> FC["Function Calling<br/>CO2 Density Calculator"]
-    FC --> EV["Agent 4 · Quality Evaluator"]
+    RP --> PLAN["Phase A · Tool planning<br/>(short, non-streamed)"]
+    PLAN --> FC["Function Calling<br/>CO2 density · pressure curve"]
+    FC --> RP2["Phase B · Final report<br/>(streamed token by token)"]
+    RP2 --> EV["Agent 4 · Quality Evaluator"]
     EV -->|"score ≥ 8 or retry ≥ 2"| HM["Append to<br/>project_history.md"]
     EV -->|"rewrite"| RP
     HM --> OUT["Final Report"]
 
     EX -.-> LOCAL["Local LLM<br/>Ollama · Qwen2.5"]
     EV -.-> LOCAL
-    RP ==>|"cloud route"| CLOUD["Cloud LLM<br/>DeepSeek Chat"]
+    RP2 ==>|"cloud route"| CLOUD["Cloud LLM<br/>DeepSeek Chat"]
     HM -.-> LOCAL
     LR -.-> EMB["Embeddings<br/>nomic-embed-text · 768-d"]
     LG -.-> CKPT["SqliteSaver<br/>checkpointing"]
+
+    RP2 -.->|"token deltas"| API
+    FC -.->|"chart PNG"| API
 ```
 
-<!-- 中文注释：四个 Agent 分工——1 参数提取、2 图谱检索+精排、3 报告生成（含工具调用）、4 评审打分。评审 <8 分且重写未超 2 次则打回重写，否则写入文件记忆后结束。
-     模型路由：只有 Agent 3（粗箭头）走云端，其余全部本地跑。 -->
+<!-- 中文注释：四个 Agent 分工——1 参数提取、2 图谱检索+精排、3 报告生成（两阶段：先规划工具、再流式写终稿）、4 评审打分。
+     评审 <8 分且重写未超 2 次则打回重写，否则写入文件记忆后结束。
+     模型路由：只有 Agent 3 终稿走云端，其余全部本地跑。
+     token 与图表都从节点内部经由 config 里的回调推给 API，再转成 SSE。 -->
+
+---
+
+## Streaming &amp; Charts
+
+<!-- 中文注释：流式输出与专业图表——两个"体验升级"，但实现上有三个坑必须处理掉。 -->
+
+### Streaming: SSE from a sync LangGraph graph
+
+The frontend shows the report the way ChatGPT does — token by token — over a single SSE connection. Four event types: `node` (progress), `token` (text delta), `chart` (image ready), `done` (score, routing, final report).
+
+Getting there required working around three things that don't do what you'd expect:
+
+1. **`astream_events` silently drops `get_stream_writer()` output.** The idiomatic LangGraph way to stream custom data is `stream_mode="custom"`; with `astream_events` those writes never appear (only state `on_chain_stream`). Verified experimentally before building on it. So the token channel is our own: the sink callable is handed to the node through `config["configurable"]["token_sink"]`, and the node pushes each delta through it.
+
+2. **`SqliteSaver` has no async support.** `astream_events` walks the async path and raises `NotImplementedError: The SqliteSaver does not support async methods`. The streaming endpoint therefore uses a second compilation — `app_stream = workflow.compile()` with no checkpointer. The trade-off is documented where it's made: a streamed request can't be resumed across requests, but a single assessment always runs to completion in one go anyway, and long-term memory is served by the file memory, which is a separate mechanism. Side benefit: `checkpoint.db` no longer grows on every API call.
+
+3. **Two-pass generation would stream the report twice.** The old flow produced a full draft (with a ` ```json ` tool instruction inside) and then regenerated. Streaming both passes shows the user raw JSON followed by a duplicate report. The node is now two-phase: **Phase A** is a short, non-streamed call that only returns the tool plan (~65 tokens); **Phase B** streams the single final report with the tool results already in hand. Fewer tokens than before, one clean stream, no JSON on screen.
+
+```
+POST /api/analyze   (text/event-stream)
+
+data: {"type":"node","node":"retrieve","label":"GraphRAG 图谱检索 + 精排","status":"start"}
+data: {"type":"token","text":"###","stage":"report"}
+data: {"type":"token","text":" 风险评估报告","stage":"report"}
+data: {"type":"chart","chart":{"rel_path":"charts/pressure_curve_....png","summary":"..."}}
+data: {"type":"done","score":9,"elapsed_s":73.7,"model_routing":{...},"report":"..."}
+```
+
+`POST /api/analyze/sync` keeps the old one-shot JSON behaviour for scripts and curl.
+
+### Charts: a real figure, generated as a tool
+
+`generate_pressure_curve(depth, injection_pressure_bar)` renders a formation-pressure-vs-depth chart (matplotlib, Agg backend) into `charts/` and returns its path. The model is asked to call it; if it doesn't, the code calls it anyway — the same deterministic-fallback rule used for density, because "the report has no figure" is not something to leave to a 7B model's discretion.
+
+Reading the chart correctly matters. Injection pressure is **one constant value**, and fracture pressure rises with depth, so comparing them across all depths is meaningless — nothing is being injected in the shallow section. The judgement is made at **one depth**, the reservoir:
+
+| Condition at reservoir depth | Verdict |
+|---|---|
+| `P_inj > P_frac` | above fracture pressure → caprock fracturing / leakage risk |
+| `P_inj < P_h` | below formation pressure → hard to inject |
+| otherwise | inside the safe injection window |
+
+A useful derived quantity falls out: the **admissible depth range** `[d_min, d_max]` where that injection pressure is both high enough to enter the formation and low enough not to fracture it. For 250 bar that is roughly 1 649–2 474 m — which is why injecting 250 bar into a 3 000 m reservoir is flagged as *under-pressure*, not as a fracture risk.
+
+Two robustness details worth naming: charts use a CJK font when one exists and fall back to English labels otherwise (matplotlib renders Chinese as tofu boxes without it), and `os.path.relpath` is wrapped because it raises `ValueError` across Windows drive letters — a chart directory on `C:` with the project on `D:` would otherwise crash the node.
 
 ---
 
@@ -256,8 +309,10 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 - **Two-Stage Retrieval** — Graph recall surfaces **81 candidate fragments**; fragments are merged into entity-relation-complete segments (average 305 characters) and reranked by a local **bge-reranker-v2-m3** model down to **Top-2** (peak score **0.9971**). Longer, semantically complete segments give the reranker real discriminative power.
 - **Model Routing** — Each role is assigned the cheapest model that still does its job: extraction, evaluation and memory compression run locally on Qwen2.5 at zero marginal cost, while **only** report generation goes to a cloud model. One routing dict, one call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
+- **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
+- **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. 120-second client timeout, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, 64 offline unit tests, and a 45-assertion end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, 78 offline unit tests, and a 66-assertion end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Runs Fully Offline** — LLM, embeddings, reranker, graph store and checkpoints all run locally. A cloud key is **optional**: without one, the report stage degrades to the local model and records the downgrade explicitly.
 - **Optional Extensions** — Personal long-term memory (Notion + ChromaDB) and web-search auto-ingestion (Tavily) can be enabled without touching the core graph.
@@ -293,24 +348,27 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 ```
 petro-rag-agent/
 ├── app.py                    # Streamlit frontend (HTTP client only)
-├── api_server.py             # FastAPI backend: POST /api/analyze
+├── api_server.py             # FastAPI backend: SSE stream + sync endpoint
 ├── multi_agent_ccus.py       # LangGraph workflow + model routing
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
+├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
 ├── model_router.py           # Pure routing logic (unit-tested)
 ├── check_gateway.py          # Gateway doctor: reachability / models / routes
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
-├── test_graph_rag_e2e.py     # End-to-end regression suite (45 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (66 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
-│   └── test_model_router.py       # Offline unit tests (routing / degradation)
+│   ├── test_model_router.py       # Offline unit tests (routing / degradation)
+│   └── test_chart_tools.py        # Offline unit tests (chart physics & output)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── tools/                    # Optional web search + auto-ingestion (Tavily)
+├── charts/                   # Generated figures (gitignored)
 ├── docs/                     # Screenshots
 ├── .github/workflows/        # CI (fast checks) + E2E (manual, self-hosted)
 ├── ccus_data.txt             # CCUS seed corpus for graph construction
@@ -364,38 +422,50 @@ Open `http://127.0.0.1:8505`, paste a project description, and click **启动评
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/analyze` | Run the full assessment pipeline |
+| `POST` | `/api/analyze` | **SSE stream** — node progress, token deltas, chart, final result |
+| `POST` | `/api/analyze/sync` | Same pipeline, one-shot JSON (scripts, curl, debugging) |
 | `GET` | `/health` | Health check |
+| `GET` | `/charts/{file}` | Generated chart PNGs |
 | `GET` | `/docs` | Interactive Swagger UI |
 
 **Request**
 
 ```json
-{ "user_input": "某CCUS项目注入压力250bar，温度80℃，存在隐伏碳酸盐岩储层断层，请评估风险。" }
+{ "user_input": "某CCUS项目埋深2500m，注入压力250bar，温度80℃，存在隐伏碳酸盐岩储层断层，请评估风险。" }
 ```
 
-**Response**
+**Streaming response** (`POST /api/analyze`, `text/event-stream`)
+
+```
+data: {"type":"node","node":"extract","label":"提取 CCUS 关键参数","status":"start"}
+data: {"type":"token","text":"###","stage":"report"}
+data: {"type":"chart","chart":{"rel_path":"charts/pressure_curve_....png", ...}}
+data: {"type":"done","score":9,"elapsed_s":73.7, ...}
+```
+
+**Sync response** (`POST /api/analyze/sync`)
 
 ```json
 {
   "status": "success",
-  "report": "### CCUS项目风险评估报告 ...",
+  "report": "### 风险评估报告 ...",
   "extracted_params": "...",
-  "score": 8,
+  "score": 9,
   "model_routing": {
     "extract": "local:qwen2.5",
+    "report_plan": "local:qwen2.5",
     "report": "cloud:deepseek-chat",
-    "report_tool_call": "cloud:deepseek-chat",
     "evaluate": "local:qwen2.5",
     "history": "local:qwen2.5"
   },
+  "chart": { "rel_path": "charts/pressure_curve_....png", "verdict": "ok", "summary": "..." },
   "history_entry": "**场景**: 含烃碳酸盐岩储层 ... \n**核心结论**: ..."
 }
 ```
 
 `model_routing` reports the model **actually used** per stage, so a degraded run (no cloud key) is visible in the response instead of being silently hidden.
 
-Typical end-to-end latency: **~55–95 s** on CPU-only local inference.
+Typical end-to-end latency: **~70–120 s** on CPU-only local inference. Note where the time actually goes: retrieval dominates (reranking 40+ s), so the first token arrives around 60 s and the report then streams for ~10 s. Streaming doesn't make the pipeline faster — it makes the wait legible: node-level progress events start at 0.04 s, so the user sees which stage is running instead of a frozen spinner.
 
 <!-- 中文注释：一次完整评估约 55-95 秒（纯 CPU 推理），前端 timeout 设 120 秒。响应里回传 model_routing 与 history_entry，降级与否一眼可见。 -->
 
@@ -412,15 +482,16 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 64 tests in 0.179s
+Ran 78 tests in 3.633s
 OK
 ```
 
-Three suites:
+Four suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
 - `test_model_router.py` — routing: `provider/model` names with slashes parse correctly, a blank `ROUTE_*` env var does not silently wipe the default, missing cloud keys degrade **with a reason**, unknown tiers degrade instead of crashing, and each stage can be pinned to a different vendor's model behind one gateway.
+- `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
 
 ### End-to-end regression — requires local Ollama + built graph
 
@@ -439,7 +510,7 @@ Test summary: 13 PASS / 0 FAIL
 | Workflow | Trigger | Scope |
 |---|---|---|
 | `ci.yml` | every push / PR | byte-compile, secret scan, 15 offline unit tests across Python 3.10–3.12, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 45-assertion pipeline on a self-hosted runner with Ollama |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 66-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
@@ -457,6 +528,9 @@ Test summary: 13 PASS / 0 FAIL
 - Graph construction is currently offline and corpus-specific; incremental ingestion is planned.
 - **The cloud route is verified structurally, not by output quality.** The routing logic, fallback path and observability are all tested (including a simulated key), but the repository was developed without a paid key, so no side-by-side quality comparison between Qwen2.5 and DeepSeek is claimed here. Configure `CLOUD_API_KEY` and re-run to measure it.
 - File memory is single-process only. Concurrent writers are protected by a lock within one process, but there is no cross-process locking — two backend instances sharing the same two `.md` files could interleave.
+- **Streaming does not make the pipeline faster, only more legible.** Retrieval dominates (~40 s of reranking), so the first token still lands around 60 s and the report itself streams for ~10 s. What changes is that progress events start at 0.04 s, so the user sees which stage is running. Making the first token arrive sooner would require streaming node *outputs* too, or parallelising retrieval — neither is done here.
+- **The streamed request runs without a checkpointer.** `SqliteSaver` is sync-only, so `/api/analyze` uses a separately compiled graph. A streamed request therefore cannot be resumed across connections; a dropped client means the work is discarded rather than resumed.
+- The chart is a two-curve engineering approximation (hydrostatic + a fixed 1.5× fracture gradient). It is meant to make the pressure window legible, not to replace a geomechanical model.
 
 **Roadmap**
 
@@ -465,6 +539,8 @@ Test summary: 13 PASS / 0 FAIL
 - [ ] Async task queue for concurrent assessments
 - [ ] Containerized deployment (Docker Compose: backend + frontend + Ollama)
 - [ ] Per-stage cost accounting in `token_usage` (local calls are free, cloud calls are not)
+- [ ] Resume a dropped stream instead of discarding the run (needs an async checkpointer)
+- [ ] Stream node outputs other than the report (e.g. retrieval progress, per-fragment scores)
 
 <!-- 中文注释：诚实标注——云端路由只验证了"结构与降级"，没有 paid key 就不宣称输出质量对比；文件记忆只有单进程锁。 -->
 

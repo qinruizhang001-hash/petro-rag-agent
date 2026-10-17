@@ -41,6 +41,9 @@ from file_memory import (
     ensure_files as ensure_memory_files,
 )
 
+# ─── 图表生成（Function Calling 工具）──────────────────────
+from chart_tools import generate_pressure_curve
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -69,11 +72,12 @@ CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
 # （magpie / one-api / LiteLLM 这类），不同厂商的模型会统一暴露成
 # "provider/model" 命名，且各角色可以用不同厂商的模型 —— 这正是路由表的价值。
 DEFAULT_ROUTING = {
-    "extract": "local",     # Agent 1 参数提取
-    "report": "cloud",      # Agent 3 报告生成（核心产出，用云端）
-    "evaluate": "local",    # Agent 4 评审员
-    "history": "local",     # 文件记忆的结论压缩
-    "summary": "local",     # 历史记忆的批量压缩（提炼核心经验）
+    "extract": "local",      # Agent 1 参数提取
+    "report_plan": "local",  # 工具规划：结构化短输出，本地足够
+    "report": "cloud",       # Agent 3 报告生成（核心产出，用云端）
+    "evaluate": "local",     # Agent 4 评审员
+    "history": "local",      # 文件记忆的结论压缩
+    "summary": "local",      # 历史记忆的批量压缩（提炼核心经验）
 }
 
 # 路由解析是纯逻辑，已抽到 model_router.py 以便离线单测（见 tests/test_model_router.py）
@@ -165,6 +169,87 @@ def llm_chat(stage: str, messages: list, temperature: float):
     )
 
 
+class _StreamResult:
+    """流式调用的返回值：攒好的全文 + token 统计 + 实际模型。"""
+
+    __slots__ = ("text", "prompt_tokens", "completion_tokens", "model", "tier",
+                 "usage_estimated")
+
+    def __init__(self, text, prompt_tokens, completion_tokens, model, tier,
+                 usage_estimated):
+        self.text = text
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.model = model
+        self.tier = tier
+        self.usage_estimated = usage_estimated
+
+
+def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None):
+    """
+    流式版本的大模型调用：每收到一个 delta 就交给 `sink`，同时攒全文。
+
+    为什么不用 LangGraph 的 get_stream_writer 而是自己传 sink：
+    实测 astream_events 会**丢弃** custom write，只保留 state 的 on_chain_stream
+    （见 README「Streaming」一节）。所以 token 通道必须自己搭，不能指望框架。
+
+    sink 是普通 callable（跨线程安全由调用方保证），传 dict：
+        {"type": "token", "text": "..."}
+
+    usage 处理：多数 OpenAI 兼容端点（含 Ollama）流式时不返回 usage，
+    所以拿不到就按 tiktoken 估算，并在 token_usage 里标 usage_estimated=True ——
+    宁可标"估算"，也不要让成本统计悄悄变成 0。
+    """
+    cli, model, tier, reason = get_llm(stage)
+    label = f"{tier}:{model}" + (f"（降级：{reason}）" if reason else "")
+    print(f"  [Router] {stage} → {label}（流式）")
+
+    def _open(with_usage: bool):
+        kwargs = dict(model=model, messages=messages, temperature=temperature,
+                      stream=True)
+        if with_usage:
+            kwargs["stream_options"] = {"include_usage": True}
+        return cli.chat.completions.create(**kwargs)
+
+    try:
+        stream = _open(True)
+    except Exception:
+        # 部分网关/本地服务不认 stream_options，退回不带 usage 的流
+        stream = _open(False)
+
+    parts = []
+    prompt_tokens = 0
+    completion_tokens = 0
+    for chunk in stream:
+        usage = getattr(chunk, "usage", None)
+        if usage is not None:
+            prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        choices = getattr(chunk, "choices", None) or []
+        if not choices:
+            continue
+        delta = getattr(choices[0].delta, "content", None)
+        if delta:
+            parts.append(delta)
+            if sink is not None:
+                try:
+                    sink({"type": "token", "text": delta, "stage": stage})
+                except Exception:
+                    pass  # 推送失败绝不能打断主流程
+
+    text = "".join(parts)
+    estimated = False
+    if completion_tokens <= 0:
+        completion_tokens = count_tokens(text)
+        estimated = True
+    if prompt_tokens <= 0:
+        prompt_tokens = sum(count_tokens(m.get("content", "")) for m in messages)
+        estimated = True
+
+    return _StreamResult(text, prompt_tokens, completion_tokens, model, tier,
+                         estimated)
+
+
 # ============================================================
 # 0. 物理计算工具（供 Function Calling 调用）
 # ============================================================
@@ -224,14 +309,33 @@ def record_llm_usage(
     节点里用 `return {"final_report": text, **record_llm_usage(...)}` 合并即可。
     """
     usage_obj = getattr(response, "usage", None)
-    prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
-    completion_tokens = int(getattr(usage_obj, "completion_tokens", 0) or 0)
-    total_tokens = int(getattr(usage_obj, "total_tokens", 0) or 0) or (
-        prompt_tokens + completion_tokens
+    return record_usage_payload(
+        state,
+        stage,
+        prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
+        completion_tokens=int(getattr(usage_obj, "completion_tokens", 0) or 0),
+        model=model,
+        tier=tier,
     )
+
+
+def record_usage_payload(
+    state: AgentState,
+    stage: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    model: str = "",
+    tier: str = "",
+    estimated: bool = False,
+) -> dict:
+    """record_llm_usage 的底层实现：直接给数字，供流式路径复用。"""
+    prompt_tokens = int(prompt_tokens or 0)
+    completion_tokens = int(completion_tokens or 0)
+    total_tokens = prompt_tokens + completion_tokens
     print(
         f"  -> Token 消耗 [{stage}]: "
-        f"prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}"
+        f"prompt={prompt_tokens}, completion={completion_tokens}, "
+        f"total={total_tokens}" + ("（估算）" if estimated else "")
     )
 
     payload = {
@@ -244,6 +348,8 @@ def record_llm_usage(
         payload["model"] = model
     if tier:
         payload["tier"] = tier
+    if estimated:
+        payload["usage_estimated"] = True
 
     new_usage = merge_token_usage(state, stage, payload, add_to_llm_total=True)
 
@@ -281,6 +387,8 @@ class AgentState(TypedDict):
     history_entry: str             # 本次评估压成的一条历史记录
     history_saved: bool            # 幂等标记，防止重跑重复追加
     memory_compression: dict       # 本次是否触发历史压缩及压缩统计
+    # ─── 图表 ───
+    chart_info: dict               # generate_pressure_curve 的结果（路径/结论）
 
 
 # ============================================================
@@ -498,6 +606,58 @@ def _extract_pressure_temperature(params: str) -> tuple[float | None, float | No
     return p_val, t_val
 
 
+def _extract_depth(params: str) -> float | None:
+    """
+    从参数里抓储层深度（m）。抓不到返回 None，由 chart_tools 用默认值并标注"估算"。
+
+    兼容 "深度 3000 m" / "埋深：2500米" / "depth 2000 m" 等写法。
+    """
+    m = re.search(
+        r"(?:埋深|深度|depth)[^\d\-]{0,12}(\d+(?:\.\d+)?)\s*(?:m|米|meters?)?",
+        params or "", re.I,
+    )
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    # 明显不合理（如把 3000 写成 3）就丢掉，交给默认值
+    return val if 100 <= val <= 8000 else None
+
+
+def _chart_payload(result: dict | None) -> dict:
+    """把图表工具结果裁成可 JSON 序列化的精简结构（推前端 + 写状态）。"""
+    if not result or result.get("status") != "ok":
+        return {}
+    keep = (
+        "path", "rel_path", "url_path", "summary", "verdict", "verdict_text",
+        "depth_m", "injection_pressure_bar", "fracture_bar_at_depth",
+        "hydrostatic_bar_at_depth", "admissible_depth_min_m",
+        "admissible_depth_max_m", "depth_assumed",
+    )
+    return {k: result.get(k) for k in keep if k in result}
+
+
+_TOOL_FENCE = re.compile(r"```(?:json)?\s*\{.*?\}\s*```", re.DOTALL)
+
+
+def strip_tool_json(text: str) -> str:
+    """
+    去掉正文里残留的工具 JSON 代码块。
+
+    即便 prompt 明确禁止，模型仍可能把 ```json``` 混进终稿。这类内容一旦
+    流到前端，用户看到的就是一串带花括号的机器指令 —— 属于"看起来像 bug"的
+    输出，必须在入库/展示前清掉。
+    """
+    if not text:
+        return ""
+    cleaned = _TOOL_FENCE.sub("", text)
+    # 清理因删除而产生的多余空行（保留段落间的单个空行）
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 SUMMARY_PROMPT = """你是一名 CCUS 项目档案管理员。下面是该项目的历次评估记录（旧记录）。
 
 请把它们提炼成 **3 条最高级别的「项目核心经验」**，供后续评估直接复用。
@@ -568,7 +728,22 @@ def compress_history_with_llm(state: AgentState) -> dict:
     return update
 
 
-def generate_report(state: AgentState):
+def generate_report(state: AgentState, config=None):
+    """
+    Agent 3：生成评估报告。
+
+    两阶段结构（这是有意为之，不是为了省事）：
+
+      Phase A「工具规划」——非流式、短输出、低温。
+        只让模型回答"需要调哪些工具、参数是什么"，把 JSON 指令拿回来。
+      Phase B「终稿」——流式输出，且**只流这一遍**。
+
+    为什么不沿用"一稿带工具指令 + 二次整合"：
+    那种写法必须生成两遍完整报告，前端若两遍都流式，用户会看到报告重复出现，
+    而且第一遍里的 ```json``` 会原样显示在屏幕上。成本也翻倍。
+    拆成"短规划 + 单次终稿"后：只流一份、不出现原始 JSON、总 token 更少。
+    """
+
     print("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
 
     # ─── 文件记忆：读取 user_profile.md + project_history.md ───
@@ -576,7 +751,6 @@ def generate_report(state: AgentState):
     file_memory_block = state.get("file_memory_context")
     compress_update = {}
     if file_memory_block is None:
-        # 读取前先做"超阈值则压缩"检查（见 compress_history_if_needed）
         compress_update = compress_history_with_llm(state)
         file_memory_block = build_memory_context()
         if file_memory_block:
@@ -584,13 +758,13 @@ def generate_report(state: AgentState):
         else:
             print("  -> 文件记忆为空，跳过注入")
 
-    # 构建记忆上下文（从 inject_memory 节点注入的 personal_context）
     personal_context = state.get("personal_context", "")
-
-    # 构建联网搜索上下文
     web_context = ""
     if state.get("web_content"):
         web_context = f"\n【联网搜索补充内容（已自动入库）】：\n{state['web_content']}"
+
+    # 所有流式调用共用的 token 推送通道（SSE 用；invoke 时为 None）
+    sink = (config or {}).get("configurable", {}).get("token_sink")
 
     # ─── System Prompt：角色 + 长期文件记忆 + 写作硬约束 ───
     system_prompt = f"""你是一个资深的CCUS首席工程师，负责撰写 CO2 地质封存项目的风险评估报告。
@@ -603,88 +777,164 @@ def generate_report(state: AgentState):
 3. **禁止使用"综上所述""总而言之""总的来说"等总结性套话**，直接分点陈述。
 4. 如果本次场景与「历史评估记录」中的某次相近，应显式做纵向对比
    （例如"相比上次 250bar/80℃ 的评估，本次压力更高，断层活化风险上升"）。
-5. 请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。"""
+5. 请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。
+6. **绝对不要输出 JSON、工具指令或图片 Markdown 路径**，只写正文。"""
 
-    # ─── User Prompt：本次任务的具体材料 ───
-    user_prompt = f"""【提取的 CCUS 参数】：{state['extracted_params']}
+    # ─── 本次任务的材料（两个阶段共用）───
+    materials = f"""【提取的 CCUS 参数】：{state['extracted_params']}
 【知识库检索到的标准】：{state['retrieved_knowledge']}
 {web_context}
 {personal_context}
-【上一版报告的修改意见】：{state.get('feedback', '无')}
+【上一版报告的修改意见】：{state.get('feedback', '无')}"""
 
-【工具调用规则（强制）】：
-只要【提取的 CCUS 参数】中出现注入压力和温度，你**必须先输出**下面这个 JSON 指令，
-然后等系统返回计算结果，再把该结果写进报告。不要自己口算密度，也不要跳过这一步。
-pressure_bar 和 temperature_celsius 必须取自上方【提取的 CCUS 参数】的真实数值，
-禁止编造、禁止照抄下面示例里的数字。
+    # ══════════════════════════════════════════════════════
+    # Phase A：工具规划（短输出、非流式）
+    # ══════════════════════════════════════════════════════
+    plan_prompt = materials + """
+
+【任务：只做工具规划，不要写报告】
+你有两个工具：
+1. `calculate_co2_density` —— 参数中出现注入压力和温度时调用，不要自己口算密度。
+2. `generate_pressure_curve` —— 必须调用，生成"地层压力随深度"地质图。
+   depth 取参数中的储层埋深；参数里没有就省略该字段（系统会按默认值绘制并标注"估算"），
+   **不要编造深度**。
+
+只输出 json 代码块，每个工具一个，不要输出任何解释或正文。数值必须取自【提取的 CCUS 参数】：
 ```json
-{{"tool": "calculate_co2_density", "pressure_bar": 250, "temperature_celsius": 80}}
+{"tool": "calculate_co2_density", "pressure_bar": 250, "temperature_celsius": 80}
 ```
-若参数中确实没有压力或温度，才跳过该步骤。"""
+```json
+{"tool": "generate_pressure_curve", "depth": 2500, "injection_pressure_bar": 250}
+```"""
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
+    plan_msgs = [
+        {"role": "system", "content": "你是工具调用规划器，只输出 JSON 代码块。"},
+        {"role": "user", "content": plan_prompt},
     ]
-
-    # 核心产出走云端模型（路由表决定）
-    _, model, tier, _ = get_llm("report")
-    response = llm_chat("report", messages=messages, temperature=0.3)
-    report_text = response.choices[0].message.content
+    _, plan_model, plan_tier, _ = get_llm("report_plan")
+    plan_resp = llm_chat("report_plan", messages=plan_msgs, temperature=0.0)
     state_update = record_llm_usage(
-        {**state, **compress_update}, "report", response, model, tier
+        {**state, **compress_update}, "report_plan", plan_resp, plan_model, plan_tier
     )
-    # 用"已合并的状态"继续记录后续调用，否则第二段会覆盖第一段的 token 统计
     usage_state = {**state, **compress_update, **state_update}
 
-    # ─── Function Calling：拦截 JSON 工具指令并二次执行 ────
-    tool_match = re.search(r'```json\s*(\{.*?\})\s*```', report_text, re.DOTALL)
-    density_result = None
-
-    if tool_match:
+    # 扫描**所有** json 代码块（一份报告可能同时要密度和图）
+    tool_requests = []
+    for block in re.findall(r'```json\s*(\{.*?\})\s*```', plan_resp.choices[0].message.content or "", re.DOTALL):
         try:
-            tool_data = json.loads(tool_match.group(1))
-            if tool_data.get("tool") == "calculate_co2_density":
-                p = tool_data.get("pressure_bar")
-                t = tool_data.get("temperature_celsius")
-                density_result = calculate_co2_density(p, t)
+            data = json.loads(block)
         except Exception as e:
             print(f"  [Warning] 工具指令解析失败: {e}")
+            continue
+        if isinstance(data, dict) and data.get("tool"):
+            tool_requests.append(data)
+    print(f"  -> 工具规划返回 {len(tool_requests)} 条指令")
+
+    density_result = None
+    chart_result = None
+    for req in tool_requests:
+        name = req.get("tool")
+        if name == "calculate_co2_density":
+            density_result = calculate_co2_density(
+                req.get("pressure_bar"), req.get("temperature_celsius")
+            )
+        elif name == "generate_pressure_curve":
+            try:
+                chart_result = generate_pressure_curve(
+                    req.get("depth"), req.get("injection_pressure_bar")
+                )
+            except Exception as e:
+                print(f"  [Warning] 图表生成失败: {e}")
 
     # ─── 确定性兜底：模型该调没调时，由代码补上 ─────────────
     # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
     # 于是密度变成模型口算值 —— 这会直接破坏"数值不可幻觉"的核心承诺。
     # 因此不让它靠自觉：参数里有 P/T 就必须有工具结果。
-    if density_result is None:
-        p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
-        if p_val is not None and t_val is not None:
-            print("  [System] 模型未主动调用工具，但参数含压力/温度 → 启动确定性兜底计算")
-            density_result = calculate_co2_density(p_val, t_val)
+    p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
+    if density_result is None and p_val is not None and t_val is not None:
+        print("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
+        density_result = calculate_co2_density(p_val, t_val)
 
+    # 图表同理：报告没有配图会显得业余，且输入几乎总能从参数推出。
+    if chart_result is None or chart_result.get("status") != "ok":
+        depth_val = _extract_depth(state.get("extracted_params", ""))
+        print("  [System] 模型未规划图表 → 确定性兜底绘图")
+        try:
+            chart_result = generate_pressure_curve(depth_val, p_val)
+        except Exception as e:
+            print(f"  [Warning] 图表生成失败（不影响报告）: {e}")
+            chart_result = None
+
+    chart_ok = bool(chart_result and chart_result.get("status") == "ok")
+    if chart_ok:
+        print(f"  [System] 图表已生成：{chart_result['rel_path']}")
+        # 立刻推给前端：用户不用等报告写完就能看到图
+        if sink is not None:
+            try:
+                sink({"type": "chart", "chart": _chart_payload(chart_result)})
+            except Exception:
+                pass
+
+    # ══════════════════════════════════════════════════════
+    # Phase B：终稿（流式，唯一被流式展示的一遍）
+    # ══════════════════════════════════════════════════════
+    tool_facts = []
     if density_result is not None:
-        print(f"  [System] 工具计算完成：{density_result}，正在让大模型整合进报告...")
-        follow_up_prompt = (
-            f"你刚才调用的工具计算结果为：{density_result}。"
-            f"请把这个具体数值自然地融合进你的最终报告中，不要输出JSON了。"
+        tool_facts.append(f"CO2 密度 = {density_result}（由物理工具计算）")
+    if chart_ok:
+        tool_facts.append(f"地层压力曲线结论：{chart_result['summary']}")
+
+    facts_block = ""
+    if tool_facts:
+        facts_block = (
+            "【工具执行结果 —— 必须写进报告正文】\n- " + "\n- ".join(tool_facts)
+            + "\n\n"
         )
-        # 二次整合必须复用同一个模型：若首轮用云端、整合用本地小模型，
-        # 报告后半段的措辞与逻辑会明显掉档，这是最常见的隐性质量 bug。
-        final_response = llm_chat(
-            "report",
-            messages=messages
-            + [
-                {"role": "assistant", "content": report_text},
-                {"role": "user", "content": follow_up_prompt},
-            ],
-            temperature=0.3,
-        )
-        report_text = final_response.choices[0].message.content
-        state_update = record_llm_usage(
-            usage_state, "report_tool_call", final_response, model, tier
-        )
+
+    # 工具结果放在**最前面**：实测本地模型对结尾处的约束遵守度很差，
+    # 把数值要求前置后，模型更可能把密度直接写进正文而不是靠代码兜底补。
+    final_user = (
+        facts_block
+        + materials
+        + "\n\n请撰写完整报告。上面工具结果里的数值必须原样写进正文"
+          "（例如在地质风险部分点明该压力/温度下的 CO2 密度），"
+          "不要改写、不要省略，也不要单独列成附注；"
+          "不要输出 JSON 指令，不要在正文里写图片路径。"
+    )
+    final_msgs = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": final_user},
+    ]
+
+    _, model, tier, _ = get_llm("report")
+    streamed = llm_chat_streamed("report", final_msgs, 0.3, sink=sink)
+    report_text = strip_tool_json(streamed.text)
+    state_update = record_usage_payload(
+        usage_state, "report",
+        streamed.prompt_tokens, streamed.completion_tokens, model, tier,
+        estimated=streamed.usage_estimated,
+    )
+
+    # ─── 数值兜底：工具算出来的数不能"没写进报告"───────────
+    # 模型偶尔会漏掉注入的数值。数值来自工具是核心承诺，漏了就等于没算，
+    # 所以这里补一行显式数值，而不是让它自生自灭。
+    if density_result is not None:
+        numeric = density_result.split()[0] if density_result else ""
+        if numeric and numeric not in report_text:
+            print(f"  [System] 报告未包含工具算出的密度 {numeric} → 追加数值说明")
+            report_text = report_text.rstrip() + (
+                f"\n\n> CO2 密度 {density_result}，按注入压力与温度由状态方程工具计算。"
+            )
+
+    # ─── 报告末尾补齐图片引用（代码保证，不靠模型自觉）──────
+    # 报告本体存 Markdown 相对路径，便于归档与其它消费者；
+    # 前端用 chart 事件里的真实路径调 st.image，不会重复渲染。
+    if chart_ok:
+        ref = f"![地层压力随深度变化曲线]({chart_result['rel_path']})"
+        if chart_result["rel_path"] not in report_text:
+            report_text = report_text.rstrip() + f"\n\n{ref}\n"
 
     # ─── 自动保存报告到个人长期记忆 ───────────────────────
-    # 只在第一次生成时保存（有 feedback 时说明是重写，不重复存）
     if not state.get("feedback"):
         try:
             print("  -> 正在保存报告到个人长期记忆...")
@@ -702,6 +952,7 @@ pressure_bar 和 temperature_celsius 必须取自上方【提取的 CCUS 参数�
         "final_report": report_text,
         "retry_count": current_retry + 1,
         "file_memory_context": file_memory_block,
+        "chart_info": _chart_payload(chart_result) if chart_ok else {},
         **compress_update,
         **state_update,
     }
@@ -968,6 +1219,31 @@ workflow.add_edge("save_file_memory", END)
 conn = sqlite3.connect("checkpoint.db", check_same_thread=False)
 memory_saver = SqliteSaver(conn)
 app = workflow.compile(checkpointer=memory_saver)
+
+# ─── SSE 专用的无 checkpoint 编译版本 ─────────────────────
+# 为什么必须分开编译：SqliteSaver 只实现了同步接口，而 astream_events 走异步
+# 路径，会直接抛 `NotImplementedError: The SqliteSaver does not support async
+# methods`。AsyncSqliteSaver 又需要 aiosqlite，且与同步 saver 共用同一个 sqlite
+# 文件会有锁竞争。
+#
+# 无 checkpoint 的代价：流式请求不写断点，因此不能跨请求续跑。
+# 但单次评估本就是一次跑完（反思循环在同一 run 内），而"长期记忆"由文件记忆
+# 与 Memory Router 承担 —— 它们跟 checkpoint 是两套机制，不受影响。
+# 附带好处：checkpoint.db 不再随每次 API 调用膨胀。
+app_stream = workflow.compile()
+
+# 节点名 → 面向用户的中文进度文案（SSE 的 node 事件用）
+NODE_LABELS = {
+    "memory_router": "判断是否需要调取个人记忆",
+    "search_memory": "检索个人长期记忆",
+    "inject_memory": "整理记忆上下文",
+    "extract": "提取 CCUS 关键参数",
+    "retrieve": "GraphRAG 图谱检索 + 精排",
+    "web_search": "联网补充资料",
+    "report": "生成风险评估报告",
+    "evaluate": "评审报告质量",
+    "save_file_memory": "写入项目历史记忆",
+}
 
 # ============================================================
 # 12. 运行测试

@@ -7,6 +7,9 @@ lightrag-hku>=1.5.7
 sentence-transformers>=2.7.0
 tiktoken>=0.7.0
 
+# ─── Chart generation (Function Calling tool) ───
+matplotlib>=3.8.0
+
 # ─── LLM client (OpenAI-compatible → Ollama) ───
 openai>=1.30.0
 

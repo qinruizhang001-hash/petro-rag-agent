@@ -6,56 +6,158 @@ CCUS 多智能体风险评估系统 — 前端（Streamlit）
 
 依赖：streamlit、requests
 启动：streamlit run app.py --server.port 8505
+
+流式实现说明：
+后端是 SSE，本文件用 `requests.post(stream=True)` + `iter_lines` 自己解析，
+再用 `st.write_stream` 逐 token 渲染 —— 效果同 ChatGPT。
+之所以不用 `st.write_stream(requests.get(...).iter_lines())` 一把梭：
+SSE 里除了文字还有 node / chart / done / error 四类事件，
+必须自己分流，否则 JSON 会直接被当正文吐到屏幕上。
 """
-import streamlit as st
+import json
+
 import requests
+import streamlit as st
 
 API_URL = "http://127.0.0.1:8000/api/analyze"
+HEALTH_URL = "http://127.0.0.1:8000/health"
 
 st.set_page_config(page_title="CCUS 多智能体风险评估系统", layout="wide")
 st.title("🏭 CCUS 多智能体风险评估系统")
-st.caption("LangGraph 多智能体 + GraphRAG 知识图谱 · 前后端解耦架构")
+st.caption("LangGraph 多智能体 + GraphRAG 知识图谱 · 流式输出 · 前后端解耦架构")
 
 # ─── 输入区 ────────────────────────────────────────────
 user_input = st.text_area(
     "请输入 CCUS 项目描述",
-    placeholder="例如：某CCUS项目注入压力250bar，温度80℃，存在隐伏碳酸盐岩储层断层，请评估风险。",
+    placeholder="例如：某CCUS项目埋深2500m，注入压力250bar，温度80℃，"
+                "存在隐伏碳酸盐岩储层断层，请评估风险。",
     height=120,
 )
 
-# ─── 提交与结果展示 ────────────────────────────────────
+
+def iter_sse(user_input: str, connect_timeout=10, read_timeout=600):
+    """
+    连接后端 SSE，逐个 yield 解析后的事件字典。
+
+    超时拆成 connect/read 两段：建连要快（后端没起时立刻报错），
+    读可以给足时间（一次完整评估含反思循环可能要 2 分钟）。
+    """
+    with requests.post(
+        API_URL,
+        json={"user_input": user_input},
+        stream=True,
+        timeout=(connect_timeout, read_timeout),
+        headers={"Accept": "text/event-stream"},
+    ) as resp:
+        if resp.status_code != 200:
+            yield {"type": "error",
+                   "message": f"后端返回 HTTP {resp.status_code}"}
+            return
+        for raw in resp.iter_lines(decode_unicode=True):
+            if not raw:
+                continue
+            if raw.startswith(":"):       # SSE 心跳注释，跳过
+                continue
+            if not raw.startswith("data:"):
+                continue
+            payload = raw[5:].strip()
+            if not payload:
+                continue
+            try:
+                yield json.loads(payload)
+            except json.JSONDecodeError:
+                # 宁可跳过一条坏帧，也不要整条流崩掉
+                continue
+
+
+# ─── 提交 ──────────────────────────────────────────────
 if st.button("启动评估", type="primary"):
     if not user_input.strip():
         st.warning("请输入项目描述后再启动评估。")
     else:
-        try:
-            with st.spinner("Agent团队正在全速运转，预计需要几十秒..."):
-                resp = requests.post(
-                    API_URL,
-                    json={"user_input": user_input.strip()},
-                    timeout=120,
+        meta: dict = {}
+        progress = st.empty()
+        progress.info("正在连接后端…")
+
+        def token_gen():
+            """把 SSE 事件流翻译成纯文本流；控制类事件顺手存进 meta。"""
+            try:
+                for ev in iter_sse(user_input.strip()):
+                    etype = ev.get("type")
+
+                    if etype == "token":
+                        yield ev.get("text", "")
+
+                    elif etype == "node":
+                        if ev.get("status") == "start":
+                            progress.info(f"⏳ {ev.get('label', ev.get('node'))}…")
+                        else:
+                            meta.setdefault("finished_nodes", []).append(
+                                ev.get("node")
+                            )
+
+                    elif etype == "chart":
+                        meta["chart"] = ev.get("chart") or {}
+                        progress.info("📈 已生成地层压力曲线，继续撰写报告…")
+
+                    elif etype == "done":
+                        meta["done"] = ev
+                        progress.empty()
+
+                    elif etype == "error":
+                        meta["error"] = ev.get("message", "未知错误")
+                        progress.empty()
+
+            except requests.exceptions.ReadTimeout:
+                meta["error"] = "读取超时：完整评估可能超过后端处理时间。"
+            except requests.exceptions.ConnectionError:
+                meta["error"] = (
+                    "请求后端失败，请检查 api_server.py 是否在 8000 端口正常运行。"
                 )
+            except Exception as e:
+                meta["error"] = f"请求后端失败：{e}"
 
-            if resp.status_code == 200:
-                data = resp.json()
-
-                if data.get("status") == "success":
-                    st.success("✅ 评估完成")
-                    st.markdown("### 📋 风险评估报告")
-                    st.markdown(data.get("report", "（报告为空）"))
-
-                    with st.expander("🔍 查看底层详情"):
-                        st.write("**提取的参数：**")
-                        st.code(data.get("extracted_params", ""), language="markdown")
-                        st.metric("评审分数", f"{data.get('score', '-')} / 10")
-                else:
-                    st.error(f"后端返回错误：{data.get('message', '未知错误')}")
-            else:
-                st.error("请求后端失败，请检查 api_server.py 是否在 8000 端口正常运行。")
-
-        except requests.exceptions.Timeout:
-            st.error("请求后端失败，请检查 api_server.py 是否在 8000 端口正常运行。（请求超时，完整评估可能超过 120 秒）")
-        except requests.exceptions.ConnectionError:
-            st.error("请求后端失败，请检查 api_server.py 是否在 8000 端口正常运行。")
+        try:
+            st.markdown("### 📋 风险评估报告")
+            st.write_stream(token_gen())
         except Exception as e:
-            st.error(f"请求后端失败，请检查 api_server.py 是否在 8000 端口正常运行。（{e}）")
+            st.error(f"渲染中断：{e}")
+
+        # ─── 错误 ───
+        if meta.get("error"):
+            st.error(
+                f"{meta['error']}\n\n请确认后端：`python api_server.py`（8000 端口）"
+            )
+
+        # ─── 图表 ───
+        chart = (meta.get("done") or {}).get("chart") or meta.get("chart") or {}
+        if chart.get("path"):
+            st.markdown("### 📈 地层压力—深度曲线")
+            try:
+                st.image(chart["path"], use_container_width=True)
+            except Exception as e:
+                st.warning(f"图片加载失败（{e}），文件路径：{chart['path']}")
+            if chart.get("summary"):
+                st.caption(chart["summary"])
+
+        # ─── 底层详情 ───
+        done = meta.get("done")
+        if done:
+            st.success(f"✅ 评估完成（{done.get('elapsed_s', '-')} 秒）")
+            with st.expander("🔍 查看底层详情"):
+                score = done.get("score")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("评审分数", f"{score if score is not None else '-'} / 10")
+                c2.metric("模型路由数", len(done.get("model_routing") or {}))
+                c3.metric("报告字数", len(done.get("report") or ""))
+
+                st.write("**提取的参数：**")
+                st.code(done.get("extracted_params", ""), language="markdown")
+
+                if done.get("model_routing"):
+                    st.write("**模型路由（实际使用）：**")
+                    st.json(done["model_routing"])
+
+                if done.get("history_entry"):
+                    st.write("**已写入 project_history.md：**")
+                    st.code(done["history_entry"], language="markdown")
