@@ -15,6 +15,8 @@ personal_chroma_db/
 # Checkpoint / runtime databases
 # ============================================
 checkpoint.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 *.db-journal
@@ -96,3 +98,17 @@ logs/
 # LightRAG GraphRAG runtime data
 # ============================================
 lightrag_storage/
+
+# ============================================
+# Test / verification artifacts
+# ============================================
+api_verify.json
+e2e_test.log
+shot.log
+
+# ============================================
+# Unrelated local study material (kept on disk, not in repo)
+# ============================================
+俄语.pdf
+rus_lesson1.txt
+russian_docs/

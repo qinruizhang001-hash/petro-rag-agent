@@ -24,6 +24,9 @@ from lightrag import LightRAG, QueryParam
 from lightrag.llm.ollama import ollama_model_complete, ollama_embed
 from lightrag.utils import EmbeddingFunc
 
+# 片段构建逻辑抽到纯函数模块，便于离线单元测试（CI 无需 Ollama）
+from fragment_builder import build_fragments, extract_data
+
 WORKING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lightrag_storage")
 OLLAMA_HOST = "http://localhost:11434"
 LLM_MODEL = "qwen2.5"
@@ -133,13 +136,7 @@ def retrieve_documents(query: str, mode: str = "hybrid") -> list[str]:
     """
     同步检索，返回候选片段列表，供 rerank 精排。
 
-    片段构建策略（提升 Rerank 区分度）：
-    1. 增强关系片段：把两端实体的完整描述拼进关系片段，
-       形成 "实体A描述 --[关系关键词]--> 实体B描述" 的长语义单元，
-       每个片段同时携带实体语义和关系语义（多跳推理上下文完整）。
-    2. 孤立实体片段：未被任何关系覆盖到的实体单独保留，避免信息丢失。
-    3. 原始 chunk：文本块原样保留。
-
+    片段构建策略见 fragment_builder.build_fragments（纯函数，可离线单测）。
     返回空列表表示图谱为空或无相关结果。
     """
     try:
@@ -149,63 +146,7 @@ def retrieve_documents(query: str, mode: str = "hybrid") -> list[str]:
         print(f"  [LightRAG] 检索异常: {e}")
         return []
 
-    if not result or result.get("status") != "success":
-        return []
-
-    data = result.get("data", {})
-    entities = data.get("entities", []) or []
-    relationships = data.get("relationships", []) or []
-    chunks = data.get("chunks", []) or []
-
-    # ─── 1. 实体索引：name -> 完整描述串 ───────────────
-    entity_map = {}
-    for ent in entities:
-        name = ent.get("entity_name", "")
-        if not name:
-            continue
-        etype = (ent.get("entity_type", "") or "UNKNOWN").strip()
-        desc = (ent.get("description", "") or "").strip()
-        entity_map[name] = f"[{etype}] {name}: {desc}" if desc else f"[{etype}] {name}"
-
-    # ─── 2. 增强关系片段：拼接两端实体描述，扩充文本长度 ──
-    covered = set()
-    docs = []
-    for rel in relationships:
-        src = rel.get("src_id", "")
-        tgt = rel.get("tgt_id", "")
-        desc = (rel.get("description", "") or "").strip()
-        kw = (rel.get("keywords", "") or "").strip()
-        if not (src or tgt or desc):
-            continue
-        src_part = entity_map.get(src) or src
-        tgt_part = entity_map.get(tgt) or tgt
-        edge = f"--[{kw}]-->" if kw else "-->"
-        piece = f"{src_part} {edge} {tgt_part}"
-        if desc:
-            piece = f"{piece}: {desc}"
-        docs.append(f"[关系] {piece}")
-        covered.update({src, tgt})
-
-    # ─── 3. 孤立实体片段（未被关系覆盖，避免与关系片段重复）──
-    for name, full_desc in entity_map.items():
-        if name not in covered:
-            docs.append(f"[实体] {full_desc}")
-
-    # ─── 4. 原始文档 chunk ─────────────────────────────
-    for chunk in chunks:
-        content = (chunk.get("content", "") or "").strip()
-        if content:
-            docs.append(content)
-
-    # 去重保序
-    seen = set()
-    unique = []
-    for d in docs:
-        if d and d not in seen:
-            seen.add(d)
-            unique.append(d)
-
-    return unique
+    return build_fragments(extract_data(result))
 
 
 def query_graph_answer(query: str, mode: str = "hybrid") -> str:

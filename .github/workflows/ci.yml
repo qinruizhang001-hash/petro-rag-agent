@@ -1,0 +1,88 @@
+name: CI
+
+# 中文注释：轻量 CI —— 只跑「不需要 Ollama / 模型 / 图谱索引」的检查，秒级完成。
+# 重型的端到端测试（需要本地 Ollama + 已建好的图谱）见 e2e.yml，手动触发。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    name: Syntax & hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Byte-compile all Python sources
+        run: python -m compileall -q -f . -x '(^|/)(\.git|models|lightrag_storage|chroma_petro|__pycache__)/'
+
+      - name: Guard against committed secrets
+        run: |
+          set -e
+          # 中文注释：防止把真实 API Key 推上仓库（.env 已被 gitignore，这里兜底）
+          if git ls-files | grep -qxE '\.env$'; then
+            echo "::error::.env must never be committed"; exit 1
+          fi
+          if git grep -nIE 'sk-[A-Za-z0-9]{20,}|tvly-[A-Za-z0-9]{20,}|secret_[A-Za-z0-9]{30,}' \
+               -- ':!*.md' ':!*.example' ':!*.lock'; then
+            echo "::error::Possible hardcoded API key detected"; exit 1
+          fi
+          echo "No secrets detected."
+
+      - name: Verify requirements.txt exists and is non-empty
+        run: test -s requirements.txt
+
+  unit:
+    name: Unit tests (offline)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 中文注释：单元测试只依赖标准库，故意不装 requirements.txt，
+      # 保证「片段构建」这段核心检索逻辑可被独立验证、不受三方包版本影响。
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -v
+
+  frontend-contract:
+    name: Frontend/backend contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check API contract matches frontend client
+        run: |
+          set -e
+          # 中文注释：前端只允许通过 HTTP 调后端，禁止重新引入领域逻辑。
+          grep -q 'http://127.0.0.1:8000/api/analyze' app.py \
+            || { echo "::error::app.py no longer targets the backend API"; exit 1; }
+          grep -q '/api/analyze' api_server.py \
+            || { echo "::error::api_server.py lost the /api/analyze route"; exit 1; }
+          for banned in langgraph chromadb lightrag ollama sentence_transformers; do
+            if grep -qiE "^(import|from) +$banned" app.py; then
+              echo "::error::app.py must stay a pure HTTP client (found: $banned)"; exit 1
+            fi
+          done
+          echo "Contract OK: frontend is decoupled from domain logic."

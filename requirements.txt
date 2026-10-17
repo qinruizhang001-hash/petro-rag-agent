@@ -1,14 +1,27 @@
+# ─── Orchestration ────────────────────
 langgraph>=0.2.0
 langgraph-checkpoint-sqlite>=2.0.0
-openai>=1.30.0
-chromadb>=0.5.0
+
+# ─── GraphRAG retrieval ───────────────
+lightrag-hku>=1.5.7
 sentence-transformers>=2.7.0
 tiktoken>=0.7.0
+
+# ─── LLM client (OpenAI-compatible → Ollama) ───
+openai>=1.30.0
+
+# ─── Backend API ──────────────────────
+fastapi>=0.110.0
+uvicorn>=0.29.0
+requests>=2.31.0
+
+# ─── Frontend ─────────────────────────
 streamlit>=1.30.0
 
-# ─── Personal Memory Module ───────────
+# ─── Personal Memory Module (optional) ───
+chromadb>=0.5.0
 notion-client>=2.2.1
 python-dotenv>=1.0.0
 
-# ─── Web Search (Tavily) ──────────────
+# ─── Web Search (Tavily, optional) ────
 tavily-python>=0.5.0

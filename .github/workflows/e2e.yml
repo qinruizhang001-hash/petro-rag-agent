@@ -1,0 +1,32 @@
+name: E2E (manual)
+
+# 中文注释：端到端回归测试需要「本地 Ollama + 已构建的图谱索引」，
+# GitHub 托管 runner 无法提供，因此只能手动触发，且必须跑在自建 runner 上。
+# 用法：仓库 Settings → Actions → Runners 注册一台带 Ollama 的机器，
+# 然后 Actions → E2E (manual) → Run workflow。
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'run' to confirm this needs a local Ollama + built graph"
+        required: true
+        default: ""
+
+jobs:
+  e2e:
+    name: Full pipeline regression
+    if: github.event.inputs.confirm == 'run'
+    runs-on: [self-hosted]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify local Ollama is reachable
+        run: curl -sf http://127.0.0.1:11434/api/tags > /dev/null
+
+      - name: Verify graph index exists
+        run: test -d lightrag_storage || { echo "::error::Run graph_rag_test.py first"; exit 1; }
+
+      - name: Run 13-assertion E2E suite
+        run: python test_graph_rag_e2e.py

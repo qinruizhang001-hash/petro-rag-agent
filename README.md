@@ -13,6 +13,12 @@
   <img alt="Ollama" src="https://img.shields.io/badge/LLM-Ollama%20Qwen2.5-000000">
 </p>
 
+<p>
+  <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-15%20passing-brightgreen">
+</p>
+
 ---
 
 ## Overview
@@ -24,6 +30,24 @@ This project is an end-to-end, fully offline AI system for **CO2 Capture, Utiliz
 The design goal is **trustworthy domain AI**: every claim in the generated report is grounded in retrieved graph evidence, numerical values come from deterministic tools rather than model guesswork, and the generation loop is bounded to prevent runaway cost.
 
 <!-- 中文注释：设计目标——可信的领域 AI：报告结论基于图谱证据，数值来自确定性工具（不靠模型猜），生成循环有上限（防无限重写）。 -->
+
+---
+
+## Screenshots
+
+<!-- 中文注释：真实运行截图（非设计稿）——输入界面、250bar/80℃ 断层场景的评估报告、LightRAG 构建的知识图谱。 -->
+
+**Input** — a free-text CCUS project description:
+
+![Streamlit input UI](docs/ui-home.png)
+
+**Output** — the generated risk report for a 250 bar / 80 °C faulted-carbonate scenario:
+
+![Generated risk report](docs/ui-report.png)
+
+**Knowledge graph** — 46 entities / 32 relations extracted by LightRAG. The drawn subgraph is the largest connected component, which is exactly the causal chain the retriever reasons over (`fault activation → caprock → reservoir → wellbore integrity → monitoring`). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
+
+![CCUS knowledge graph](docs/knowledge-graph.png)
 
 ---
 
@@ -99,15 +123,23 @@ petro-rag-agent/
 ├── app.py                    # Streamlit frontend (HTTP client only)
 ├── api_server.py             # FastAPI backend: POST /api/analyze
 ├── multi_agent_ccus.py       # LangGraph multi-agent workflow
-├── lightrag_retriever.py     # LightRAG sync wrapper + fragment assembly
+├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
+├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
+├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── test_graph_rag_e2e.py     # End-to-end regression suite (13 assertions)
+├── tests/
+│   └── test_fragment_builder.py   # Offline unit tests (no Ollama needed)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── tools/                    # Optional web search + auto-ingestion (Tavily)
+├── docs/                     # Screenshots
+├── .github/workflows/        # CI (fast checks) + E2E (manual, self-hosted)
 ├── ccus_data.txt             # CCUS seed corpus for graph construction
 ├── requirements.txt
 └── lightrag_storage/         # Graph & vector store (gitignored)
 ```
+
+<!-- 中文注释：fragment_builder.py 是纯函数模块——把「片段构建」这段决定检索质量的核心逻辑从需要 Ollama 的链路里剥离出来，才能被 CI 独立验证。 -->
 
 ---
 
@@ -176,7 +208,22 @@ Typical end-to-end latency: **~55–90 s** on CPU-only local inference.
 
 ## Testing
 
-<!-- 中文注释：一键回归测试，13 项断言覆盖环境/检索/工作流/结果。 -->
+<!-- 中文注释：两层测试——1) 离线单元测试（CI 每次 push 都跑，秒级，无需 Ollama）；2) 端到端回归（需本地 Ollama + 图谱索引）。 -->
+
+### Unit tests — offline, no Ollama required
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+```
+Ran 15 tests in 0.000s
+OK
+```
+
+Covers the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
+
+### End-to-end regression — requires local Ollama + built graph
 
 ```bash
 python test_graph_rag_e2e.py
@@ -187,6 +234,15 @@ The suite verifies Ollama availability, model presence, graph storage integrity,
 ```
 Test summary: 13 PASS / 0 FAIL
 ```
+
+### Continuous integration
+
+| Workflow | Trigger | Scope |
+|---|---|---|
+| `ci.yml` | every push / PR | byte-compile, secret scan, 15 offline unit tests across Python 3.10–3.12, frontend-backend contract check |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 13-assertion pipeline on a self-hosted runner with Ollama |
+
+<!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
 ---
 
