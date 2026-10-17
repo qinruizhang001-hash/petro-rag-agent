@@ -43,6 +43,38 @@ jobs:
       - name: Verify requirements.txt exists and is non-empty
         run: test -s requirements.txt
 
+      - name: Guard the package boundary (no logic back-flow into the entry shim)
+        run: |
+          set -e
+          # 中文注释：multi_agent_ccus.py 现在是纯入口转发。这条检查防的是
+          # "临时在入口文件里加个函数"慢慢把它养回 65 KB 巨石文件 ——
+          # 那种回流不会报错，只会在几个月后让解耦白做。
+          lines=$(wc -l < multi_agent_ccus.py)
+          if [ "$lines" -gt 40 ]; then
+            echo "::error::multi_agent_ccus.py grew to $lines lines; logic belongs in core/ nodes/ utils/"
+            exit 1
+          fi
+          if grep -qE '^(def |class )' multi_agent_ccus.py; then
+            echo "::error::multi_agent_ccus.py must stay an entry shim (no defs/classes)"
+            exit 1
+          fi
+          grep -q 'from workflow import app' multi_agent_ccus.py \
+            || { echo "::error::entry shim must re-export app from workflow"; exit 1; }
+          # 图结构只能有一处定义：节点注册 / 边 / 条件路由 / 编译都在 workflow.py。
+          # app_ui.py 是早期自包含的独立 demo（自带一份节点实现与图），
+          # 不参与当前链路，故排除；真要清理它是另一件事。
+          for pat in 'add_node\(' 'add_edge\(' 'add_conditional_edges\(' 'workflow\.compile\('; do
+            hits=$(grep -rlE "$pat" --include='*.py' . \
+                     | grep -v '^\./workflow\.py$' \
+                     | grep -v '^\./app_ui\.py$' \
+                     | grep -v '^\./_refactor' || true)
+            if [ -n "$hits" ]; then
+              echo "::error::graph construction must live in workflow.py only; found in: $hits"
+              exit 1
+            fi
+          done
+          echo "Package boundary OK."
+
   unit-core:
     name: Unit tests · core (stdlib only)
     runs-on: ubuntu-latest
@@ -130,4 +162,11 @@ jobs:
             || { echo "::error::app.py must render cost_estimation from the backend"; exit 1; }
           grep -q 'st.caption' app.py \
             || { echo "::error::app.py lost the cost caption"; exit 1; }
+          # 中文注释：后端必须从 workflow 取图，不能回退到 multi_agent_ccus 兼容入口
+          # （否则哪天入口 shim 被删，后端会在运行时才炸）。
+          grep -q 'from workflow import' api_server.py \
+            || { echo "::error::api_server.py must import the graph from workflow"; exit 1; }
+          if grep -qE '^from multi_agent_ccus import' api_server.py; then
+            echo "::error::api_server.py should not depend on the compatibility shim"; exit 1
+          fi
           echo "Contract OK: frontend is decoupled from domain logic."

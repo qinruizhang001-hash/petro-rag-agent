@@ -311,7 +311,7 @@ Three mechanisms, each answering a different question: *should we call the expen
 
 ### 1. Context pruning — cheap tokens in, fewer expensive tokens out
 
-After reranking, if the text about to be injected exceeds **4 000 characters**, the local Qwen2.5 compresses it into a bullet list of numeric thresholds and causal chains, and only the compressed version is handed to the cloud report model. Implemented as `prune_context()` in `context_pruner.py`, exported as `compress_context()` — the same object under both names, no second implementation.
+After reranking, if the text about to be injected exceeds **4 000 characters**, the local Qwen2.5 compresses it into a bullet list of numeric thresholds and causal chains, and only the compressed version is handed to the cloud report model. Implemented as `prune_context()` in `utils/context_pruner.py`, exported as `compress_context()` — the same object under both names, no second implementation.
 
 ```
 Top-K fragments ──▶ > 4000 chars? ──no──▶ inject as-is
@@ -428,9 +428,10 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, **145 offline unit tests**, and a **106-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, **161 offline unit tests**, and a **110-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Runs Fully Offline** — LLM, embeddings, reranker, graph store and checkpoints all run locally. A cloud key is **optional**: without one, the report stage degrades to the local model and records the downgrade explicitly.
+- **Modular, Not a Monolith** — The graph used to live in one 65 KB file. It is now `core/` (config, state, shared singletons), `nodes/` (one node per file), `utils/` (token accounting, pruning, cost — all dependency-free so CI can test them at zero install cost) and `workflow.py` (nodes, edges, conditional routing, compile). The split was performed by **AST-recorded line-range slicing**, then verified by re-parsing both versions: all **57** top-level functions/classes/constants are AST-identical to the original, and a `symtable` pass reports zero undefined globals. CI now refuses to let the entry shim grow past 40 lines or to let `add_node` / `add_edge` appear anywhere but `workflow.py`.
 - **Optional Extensions** — Personal long-term memory (Notion + ChromaDB) and web-search auto-ingestion (Tavily) can be enabled without touching the core graph.
 
 <!-- 中文注释：亮点补充——多模型路由（可审计）、文件记忆（不建向量库、读取有上界）、自纠正评审循环、无 key 也能全离线跑、可选扩展。 -->
@@ -451,8 +452,8 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 | Local LLM | Qwen2.5 7B served by Ollama — extraction, evaluation, memory compression |
 | Cloud LLM *(report stage)* | DeepSeek Chat via OpenAI-compatible API — swappable for any provider |
 | Embeddings | `nomic-embed-text` (768-dim) |
-| Cost accounting | `cost_model.py` — hardcoded CNY price table, recomputable per stage |
-| Context pruning | `context_pruner.py` — paragraph-aware chunking + local summarization |
+| Cost accounting | `utils/cost_model.py` — hardcoded CNY price table, recomputable per stage |
+| Context pruning | `utils/context_pruner.py` — paragraph-aware chunking + local summarization |
 | Long-term Memory | File-based (`user_profile.md` + `project_history.md`) |
 | Long-term Memory *(optional)* | Notion API + ChromaDB |
 | Web Search *(optional)* | Tavily |
@@ -461,26 +462,46 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 
 ## Project Structure
 
-<!-- 中文注释：文件结构。前端 app.py 只管 UI；后端 api_server.py 暴露 HTTP；multi_agent_ccus.py 是 LangGraph 主图；lightrag_retriever.py 封装图谱检索；file_memory.py 是文件记忆模块。 -->
+<!-- 中文注释：文件结构。前端 app.py 只管 UI；后端 api_server.py 暴露 HTTP；workflow.py 是 LangGraph 主图（节点注册 / 边 / 条件路由 / 编译）；multi_agent_ccus.py 只剩入口转发；core/ 放配置与状态；nodes/ 一个节点一个文件；utils/ 放可离线单测的纯逻辑；lightrag_retriever.py 封装图谱检索；file_memory.py 是文件记忆模块。 -->
 
 ```
 petro-rag-agent/
 ├── app.py                    # Streamlit frontend (HTTP client only)
 ├── api_server.py             # FastAPI backend: SSE stream + sync endpoint
-├── multi_agent_ccus.py       # LangGraph workflow + model routing
+├── multi_agent_ccus.py       # Entry shim only: `from workflow import app`
+├── workflow.py               # LangGraph graph: add_node / add_edge / conditional / compile
+├── core/
+│   ├── __init__.py           # HF_HUB_OFFLINE=1 + sys.path (must run before heavy imports)
+│   ├── config.py             # OpenAI clients, API keys, routing table, llm_chat / _streamed
+│   ├── state.py              # AgentState TypedDict only (zero dependencies)
+│   └── reranker.py           # Shared bge-reranker-v2-m3 singleton (2.3 GB, load once)
+├── nodes/
+│   ├── memory_node.py        # memory_router → search_memory → inject_memory
+│   ├── extract_node.py       # Agent 1: parameter extraction + complexity decision
+│   ├── retrieve_node.py      # Agent 2: GraphRAG recall → local rerank → context pruning
+│   ├── report_node.py        # Agent 3: tool planning + one streamed final report
+│   ├── evaluate_node.py      # Agent 4: score + feedback (drives the reflection loop)
+│   ├── history_node.py       # save_file_memory: append to project_history.md
+│   ├── conditions.py         # Conditional-edge functions (check_quality / route_memory)
+│   └── web_search_node.py    # Tavily fallback: should_search / web_search_save
+├── utils/
+│   ├── tokens.py             # Token counting & usage accounting (single source of truth)
+│   ├── context_pruner.py     # Chunked context compression (unit-tested)
+│   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
+├── tools/
+│   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
+│   └── physics_tools.py      # calculate_co2_density (Function Calling tool)
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
-├── context_pruner.py         # Chunked context compression (unit-tested)
-├── cost_model.py             # Token → CNY pricing & savings baseline (unit-tested)
 ├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
+├── model_router.py           # Pure routing logic + complexity decision (unit-tested)
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
-├── model_router.py           # Pure routing logic + complexity decision (unit-tested)
 ├── check_gateway.py          # Gateway doctor: reachability / models / routes
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
-├── test_graph_rag_e2e.py     # End-to-end regression suite (106 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (110 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -489,7 +510,6 @@ petro-rag-agent/
 │   ├── test_cost_model.py         # Offline unit tests (pricing / baseline / formatting)
 │   └── test_chart_tools.py        # Offline unit tests (chart physics & output)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
-├── tools/                    # Optional web search + auto-ingestion (Tavily)
 ├── charts/                   # Generated figures (gitignored)
 ├── docs/                     # Screenshots
 ├── .github/workflows/        # CI (fast checks) + E2E (manual, self-hosted)
@@ -497,6 +517,8 @@ petro-rag-agent/
 ├── requirements.txt
 └── lightrag_storage/         # Graph & vector store (gitignored)
 ```
+
+<!-- 中文注释：为什么这么拆。core/ 承担两件"必须最先执行"的事（HF_HUB_OFFLINE 与 sys.path），放在包的 __init__ 里，任何 import core.* / nodes.* / utils.* 都会先触发它，不依赖"调用方记得先 import"；utils/ 的 __init__ 刻意留空，一旦在里面 import 重依赖，"零依赖离线单测"这个前提就没了；workflow.py 只回答"步骤怎么串"，nodes/ 只回答"这一步做什么"，改路由时不必在千行文件里翻 add_edge。 -->
 
 <!-- 中文注释：fragment_builder.py 与 file_memory.py 都是"重依赖剥离"的产物——把决定检索质量、记忆上界的核心逻辑做成纯函数/纯文件 IO，才能被 CI 独立验证。 -->
 
@@ -632,7 +654,7 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 145 tests in 0.226s
+Ran 161 tests in 3.420s
 OK
 ```
 
@@ -654,15 +676,17 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 106 PASS / 0 FAIL，耗时 214s
+Test summary: 110 PASS / 0 FAIL，耗时 199s
 ```
+
+Step 6 brings up the API server **inside the test process** when nothing is listening on port 8000 (it reuses an already-running one if there is). That is not a shortcut around the HTTP path — the request still goes over a real socket and the SSE frames are parsed from the wire — it exists because `bge-reranker-v2-m3` needs ~3.95 GB of commit and a second process holding its own copy gets killed by the OS mid-request (`ConnectionReset` / segfault, with no traceback anywhere). Sharing the loaded model keeps the extra commit near zero.
 
 ### Continuous integration
 
 | Workflow | Trigger | Scope |
 |---|---|---|
-| `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 106-assertion pipeline on a self-hosted runner with Ollama |
+| `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, frontend-backend contract check |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 110-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 

@@ -1,7 +1,7 @@
 """
 LightRAG GraphRAG 检索封装
 ==========================
-把 LightRAG 的异步接口封装成同步函数，供 multi_agent_ccus.py 的同步节点调用。
+把 LightRAG 的异步接口封装成同步函数，供 nodes/retrieve_node.py 等同步节点调用。
 
 设计要点：
 - LightRAG 的存储锁绑定其初始化时的 event loop，因此用一个后台线程

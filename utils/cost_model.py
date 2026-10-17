@@ -250,3 +250,23 @@ def caption_text(est: dict) -> str:
     if est.get("saved_cny", 0) <= 0:
         return f"本次评估预估成本：¥{total}"
     return f"本次评估预估成本：¥{total}（已为你节省 ¥{saved}）"
+
+
+def compute_cost_estimation(state: dict) -> dict:
+    """
+    从最终状态算出本次任务的预估成本（人民币）。
+
+    为什么不把这个计算塞进某个节点：
+    成本要在**所有** token 都记完之后才算得准，而最后一个节点是
+    save_file_memory（它自己也会调一次模型）。放在节点里就得处理
+    "早退分支没算成本"的问题；做成纯函数、由 API 层在收尾时调用，
+    同步与流式两条路径共用同一份逻辑，两个数字不可能对不上。
+
+    `caption` 一并算好，前端直接渲染 —— 见 cost_model.caption_text 的说明。
+    """
+    est = estimate_cost(
+        state.get("token_usage") or {},
+        state.get("model_routing") or {},
+    )
+    est["caption"] = caption_text(est)
+    return est

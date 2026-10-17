@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cost_model import (
+from utils.cost_model import (
     DEFAULT_CLOUD_PRICING,
     LOCAL_PRICING,
     PRICING_CNY_PER_MTOK,

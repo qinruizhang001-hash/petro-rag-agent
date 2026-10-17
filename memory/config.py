@@ -24,7 +24,7 @@ CHROMA_COLLECTION = os.getenv("PERSONAL_CHROMA_COLLECTION", "personal_memory")
 # --- Embedding Model (same as petro-rag-agent) ---
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
 
-# --- Ollama (same as existing multi_agent_ccus.py) ---
+# --- Ollama (与 core/config.py 的 LOCAL_* 保持一致) ---
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5")
 

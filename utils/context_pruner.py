@@ -15,7 +15,7 @@
     prune_context(text, summarizer=fn) -> dict
 其中 `summarizer` 是 `(prompt: str) -> str` 的回调。之所以用回调注入而不是
 在本模块 import 大模型客户端：
-1. 避免与 multi_agent_ccus 形成循环导入；
+1. 避免与节点模块形成循环导入（节点 → 本模块，本模块不反向依赖）；
 2. token 记账必须留在主流程里（压缩本身也是一次真实的 LLM 调用，
    不记账成本统计就会失真）。
 """

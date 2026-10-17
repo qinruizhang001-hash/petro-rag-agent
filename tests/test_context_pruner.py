@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from context_pruner import (
+from utils.context_pruner import (
     DEFAULT_CHUNK_CHARS,
     DEFAULT_PRUNE_THRESHOLD,
     MIN_GAIN_RATIO,

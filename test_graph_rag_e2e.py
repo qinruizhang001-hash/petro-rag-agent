@@ -116,7 +116,8 @@ def main():
     print("\n[Step 1-D] 记忆压缩（真实大模型 + 临时文件，不碰真实历史）")
     try:
         import file_memory
-        from multi_agent_ccus import get_llm, llm_chat, SUMMARY_PROMPT
+        from core.config import get_llm, llm_chat
+        from nodes.report_node import SUMMARY_PROMPT
 
         orig_path = file_memory.PROJECT_HISTORY_PATH
         tmp_path = orig_path + ".e2e-compress-tmp"
@@ -223,8 +224,8 @@ def main():
     # ─── Step 1-E: 上下文压缩（真实大模型）──────────────
     print("\n[Step 1-E] 上下文压缩（真实本地模型，超阈值路径）")
     try:
-        from multi_agent_ccus import get_llm, llm_chat
-        from context_pruner import (
+        from core.config import get_llm, llm_chat
+        from utils.context_pruner import (
             prune_context, needs_pruning, context_char_count,
             split_into_chunks, DEFAULT_PRUNE_THRESHOLD, DEFAULT_CHUNK_CHARS,
         )
@@ -377,12 +378,12 @@ def main():
         # 这是必须如实记录的一条：Top-2 远低于阈值，所以 4000 字压缩
         # 在当前语料下是**安全阀**而不是日常路径。
         #
-        # ⚠️ 必须复用 multi_agent_ccus 已加载的 reranker，不能 new 一个：
+        # ⚠️ 必须复用进程内已加载的 reranker 单例（core.reranker），不能 new 一个：
         # bge-reranker-v2-m3 单份约 2.3 GB，第二份会直接耗尽 Windows 页面文件
         # （OSError 1455），表现却是 "Unrecognized processing class" 这种
         # 完全指向错误方向的报错。踩过一次，记在这里。
         from lightrag_retriever import retrieve_documents
-        from multi_agent_ccus import reranker as _rk
+        from core.reranker import reranker as _rk
         _q = "断层活化 盖层完整性 注入压力"
         _docs = retrieve_documents(_q, mode="hybrid")
         if _docs:
@@ -402,7 +403,7 @@ def main():
     # ─── Step 1-C: 多模型路由配置 ──────────────────────
     print("\n[Step 1-C] 多模型路由（Model Routing）")
     try:
-        from multi_agent_ccus import (
+        from core.config import (
             MODEL_ROUTING, LOCAL_MODEL, CLOUD_MODEL,
             cloud_available, resolve_route,
         )
@@ -427,7 +428,7 @@ def main():
 
         # 模拟"已配置 key"的场景，验证云端路由真的会切过去。
         # 只替换模块级 client，不发任何网络请求。
-        import multi_agent_ccus as _m
+        import core.config as _m
         _orig = _m.cloud_client
         try:
             _m.cloud_client = object()
@@ -475,7 +476,7 @@ def main():
     # ─── Step 2: 完整多智能体工作流 ─────────────────────
     print("\n[Step 2] 完整多智能体工作流（含反思循环，约 1-3 分钟）")
     try:
-        from multi_agent_ccus import app as agent_app
+        from workflow import app as agent_app
         test_input = "某CCUS项目注入压力250bar，温度80℃，存在隐伏碳盐酸岩储层断层，请评估风险。"
         config = {"configurable": {"thread_id": f"e2e_test_{int(time.time())}"}}
         final_state = agent_app.invoke({"user_input": test_input}, config)
@@ -605,6 +606,40 @@ def main():
         import json as _json
         import requests as _rq
 
+        # 前置：确保 8000 端口上有服务。
+        #
+        # 若外部已经起着 `python api_server.py`，直接用它（最贴近生产）。
+        # 否则在本进程内起一个 uvicorn 线程 —— 这不是偷懒，是被内存逼出来的：
+        # bge-reranker-v2-m3 单份就要约 3.95 GB commit，本机可用 commit 只有
+        # 4.5 GB 左右，两个进程各持一份必然有一个被系统杀掉（表现为
+        # ConnectionReset / Segmentation fault，且没有任何 traceback）。
+        # 同进程起服务共享已加载的模型，commit 增量接近 0，而 HTTP 传输、
+        # SSE 分帧、JSON 载荷全部仍是真实的。
+        _server = None
+
+        def _api_ready(timeout=5.0):
+            end = time.time() + timeout
+            while time.time() < end:
+                try:
+                    if _rq.get("http://127.0.0.1:8000/health", timeout=1).status_code == 200:
+                        return True
+                except Exception:
+                    pass
+                time.sleep(0.2)
+            return False
+
+        if not _api_ready(timeout=1.0):
+            import threading
+            import uvicorn
+            from api_server import api as _api
+
+            _cfg = uvicorn.Config(_api, host="127.0.0.1", port=8000, log_level="warning")
+            _server = uvicorn.Server(_cfg)
+            threading.Thread(target=_server.run, daemon=True).start()
+            check("进程内启动 API 服务（避免第二份 reranker）", _api_ready(timeout=30.0))
+        else:
+            check("复用已在运行的外部 API 服务", True, "127.0.0.1:8000")
+
         tokens, node_names, chart_events = [], [], []
         done_ev = None
         first_token_at = None
@@ -636,6 +671,10 @@ def main():
                 elif et == "done":
                     done_ev = ev
 
+        # 流已消费完，本进程内起的服务可以收了（不留在 8000 端口上挡后续手工启动）
+        if _server is not None:
+            _server.should_exit = True
+
         check("收到 token 流", len(tokens) > 100, f"{len(tokens)} 个 token")
         streamed = "".join(tokens)
         check("流式文本长度合理", len(streamed) > 300, f"{len(streamed)} 字")
@@ -662,8 +701,8 @@ def main():
     # ─── Step 7: 成本仪表盘 ───────────────────────────
     print("\n[Step 7] 成本仪表盘（Token Cost Dashboard）")
     try:
-        from cost_model import PRICING_CNY_PER_MTOK, resolve_pricing, format_cny
-        from multi_agent_ccus import compute_cost_estimation
+        from utils.cost_model import PRICING_CNY_PER_MTOK, resolve_pricing, format_cny
+        from workflow import compute_cost_estimation
 
         est = (done_ev or {}).get("cost_estimation") or {}
         check("done 事件带 cost_estimation", bool(est),

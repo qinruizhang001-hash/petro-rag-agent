@@ -49,7 +49,8 @@ from pydantic import BaseModel
 import uvicorn
 
 # 导入多智能体工作流（导入时会加载 Rerank 模型，需数秒，属正常现象）
-from multi_agent_ccus import (
+# 图结构在 workflow.py，本文件不再依赖 multi_agent_ccus 这个兼容入口
+from workflow import (
     app as agent_app,
     app_stream,
     NODE_LABELS,
