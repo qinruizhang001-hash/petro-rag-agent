@@ -62,15 +62,45 @@ CLOUD_BASE_URL = os.getenv("CLOUD_BASE_URL", "https://api.deepseek.com/v1")
 CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "").strip()
 CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
 
-# 路由表：stage → "local" | "cloud"
-# 想调策略时只改这张表，不用碰任何节点代码。
-MODEL_ROUTING = {
+# 路由表：stage → "local" | "cloud"，也可写成 "cloud:provider/model" 单独指定模型。
+# 想调策略时只改这张表（或对应的 ROUTE_* 环境变量），不用碰任何节点代码。
+#
+# 支持 per-stage 指定模型，是因为一旦把 CLOUD_BASE_URL 指向本地聚合网关
+# （magpie / one-api / LiteLLM 这类），不同厂商的模型会统一暴露成
+# "provider/model" 命名，且各角色可以用不同厂商的模型 —— 这正是路由表的价值。
+DEFAULT_ROUTING = {
     "extract": "local",     # Agent 1 参数提取
     "report": "cloud",      # Agent 3 报告生成（核心产出，用云端）
     "evaluate": "local",    # Agent 4 评审员
     "history": "local",     # 文件记忆的结论压缩
     "summary": "local",     # 历史记忆的批量压缩（提炼核心经验）
 }
+
+# 路由解析是纯逻辑，已抽到 model_router.py 以便离线单测（见 tests/test_model_router.py）
+from model_router import build_routing, resolve_route as _resolve_route
+
+# 允许用 ROUTE_<STAGE> 环境变量覆盖默认路由，例如 ROUTE_REPORT=cloud:kimi/kimi-k2
+MODEL_ROUTING = build_routing(DEFAULT_ROUTING, os.environ)
+
+
+def _ensure_loopback_bypass() -> None:
+    """
+    让回环地址绕过系统代理。
+
+    这不是洁癖：若 http_proxy 指向一个本地代理，连 127.0.0.1 的请求会被转给它，
+    代理在"目标端口没人监听"时返回 **502 Bad Gateway** 而不是 Connection refused。
+    排查网关时会误以为是网关自己挂了（本项目就踩过这个坑）。
+
+    必须在创建 OpenAI client **之前**执行 —— httpx 在构造时就读取这些环境变量。
+    """
+    loopback = ["localhost", "127.0.0.1", "::1", "0.0.0.0"]
+    for var in ("NO_PROXY", "no_proxy"):
+        existing = [p.strip() for p in (os.getenv(var) or "").split(",") if p.strip()]
+        merged = existing + [h for h in loopback if h not in existing]
+        os.environ[var] = ",".join(merged)
+
+
+_ensure_loopback_bypass()
 
 local_client = OpenAI(base_url=LOCAL_BASE_URL, api_key=LOCAL_API_KEY)
 cloud_client = (
@@ -87,20 +117,27 @@ def cloud_available() -> bool:
     return cloud_client is not None
 
 
+def resolve_route_detail(stage: str) -> tuple[str, str, str]:
+    """
+    把 stage 解析成 (tier, model_override, 降级原因)。
+
+    model_override 为空表示用该档位的默认模型（LOCAL_MODEL / CLOUD_MODEL）。
+    """
+    return _resolve_route(MODEL_ROUTING, stage, cloud_available())
+
+
 def resolve_route(stage: str) -> tuple[str, str]:
     """把 stage 解析成实际执行的档位。返回 (tier, 降级原因)。"""
-    tier = MODEL_ROUTING.get(stage, "local")
-    if tier == "cloud" and not cloud_available():
-        return "local", "CLOUD_API_KEY 未配置"
-    return tier, ""
+    tier, _model, reason = resolve_route_detail(stage)
+    return tier, reason
 
 
 def get_llm(stage: str):
     """按路由表返回 (client, model_name, 实际档位, 降级原因)。"""
-    tier, reason = resolve_route(stage)
+    tier, model_override, reason = resolve_route_detail(stage)
     if tier == "cloud":
-        return cloud_client, CLOUD_MODEL, "cloud", ""
-    return local_client, LOCAL_MODEL, "local", reason
+        return cloud_client, (model_override or CLOUD_MODEL), "cloud", ""
+    return local_client, (model_override or LOCAL_MODEL), "local", reason
 
 
 def llm_chat(stage: str, messages: list, temperature: float):
@@ -943,13 +980,16 @@ if __name__ == "__main__":
 
     # 启动时打印一次路由表，便于确认配置是否生效
     print("\n[Model Routing] 配置：")
-    for _stage, _tier in MODEL_ROUTING.items():
-        _resolved, _reason = resolve_route(_stage)
-        _mdl = CLOUD_MODEL if _resolved == "cloud" else LOCAL_MODEL
-        print(f"  {_stage:<10} → {_resolved}:{_mdl}" + (f"  ⚠️ {_reason}，已降级" if _reason else ""))
+    print(f"  local base : {LOCAL_BASE_URL}")
+    print(f"  cloud base : {CLOUD_BASE_URL}")
+    for _stage in MODEL_ROUTING:
+        _cli, _mdl, _tier, _reason = get_llm(_stage)
+        print(f"  {_stage:<10} → {_tier}:{_mdl}"
+              + (f"  ⚠️ {_reason}，已降级" if _reason else ""))
     if not cloud_available():
         print("  （未配置 CLOUD_API_KEY，report 阶段将使用本地模型；"
               "在 .env 中设置后可启用云端）")
+    print("  （网关连通性自检：python check_gateway.py）")
 
     # 你的测试输入（含压力/温度参数，用于触发 Function Calling 密度计算）
     test_input = "某CCUS项目注入压力250bar，温度80℃，存在隐伏碳盐酸岩储层断层，请评估风险。"

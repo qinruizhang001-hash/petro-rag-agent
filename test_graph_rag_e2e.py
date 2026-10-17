@@ -231,7 +231,11 @@ def main():
               all(k in MODEL_ROUTING for k in ("extract", "report", "evaluate")))
         check("参数提取走本地模型", MODEL_ROUTING.get("extract") == "local")
         check("评审员走本地模型", MODEL_ROUTING.get("evaluate") == "local")
-        check("报告生成配置为云端模型", MODEL_ROUTING.get("report") == "cloud")
+        # 只判断档位，不比对字符串：配了 ROUTE_REPORT=cloud:xxx 时值是
+        # "cloud:xxx" 而非 "cloud"，硬比对会假失败。
+        check("报告生成配置为云端档位",
+              MODEL_ROUTING.get("report", "").split(":")[0] == "cloud",
+              MODEL_ROUTING.get("report", "-"))
 
         if cloud_available():
             check("云端 API 已配置", True, f"{CLOUD_MODEL} 可用")
@@ -250,8 +254,10 @@ def main():
             _m.cloud_client = object()
             r2, _ = _m.resolve_route("report")
             _, mdl2, tier2, _ = _m.get_llm("report")
+            # 不拿 CLOUD_MODEL 比对：配了 ROUTE_REPORT=cloud:xxx 时模型来自覆盖值，
+            # 断言"档位切到 cloud 且模型名非空"才不会因环境不同而假失败。
             check("配置 key 后 report 切到云端模型",
-                  r2 == "cloud" and mdl2 == CLOUD_MODEL,
+                  r2 == "cloud" and tier2 == "cloud" and bool(mdl2),
                   f"{tier2}:{mdl2}")
             r3, _ = _m.resolve_route("extract")
             check("配置 key 后 extract 仍留在本地", r3 == "local")

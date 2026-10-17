@@ -114,7 +114,70 @@ CLOUD_MODEL=deepseek-chat
 
 To change the strategy, edit one dict — `MODEL_ROUTING` — and no node code.
 
-<!-- 中文注释：关键设计——没有 key 时必须显式降级并留下痕迹，不能静默假装走了云端。调策略只改 MODEL_ROUTING 一张表。 -->
+### Per-stage models, and pointing at a local gateway
+
+Each stage can name its own model, which matters as soon as you put a gateway in front of several vendors:
+
+```bash
+# ROUTE_<STAGE> = local | cloud | cloud:<model> | local:<model>
+ROUTE_REPORT=cloud:deepseek/deepseek-chat
+ROUTE_EVALUATE=cloud:kimi/kimi-k2
+ROUTE_EXTRACT=local
+```
+
+`CLOUD_BASE_URL` only has to speak the OpenAI wire format, so any aggregator works — [magpie](https://github.com/yetone/magpie), one-api, LiteLLM, or a self-hosted vLLM/Ollama. With a gateway, model names usually become `provider/model`, e.g.:
+
+```bash
+CLOUD_BASE_URL=http://127.0.0.1:3425/v1   # magpie's gateway
+CLOUD_API_KEY=magpie                      # loopback gateways accept any key
+CLOUD_MODEL=deepseek/deepseek-chat
+```
+
+Two things this buys you: one place to hold all vendor keys with failover, and per-stage model choice across vendors. Two things it costs: an extra hop, and a new failure mode — *which* component is broken is no longer obvious. `check_gateway.py` exists for exactly that:
+
+```bash
+python check_gateway.py          # reachability, model list, route/model match
+python check_gateway.py --send   # also fire one tiny real request
+python check_gateway.py --local  # same checks against Ollama
+```
+
+It distinguishes the four failures that otherwise look alike: gateway not running, a proxy hijacking the loopback request (returns a misleading **502** instead of connection refused), model name mismatch, and bad credentials.
+
+#### Wiring up magpie specifically
+
+[magpie](https://github.com/yetone/magpie) (MIT) runs a gateway on `127.0.0.1:3425` that speaks OpenAI Chat/Responses, Anthropic Messages and Gemini, translating between them.
+
+```bash
+# 1. install (Windows: magpie-cli-windows-amd64.exe from the releases page)
+curl -fsSL https://usemagpie.ai/install.sh | sh
+
+# 2. add an upstream — a vendor key, or the local server you already have
+magpie provider add deepseek sk-...
+magpie provider add ollama            # no key needed
+
+# 3. confirm what the gateway exposes
+curl -s http://127.0.0.1:3425/v1/models
+```
+
+Then in `.env` point the cloud slot at it — no code change required:
+
+```bash
+CLOUD_BASE_URL=http://127.0.0.1:3425/v1
+CLOUD_API_KEY=magpie
+CLOUD_MODEL=deepseek/deepseek-chat
+```
+
+```bash
+python check_gateway.py --send
+```
+
+**A gateway is not a source of quota.** It holds and rotates credentials you already have; it cannot conjure access to a vendor you have no key for. So the honest verification order is: bring up the gateway with **Ollama** as its upstream first (works with zero keys, proves the plumbing end to end), then add the paid vendor key and change one line — `CLOUD_MODEL=deepseek/deepseek-chat`.
+
+> **A note on keys.** The routing table moves *your own* credentials around; it is not a way to obtain models without them. Pointing this at a paid vendor's API with a key you hold — or at a subscription you already pay for, where that vendor's terms permit API use — is the supported path. Driving web sessions or free tiers programmatically in ways their terms forbid is not, and several gateway plugins in the wild do exactly that; don't wire them in here.
+
+<!-- 中文注释：关键设计——没有 key 时必须显式降级并留下痕迹，不能静默假装走了云端。调策略只改 MODEL_ROUTING 一张表。
+     per-stage 模型覆盖是为"网关后面挂多厂商"准备的：网关统一用 provider/model 命名，各角色可以用不同厂商的模型。
+     check_gateway.py 的存在理由：接入网关后，"到底哪一环坏了"不再显然，四类失败（没启动/代理劫持502/模型名不符/鉴权失败）报错很像。 -->
 
 ---
 
@@ -194,7 +257,7 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 - **Model Routing** — Each role is assigned the cheapest model that still does its job: extraction, evaluation and memory compression run locally on Qwen2.5 at zero marginal cost, while **only** report generation goes to a cloud model. One routing dict, one call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. 120-second client timeout, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, 44 offline unit tests, and a 45-assertion end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. 120-second client timeout, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, 64 offline unit tests, and a 45-assertion end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Runs Fully Offline** — LLM, embeddings, reranker, graph store and checkpoints all run locally. A cloud key is **optional**: without one, the report stage degrades to the local model and records the downgrade explicitly.
 - **Optional Extensions** — Personal long-term memory (Notion + ChromaDB) and web-search auto-ingestion (Tavily) can be enabled without touching the core graph.
@@ -238,11 +301,14 @@ petro-rag-agent/
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
+├── model_router.py           # Pure routing logic (unit-tested)
+├── check_gateway.py          # Gateway doctor: reachability / models / routes
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── test_graph_rag_e2e.py     # End-to-end regression suite (45 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
-│   └── test_file_memory.py        # Offline unit tests (memory bounds & IO)
+│   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
+│   └── test_model_router.py       # Offline unit tests (routing / degradation)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── tools/                    # Optional web search + auto-ingestion (Tavily)
 ├── docs/                     # Screenshots
@@ -346,14 +412,15 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 44 tests in 0.163s
+Ran 64 tests in 0.179s
 OK
 ```
 
-Two suites:
+Three suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
+- `test_model_router.py` — routing: `provider/model` names with slashes parse correctly, a blank `ROUTE_*` env var does not silently wipe the default, missing cloud keys degrade **with a reason**, unknown tiers degrade instead of crashing, and each stage can be pinned to a different vendor's model behind one gateway.
 
 ### End-to-end regression — requires local Ollama + built graph
 
