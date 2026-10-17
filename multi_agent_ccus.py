@@ -12,6 +12,12 @@ from openai import OpenAI
 import chromadb
 from sentence_transformers import CrossEncoder
 
+# ─── 环境预置 ──────────────────────────────────────────────
+# HF_HUB_OFFLINE=1：跳过 HuggingFace 联网检查（bge-small-zh-v1.5 未缓存时
+# 避免 5 次指数退避重试拖慢流程，直接走本地失败分支）。
+# 如需下载该模型，临时 unset 此变量即可。
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 # ─── Personal Memory Module ─────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from memory.memory_manager import save_memory, retrieve_memory, search_semantic
@@ -19,6 +25,9 @@ from memory.memory_tools import search_personal_memory
 
 # ─── Web Search + Auto-Save Module ──────────────────────────
 from tools.knowledge_tools import search_and_save, is_tavily_configured
+
+# ─── LightRAG GraphRAG 检索封装 ────────────────────────────
+from lightrag_retriever import retrieve_documents, query_graph_answer
 
 # 初始化 Ollama 客户端
 client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
@@ -240,35 +249,36 @@ def extract_params(state: AgentState):
 
 
 # ============================================================
-# 6. 知识检索（原有 Agent 2，保留粗排+精排，去掉个人记忆搜索）
+# 6. 知识检索（GraphRAG 图谱检索 + 本地 Rerank 精排）
 # ============================================================
 def retrieve_knowledge(state: AgentState):
-    print("\n[Agent 2] 正在本地CCUS知识库检索，并执行两阶段重排...")
-    db_client = chromadb.PersistentClient(path=r"D:\python-learn\chroma_petro")
-    collection = db_client.get_or_create_collection(name="ccus_knowledge_v2")
+    print("\n[Agent 2] 正在通过 LightRAG 知识图谱检索，并执行本地 Rerank 精排...")
+    query = state["extracted_params"]
 
-    results = collection.query(query_texts=["channel formation mechanism in porous media"], n_results=5)
-    raw_docs = results['documents'][0] if results['documents'] else []
+    # ─── 第一阶段：LightRAG 图谱检索（实体 + 关系 + chunk） ──
+    raw_docs = retrieve_documents(query, mode="hybrid")
 
     if not raw_docs:
         empty_usage = merge_token_usage(
             state,
             "retrieve",
             {
-                "query_tokens": count_tokens(state["extracted_params"]),
+                "query_tokens": count_tokens(query),
                 "candidate_docs": 0,
                 "candidate_tokens": 0,
                 "rerank_input_tokens": 0,
                 "injected_context_tokens": 0,
-                "note": "知识库中无相关记录",
+                "note": "知识图谱中无相关记录",
+                "engine": "lightrag",
             },
         )
-        print("  -> Token 消耗 [retrieve]: 无命中文档")
+        print("  -> Token 消耗 [retrieve]: 图谱中无相关记录")
         return {"retrieved_knowledge": "知识库中无相关记录", "token_usage": empty_usage}
 
-    # 第二阶段：精排（语义重排打分）
-    print(f"  -> 正在对 {len(raw_docs)} 篇候选文献进行语义精排...")
-    query = state["extracted_params"]
+    print(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
+
+    # ─── 第二阶段：本地 Rerank 精排（语义重排打分） ────────
+    print(f"  -> 正在对 {len(raw_docs)} 个候选片段进行本地 Rerank 精排...")
     pairs = [[query, doc] for doc in raw_docs]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, raw_docs), key=lambda x: x[0], reverse=True)
@@ -282,13 +292,13 @@ def retrieve_knowledge(state: AgentState):
     rerank_input_tokens = query_tokens * len(raw_docs) + candidate_tokens
     injected_context_tokens = count_tokens(retrieved_text)
 
-    print(f"  -> 精排完成！已从 {len(raw_docs)} 篇中过滤出最相关的 {len(top_docs)} 篇。")
+    print(f"  -> 精排完成！已从 {len(raw_docs)} 个片段中过滤出最相关的 {len(top_docs)} 个。")
     print(
         f"  -> Token 消耗 [retrieve]: query={query_tokens}, "
         f"candidates={candidate_tokens}, rerank_input≈{rerank_input_tokens}, "
         f"injected_context={injected_context_tokens}"
     )
-    for i, (score, doc) in enumerate(ranked, start=1):
+    for i, (score, doc) in enumerate(ranked[:5], start=1):
         print(f"     #{i} score={float(score):.4f} tokens={count_tokens(doc)}")
 
     return {
@@ -303,6 +313,7 @@ def retrieve_knowledge(state: AgentState):
                 "rerank_input_tokens": rerank_input_tokens,
                 "injected_context_tokens": injected_context_tokens,
                 "top_k": len(top_docs),
+                "engine": "lightrag",
             },
         ),
     }

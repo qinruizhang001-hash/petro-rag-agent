@@ -91,3 +91,8 @@ logs/
 .DS_Store
 *.tmp
 *.bak
+
+# ============================================
+# LightRAG GraphRAG runtime data
+# ============================================
+lightrag_storage/
