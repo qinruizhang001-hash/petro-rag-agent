@@ -62,6 +62,10 @@ async def analyze_ccus_project(request: ProjectRequest):
             "report": final_state["final_report"],
             "extracted_params": final_state.get("extracted_params", ""),
             "score": final_state.get("score", 10),
+            # 多模型路由：{stage: "tier:model"}，如实反映实际使用的模型
+            "model_routing": final_state.get("model_routing", {}),
+            # 文件记忆：本次追加到 project_history.md 的记录
+            "history_entry": final_state.get("history_entry", ""),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -1,6 +1,15 @@
-from __future__ import annotations
+# ─── 环境预置（必须在任何重依赖 import 之前）────────────────
+# HF_HUB_OFFLINE=1：跳过 HuggingFace 联网检查。
+# ⚠️ 顺序至关重要：huggingface_hub 在 **import 时**就把 HF_HUB_OFFLINE 读进常量，
+# 之后再 setdefault 完全无效（历史 bug：导致每次流程末尾卡 5 次指数退避重试，
+# 每个模型文件各重试一遍，累计数分钟）。因此这段必须放在最顶部。
+# 如需真正下载 bge-small-zh-v1.5，启动前 unset 此变量即可。
+from __future__ import annotations  # 必须首行，且不触发重依赖
 
 import os
+
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import sys
 import json
 import re
@@ -11,12 +20,6 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from openai import OpenAI
 import chromadb
 from sentence_transformers import CrossEncoder
-
-# ─── 环境预置 ──────────────────────────────────────────────
-# HF_HUB_OFFLINE=1：跳过 HuggingFace 联网检查（bge-small-zh-v1.5 未缓存时
-# 避免 5 次指数退避重试拖慢流程，直接走本地失败分支）。
-# 如需下载该模型，临时 unset 此变量即可。
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # ─── Personal Memory Module ─────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -29,8 +32,97 @@ from tools.knowledge_tools import search_and_save, is_tavily_configured
 # ─── LightRAG GraphRAG 检索封装 ────────────────────────────
 from lightrag_retriever import retrieve_documents, query_graph_answer
 
-# 初始化 Ollama 客户端
-client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+# ─── 文件记忆（File-Based Memory）───────────────────────────
+from file_memory import (
+    build_memory_context,
+    append_project_history,
+    ensure_files as ensure_memory_files,
+)
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+# ============================================================
+# 0-A. 多模型路由（Model Routing）
+# ============================================================
+# 设计动机：不同角色对"智商"的要求差异极大。
+#   - 参数提取 / 评审打分 → 结构化、短输出、判断简单 → 本地 7B 足够，边际成本为 0
+#   - 报告生成           → 长文本、强逻辑、专业措辞 → 云端大模型质量差距最明显
+# 把钱只花在真正影响产出质量的那一步。
+
+LOCAL_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
+LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5")
+
+CLOUD_BASE_URL = os.getenv("CLOUD_BASE_URL", "https://api.deepseek.com/v1")
+CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "").strip()
+CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
+
+# 路由表：stage → "local" | "cloud"
+# 想调策略时只改这张表，不用碰任何节点代码。
+MODEL_ROUTING = {
+    "extract": "local",     # Agent 1 参数提取
+    "report": "cloud",      # Agent 3 报告生成（核心产出，用云端）
+    "evaluate": "local",    # Agent 4 评审员
+    "history": "local",     # 文件记忆的结论压缩
+}
+
+local_client = OpenAI(base_url=LOCAL_BASE_URL, api_key=LOCAL_API_KEY)
+cloud_client = (
+    OpenAI(base_url=CLOUD_BASE_URL, api_key=CLOUD_API_KEY) if CLOUD_API_KEY else None
+)
+
+# 兼容旧引用（app_ui.py 等外部脚本可能直接用 client）
+client = local_client
+
+_cloud_warned = False
+
+
+def cloud_available() -> bool:
+    return cloud_client is not None
+
+
+def resolve_route(stage: str) -> tuple[str, str]:
+    """把 stage 解析成实际执行的档位。返回 (tier, 降级原因)。"""
+    tier = MODEL_ROUTING.get(stage, "local")
+    if tier == "cloud" and not cloud_available():
+        return "local", "CLOUD_API_KEY 未配置"
+    return tier, ""
+
+
+def get_llm(stage: str):
+    """按路由表返回 (client, model_name, 实际档位, 降级原因)。"""
+    tier, reason = resolve_route(stage)
+    if tier == "cloud":
+        return cloud_client, CLOUD_MODEL, "cloud", ""
+    return local_client, LOCAL_MODEL, "local", reason
+
+
+def llm_chat(stage: str, messages: list, temperature: float):
+    """
+    统一的大模型调用入口。
+
+    所有节点都必须走这里 —— 这样"哪个角色用了哪个模型"才有唯一可信来源，
+    也才能把 model / tier 如实记进 token_usage 供事后审计。
+    """
+    global _cloud_warned
+    cli, model, tier, reason = get_llm(stage)
+
+    if reason and not _cloud_warned:
+        print(
+            f"  [Router] ⚠️ {stage} 原本要走云端，但{reason}，已降级为本地 {LOCAL_MODEL}。\n"
+            f"           配置方式：在 .env 中设置 CLOUD_API_KEY 与 CLOUD_BASE_URL。"
+        )
+        _cloud_warned = True
+
+    label = f"{tier}:{model}" + (f"（降级：{reason}）" if reason else "")
+    print(f"  [Router] {stage} → {label}")
+
+    return cli.chat.completions.create(
+        model=model, messages=messages, temperature=temperature
+    )
 
 
 # ============================================================
@@ -81,7 +173,16 @@ def merge_token_usage(
     return usage
 
 
-def record_llm_usage(state: AgentState, stage: str, response) -> dict:
+def record_llm_usage(
+    state: AgentState, stage: str, response, model: str = "", tier: str = ""
+) -> dict:
+    """
+    记录一次 LLM 调用的 token 与路由信息。
+
+    返回**可直接并入节点返回值的状态更新片段**：
+        {"token_usage": {...}, "model_routing": {...}}
+    节点里用 `return {"final_report": text, **record_llm_usage(...)}` 合并即可。
+    """
     usage_obj = getattr(response, "usage", None)
     prompt_tokens = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
     completion_tokens = int(getattr(usage_obj, "completion_tokens", 0) or 0)
@@ -92,16 +193,26 @@ def record_llm_usage(state: AgentState, stage: str, response) -> dict:
         f"  -> Token 消耗 [{stage}]: "
         f"prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}"
     )
-    return merge_token_usage(
-        state,
-        stage,
-        {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-        add_to_llm_total=True,
-    )
+
+    payload = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+    # 记录实际使用的模型，供事后审计"路由是否真的生效"
+    if model:
+        payload["model"] = model
+    if tier:
+        payload["tier"] = tier
+
+    new_usage = merge_token_usage(state, stage, payload, add_to_llm_total=True)
+
+    # 同时维护一份扁平的路由快照：{stage: "tier:model"}
+    routing = dict(state.get("model_routing") or {})
+    if tier and model:
+        routing[stage] = f"{tier}:{model}"
+
+    return {"token_usage": new_usage, "model_routing": routing}
 
 
 # ============================================================
@@ -123,6 +234,12 @@ class AgentState(TypedDict):
     web_content: str               # 联网搜索+自动沉淀的新内容
     # ─── 反思重试计数 ───
     retry_count: int               # 报告重写次数，用于防止无限循环
+    # ─── 多模型路由 ───
+    model_routing: dict            # {stage: "tier:model"}，记录每个角色实际用了哪个模型
+    # ─── 文件记忆 ───
+    file_memory_context: str       # 注入 Prompt 的文件记忆文本
+    history_entry: str             # 本次评估压成的一条历史记录
+    history_saved: bool            # 幂等标记，防止重跑重复追加
 
 
 # ============================================================
@@ -239,12 +356,15 @@ def inject_memory(state: AgentState):
 def extract_params(state: AgentState):
     print("\n[Agent 1] 正在提取 CCUS 项目关键参数...")
     prompt = f"你是一个CCUS专家。请从以下描述中提取评估碳封存风险所需的关键参数：\n{state['user_input']}"
-    response = client.chat.completions.create(
-        model="qwen2.5", messages=[{"role": "user", "content": prompt}], temperature=0.1
+    _, model, tier, _ = get_llm("extract")
+    response = llm_chat(
+        "extract",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
     )
     return {
         "extracted_params": response.choices[0].message.content,
-        "token_usage": record_llm_usage(state, "extract", response),
+        **record_llm_usage(state, "extract", response, model, tier),
     }
 
 
@@ -322,8 +442,33 @@ def retrieve_knowledge(state: AgentState):
 # ============================================================
 # 7. 报告生成（原有 Agent 3，注入 personal_context + web_content + 自动保存）
 # ============================================================
+def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
+    """
+    从参数提取结果中抓取压力 / 温度数值。
+
+    这是 Function Calling 的**确定性兜底**：模型有时会认为"信息已够"
+    而跳过工具调用，直接凭参数写出报告。此时数值就变成了模型的推测。
+    用正则兜住 P/T，保证密度值一定来自物理工具而非语言模型。
+    """
+    p_match = re.search(r"(?:压力|pressure)[^\d\-]{0,15}(\d+(?:\.\d+)?)", params or "", re.I)
+    t_match = re.search(r"(?:温度|temperature)[^\d\-]{0,15}(\d+(?:\.\d+)?)", params or "", re.I)
+    p_val = float(p_match.group(1)) if p_match else None
+    t_val = float(t_match.group(1)) if t_match else None
+    return p_val, t_val
+
+
 def generate_report(state: AgentState):
     print("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
+
+    # ─── 文件记忆：读取 user_profile.md + project_history.md ───
+    # 首次进入本节点时读取一次并写回 state，重写轮次直接复用（避免每轮重复 IO）
+    file_memory_block = state.get("file_memory_context")
+    if file_memory_block is None:
+        file_memory_block = build_memory_context()
+        if file_memory_block:
+            print(f"  -> 文件记忆已加载（{len(file_memory_block)} 字）")
+        else:
+            print("  -> 文件记忆为空，跳过注入")
 
     # 构建记忆上下文（从 inject_memory 节点注入的 personal_context）
     personal_context = state.get("personal_context", "")
@@ -333,31 +478,53 @@ def generate_report(state: AgentState):
     if state.get("web_content"):
         web_context = f"\n【联网搜索补充内容（已自动入库）】：\n{state['web_content']}"
 
-    prompt = f"""你是一个资深的CCUS首席工程师。请严格基于以下信息，撰写一份CCUS项目风险评估报告。
-【提取的 CCUS 参数】：{state['extracted_params']}
+    # ─── System Prompt：角色 + 长期文件记忆 + 写作硬约束 ───
+    system_prompt = f"""你是一个资深的CCUS首席工程师，负责撰写 CO2 地质封存项目的风险评估报告。
+
+{file_memory_block if file_memory_block else "（暂无文件记忆）"}
+
+【写作硬性约束】：
+1. 如果知识库中没有相关记录，必须直接输出"知识库中无相关记录"。
+2. 必须遵循上面「用户画像」中的报告风格偏好（结论先行、分点陈述、数值落地）。
+3. **禁止使用"综上所述""总而言之""总的来说"等总结性套话**，直接分点陈述。
+4. 如果本次场景与「历史评估记录」中的某次相近，应显式做纵向对比
+   （例如"相比上次 250bar/80℃ 的评估，本次压力更高，断层活化风险上升"）。
+5. 请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。"""
+
+    # ─── User Prompt：本次任务的具体材料 ───
+    user_prompt = f"""【提取的 CCUS 参数】：{state['extracted_params']}
 【知识库检索到的标准】：{state['retrieved_knowledge']}
 {web_context}
 {personal_context}
 【上一版报告的修改意见】：{state.get('feedback', '无')}
 
-【写作硬性约束】：如果知识库中没有相关记录，必须直接输出"知识库中无相关记录"。
-请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。
-
-【重要工具使用规则】：
-如果你在撰写报告时，需要计算特定压力和温度下的 CO2 密度，请直接输出一个 JSON 指令，格式如下（不要加其他废话）：
-注意：pressure_bar 和 temperature_celsius 必须从【提取的 CCUS 参数】中读取用户实际提供的数值，禁止编造或照抄示例数值。
+【工具调用规则（强制）】：
+只要【提取的 CCUS 参数】中出现注入压力和温度，你**必须先输出**下面这个 JSON 指令，
+然后等系统返回计算结果，再把该结果写进报告。不要自己口算密度，也不要跳过这一步。
+pressure_bar 和 temperature_celsius 必须取自上方【提取的 CCUS 参数】的真实数值，
+禁止编造、禁止照抄下面示例里的数字。
 ```json
 {{"tool": "calculate_co2_density", "pressure_bar": 250, "temperature_celsius": 80}}
 ```
-系统会自动执行该计算并将结果返回给你，你再把结果写进最终报告里。"""
-    response = client.chat.completions.create(
-        model="qwen2.5", messages=[{"role": "user", "content": prompt}], temperature=0.3
-    )
+若参数中确实没有压力或温度，才跳过该步骤。"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    # 核心产出走云端模型（路由表决定）
+    _, model, tier, _ = get_llm("report")
+    response = llm_chat("report", messages=messages, temperature=0.3)
     report_text = response.choices[0].message.content
-    usage = record_llm_usage(state, "report", response)
+    state_update = record_llm_usage(state, "report", response, model, tier)
+    # 用"已合并的状态"继续记录后续调用，否则第二段会覆盖第一段的 token 统计
+    usage_state = {**state, **state_update}
 
     # ─── Function Calling：拦截 JSON 工具指令并二次执行 ────
     tool_match = re.search(r'```json\s*(\{.*?\})\s*```', report_text, re.DOTALL)
+    density_result = None
+
     if tool_match:
         try:
             tool_data = json.loads(tool_match.group(1))
@@ -365,24 +532,40 @@ def generate_report(state: AgentState):
                 p = tool_data.get("pressure_bar")
                 t = tool_data.get("temperature_celsius")
                 density_result = calculate_co2_density(p, t)
-                print(f"  [System] 工具计算完成：{density_result}，正在让大模型整合进报告...")
-                follow_up_prompt = (
-                    f"你刚才调用的工具计算结果为：{density_result}。"
-                    f"请把这个具体数值自然地融合进你的最终报告中，不要输出JSON了。"
-                )
-                final_response = client.chat.completions.create(
-                    model="qwen2.5",
-                    messages=[
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": report_text},
-                        {"role": "user", "content": follow_up_prompt}
-                    ],
-                    temperature=0.3
-                )
-                report_text = final_response.choices[0].message.content
-                usage = record_llm_usage(state, "report_tool_call", final_response)
         except Exception as e:
-            print(f"  [Warning] 工具解析失败: {e}")
+            print(f"  [Warning] 工具指令解析失败: {e}")
+
+    # ─── 确定性兜底：模型该调没调时，由代码补上 ─────────────
+    # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
+    # 于是密度变成模型口算值 —— 这会直接破坏"数值不可幻觉"的核心承诺。
+    # 因此不让它靠自觉：参数里有 P/T 就必须有工具结果。
+    if density_result is None:
+        p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
+        if p_val is not None and t_val is not None:
+            print("  [System] 模型未主动调用工具，但参数含压力/温度 → 启动确定性兜底计算")
+            density_result = calculate_co2_density(p_val, t_val)
+
+    if density_result is not None:
+        print(f"  [System] 工具计算完成：{density_result}，正在让大模型整合进报告...")
+        follow_up_prompt = (
+            f"你刚才调用的工具计算结果为：{density_result}。"
+            f"请把这个具体数值自然地融合进你的最终报告中，不要输出JSON了。"
+        )
+        # 二次整合必须复用同一个模型：若首轮用云端、整合用本地小模型，
+        # 报告后半段的措辞与逻辑会明显掉档，这是最常见的隐性质量 bug。
+        final_response = llm_chat(
+            "report",
+            messages=messages
+            + [
+                {"role": "assistant", "content": report_text},
+                {"role": "user", "content": follow_up_prompt},
+            ],
+            temperature=0.3,
+        )
+        report_text = final_response.choices[0].message.content
+        state_update = record_llm_usage(
+            usage_state, "report_tool_call", final_response, model, tier
+        )
 
     # ─── 自动保存报告到个人长期记忆 ───────────────────────
     # 只在第一次生成时保存（有 feedback 时说明是重写，不重复存）
@@ -402,7 +585,8 @@ def generate_report(state: AgentState):
     return {
         "final_report": report_text,
         "retry_count": current_retry + 1,
-        "token_usage": usage,
+        "file_memory_context": file_memory_block,
+        **state_update,
     }
 
 
@@ -420,8 +604,11 @@ def evaluate_report(state: AgentState):
 分数：[0-10的整数]
 评语：[1-2句简短评语]"""
 
-    response = client.chat.completions.create(
-        model="qwen2.5", messages=[{"role": "user", "content": prompt}], temperature=0.0
+    _, model, tier, _ = get_llm("evaluate")
+    response = llm_chat(
+        "evaluate",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
     )
     result = response.choices[0].message.content
 
@@ -436,7 +623,76 @@ def evaluate_report(state: AgentState):
     return {
         "score": score,
         "feedback": feedback,
-        "token_usage": record_llm_usage(state, "evaluate", response),
+        **record_llm_usage(state, "evaluate", response, model, tier),
+    }
+
+
+# ============================================================
+# 8-B. 文件记忆后处理节点（评审通过后落盘）
+# ============================================================
+def save_file_memory(state: AgentState):
+    """
+    把本次评估压缩成一条结构化历史记录，追加到 project_history.md。
+
+    为什么单独做成一个节点，而不是塞进 evaluate_report：
+    - evaluate_report 会被反思循环多次调用（rewrite 分支回到 report），
+      在里面写文件会把中间稿和最终稿都写进去，历史立刻被污染。
+    - 单独节点挂在 check_quality 的 pass 分支后面，天然保证"每次任务只写一次"。
+    """
+    print("\n[File Memory] 正在把本次评估写入 project_history.md...")
+
+    if state.get("history_saved"):
+        print("  -> 本次任务已记录过，跳过（幂等）")
+        return {"history_saved": True}
+
+    report = state.get("final_report", "")
+    if not report:
+        print("  -> 报告为空，跳过记录")
+        return {"history_saved": True}
+
+    # 用本地小模型做压缩 —— 这一步只是信息抽取，不需要云端智商
+    prompt = f"""请从下面这份 CCUS 风险评估报告中，提取一条**极简**的历史记录，供后续评估做纵向对比。
+
+【用户原始需求】：{state['user_input']}
+【提取的参数】：{state.get('extracted_params', '')}
+【评审分数】：{state.get('score', '-')}
+【报告全文】：
+{report}
+
+请严格按以下 Markdown 格式输出，不要输出任何额外内容、不要加一级/二级标题：
+
+**场景**: 一句话描述项目场景（储层类型、断层情况等）
+**关键参数**: 列出压力/温度/注入速率等具体数值，没有就写"未提供"
+**核心结论**: 2-3 句，只写最重要的风险判断和对应缓解措施
+**评审分**: {state.get('score', '-')}/10"""
+
+    try:
+        _, model, tier, _ = get_llm("history")
+        response = llm_chat(
+            "history",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        entry = response.choices[0].message.content.strip()
+        usage_update = record_llm_usage(state, "history", response, model, tier)
+    except Exception as e:
+        # 云端/本地都失败时降级为规则拼接，保证历史不断档
+        print(f"  -> 结论抽取失败（{e}），改用规则拼接")
+        entry = (
+            f"**场景**: {state['user_input'][:80]}\n"
+            f"**关键参数**: 见提取结果\n"
+            f"**核心结论**: {report[:200].replace(chr(10), ' ')}…\n"
+            f"**评审分**: {state.get('score', '-')}/10"
+        )
+        usage_update = {}
+
+    size = append_project_history(entry)
+    print(f"  -> 已追加到 project_history.md（当前 {size} 字节）")
+
+    return {
+        "history_entry": entry,
+        "history_saved": True,
+        **usage_update,
     }
 
 
@@ -451,6 +707,11 @@ def check_quality(state: AgentState):
         print("[System] ✅ 报告达标，流程结束。")
         if state.get("personal_context"):
             print("[System] 📝 本次评估参考了个人长期记忆")
+        if state.get("file_memory_context"):
+            print("[System] 📝 本次评估参考了文件记忆（user_profile.md + project_history.md）")
+        routing = state.get("model_routing") or {}
+        if routing:
+            print(f"[System] 🔀 模型路由：{routing}")
         return "pass"
     else:
         print(f"[System] ⚠️ 报告未达标（重试 {retry_count}/2），打回重写！")
@@ -534,6 +795,7 @@ workflow.add_node("retrieve", retrieve_knowledge)
 workflow.add_node("web_search", web_search_save)
 workflow.add_node("report", generate_report)
 workflow.add_node("evaluate", evaluate_report)
+workflow.add_node("save_file_memory", save_file_memory)
 
 # 入口 → memory_router
 workflow.set_entry_point("memory_router")
@@ -575,10 +837,13 @@ workflow.add_conditional_edges(
     "evaluate",
     check_quality,
     {
-        "pass": END,
+        "pass": "save_file_memory",
         "rewrite": "report"
     }
 )
+
+# 评审通过（或重试耗尽）→ 写入文件记忆 → 结束
+workflow.add_edge("save_file_memory", END)
 
 # ============================================================
 # 12. 初始化 Checkpoint 机制
@@ -591,7 +856,20 @@ app = workflow.compile(checkpointer=memory_saver)
 # 12. 运行测试
 # ============================================================
 if __name__ == "__main__":
-    print("\n🚀 开始执行 CCUS 多智能体（带反思循环 + 语义精排 + 外部裁判）...")
+    print("\n🚀 开始执行 CCUS 多智能体（多模型路由 + 文件记忆 + 反思循环）...")
+
+    # 确保文件记忆的两个 .md 存在
+    ensure_memory_files()
+
+    # 启动时打印一次路由表，便于确认配置是否生效
+    print("\n[Model Routing] 配置：")
+    for _stage, _tier in MODEL_ROUTING.items():
+        _resolved, _reason = resolve_route(_stage)
+        _mdl = CLOUD_MODEL if _resolved == "cloud" else LOCAL_MODEL
+        print(f"  {_stage:<10} → {_resolved}:{_mdl}" + (f"  ⚠️ {_reason}，已降级" if _reason else ""))
+    if not cloud_available():
+        print("  （未配置 CLOUD_API_KEY，report 阶段将使用本地模型；"
+              "在 .env 中设置后可启用云端）")
 
     # 你的测试输入（含压力/温度参数，用于触发 Function Calling 密度计算）
     test_input = "某CCUS项目注入压力250bar，温度80℃，存在隐伏碳盐酸岩储层断层，请评估风险。"
@@ -606,6 +884,16 @@ if __name__ == "__main__":
     print("最终生成的 CCUS 风险评估报告：")
     print("=" * 40)
     print(final_state["final_report"])
+
+    print("\n" + "=" * 40)
+    print("模型路由（实际使用）：")
+    print("=" * 40)
+    print(final_state.get("model_routing", {}))
+
+    print("\n" + "=" * 40)
+    print("本次写入 project_history.md 的记录：")
+    print("=" * 40)
+    print(final_state.get("history_entry", "（无）"))
 
     print("\n" + "=" * 40)
     print("Token 消耗统计：")
