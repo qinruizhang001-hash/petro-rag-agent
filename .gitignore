@@ -1,7 +1,12 @@
 # ============================================
 # Large model files (2.3GB+) — never commit
 # ============================================
-models/
+# 用 models/* 而不是 models/：目录本身不能整体排除，否则下面的白名单规则
+# 永远不会被求值（git 不会进入被排除的目录）。PINN 的权重只有 20 KB，
+# 必须进仓库 —— 工具在工作流里被调用，不能要求每次先训练 27 秒。
+models/*
+!models/pinn_baseline.pt
+!models/pinn_injection.pt
 
 # ============================================
 # Vector store / ChromaDB runtime data

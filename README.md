@@ -19,7 +19,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-314%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-350%20passing-brightgreen">
 </p>
 
 ---
@@ -67,7 +67,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 ### Beyond the graph
 
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 314 offline unit tests (306 of which run in CI).
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 350 offline unit tests (320 of which run in CI).
 
 ---
 
@@ -156,7 +156,7 @@ flowchart TD
     WS -->|"fan-in<br/>(barrier)"| AG
 
     AG --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
-    PLAN --> FC["Function Calling<br/>CO2 density · pressure curve"]
+    PLAN --> FC["Function Calling<br/>CO2 density · pressure curve · PINN"]
     FC --> RP2["Phase B · Final report<br/>(streamed, CLOUD via gateway)"]
     RP2 --> EV["Agent 4 · Evaluator"]
     EV --> PH{"Physics rules<br/>P_inj vs P_h / P_frac<br/>LOCAL · deterministic"}
@@ -269,7 +269,7 @@ Both branches **generate their own conclusion** (150–250 characters) rather th
 
 Inside the full E2E suite the same numbers read 1.16× / 1.05× in one run and 1.23× / 1.05× / 1.34× / 1.34× in the next — the wellbore branch only takes 5–20 s, so the more the geology rerank dominates, the less there is to overlap.
 
-**The honest part: this does not make the pipeline faster.** The linear graph measured ~98 s per workflow. The fan-out graph measured 121 / 121 / 121 s in one run and 107 / 107 / 76 / 69 s in the next; the suite as a whole went 447 s → 513 s → 425 s. That spread (~90 s between runs with no code change) is larger than the effect being claimed, so the workflow-level comparison **cannot settle it either way**. The only number worth quoting is the within-run overlap, because both branches are timed against the same clock and the same rerank candidate set. Three effects, all measured:
+**The honest part: this does not make the pipeline faster.** The linear graph measured ~98 s per workflow. The fan-out graph measured 121 / 121 / 121 s in one run and 107 / 107 / 76 / 69 s in the next; the suite as a whole went 447 s → 513 s → 425 s → 413 s. That spread (~100 s between runs with no code change) is larger than the effect being claimed, so the workflow-level comparison **cannot settle it either way**. The only number worth quoting is the within-run overlap, because both branches are timed against the same clock and the same rerank candidate set. Three effects, all measured:
 
 1. **Two extra generations per request.** Each branch writes its own conclusion, so the cloud is called twice more. That is the price of the architecture, not a bug.
 2. **GPU contention.** The wellbore branch's generation runs *while* the cross-encoder is reranking, and both compete for the same GPU. Geology took 74.7 s with the sibling running versus ~61 s of pure retrieval+rerank work — the overlap is real but it is not free.
@@ -467,6 +467,43 @@ Reading the chart correctly matters. Injection pressure is **one constant value*
 A useful derived quantity falls out: the **admissible depth range** `[d_min, d_max]` where that injection pressure is both high enough to enter the formation and low enough not to fracture it. For 250 bar that is roughly 1 649–2 474 m — which is why injecting 250 bar into a 3 000 m reservoir is flagged as *under-pressure*, not as a fracture risk.
 
 Two robustness details worth naming: charts use a CJK font when one exists and fall back to English labels otherwise (matplotlib renders Chinese as tofu boxes without it), and `os.path.relpath` is wrapped because it raises `ValueError` across Windows drive letters — a chart directory on `C:` with the project on `D:` would otherwise crash the node.
+
+### A PINN tool: pressure from a PDE, not from a model's guess
+
+`predict_pressure(x, t)` solves the 1-D pressure-diffusion form of Darcy's law instead of interpolating from data:
+
+```
+∂P/∂t = D · ∂²P/∂x²        D = 0.1 m²/s,  x ∈ [0, 100] m
+```
+
+A 3-layer MLP (2 → 64 → 64 → 1) maps `(x, t)` to `P`; the loss is the PDE residual from `torch.autograd` (a second derivative, so `create_graph=True`) plus initial and boundary terms. No training data — the physics *is* the supervision. Training takes 27 s on CPU for both scenarios.
+
+**Two implementation details are load-bearing, not stylistic.**
+
+*Activation must be `tanh`, never `ReLU`.* `ReLU`'s second derivative is zero almost everywhere, so `∂²P/∂x² ≡ 0` and the physics loss becomes **zero for free** — a network that ignores the PDE entirely reports a perfect residual. This is why `tests/test_pinn.py` asserts on the module structure (no `ReLU` present) rather than on the residual alone: the residual test cannot catch this bug, because the bug makes the residual *smaller*.
+
+*Training happens in dimensionless coordinates.* With `x ~ 100 m` and `t ~ 10⁶ s`, the two residual terms differ by six orders of magnitude (10⁻⁵ vs 10⁻³) and the optimiser only chases the larger one, leaving the PDE constraint nominal. Scaling by `L` and by the diffusion time `τ = L²/D = 100 000 s` absorbs `D` into the coordinates, so the residual becomes `∂P/∂ŝ − ∂²P/∂x̂²` with both terms the same size.
+
+**The boundary conditions requested were degenerate, and that is worth stating plainly.** Initial condition `P = 100` with both ends held at `P = 100` has exactly one solution — `P ≡ 100` — by the maximum principle. The model converges beautifully (loss `5.1e2 → 6.7e-3`) and answers `100.0` at every `(x, t)`. That is correct and carries no information: "pressure 10 days after injection" cannot be a constant, because nothing was injected.
+
+So the tool ships with two scenarios, and the second one exists because the first one cannot answer the question:
+
+| Scenario | Boundary conditions | Solution | Use |
+|---|---|---|---|
+| `baseline` | IC 100, both ends 100 | `P ≡ 100` (analytic) | the literal request; retained as evidence that a wrong BC silently removes all information |
+| `injection` (default) | `P(0,t) = 120`, `P(L,t) = 100`, IC 100 | diffusion front, → linear steady state | the question the user actually asked |
+
+The `injection` scenario is verifiable rather than merely plausible: for `t ≫ τ` the solution tends to the linear steady state `P(x) = 120 − 20·x/L`, so `P(50 m) = 110.000 bar` analytically. At 10 days (≈ 8.6 τ) the PINN gives **109.951 bar** — a 0.049 bar error — with a mean PDE residual of 0.138 bar against a 20 bar signal.
+
+```
+scenario    epochs   loss (first → last)     P(50 m, 10 d)   analytic
+baseline      1000   5.100e+02 → 6.677e-03         99.991      100.000
+injection     4000   1.584e+03 → 5.389e-01        109.951      110.000
+```
+
+Wiring follows the same rule as the other tools: the model is *asked* to plan `predict_pressure`, and if it doesn't, the code calls it anyway. The trigger is a pure regex extractor (`utils/pinn_query.py`) that reads `x` and `t` out of the user's sentence — deliberately **not** out of `extracted_params`, because extraction rewrites "50 m from the well" into "reservoir depth 2 500 m" and the space-time coordinates survive only in the original wording. The extractor has 14 tests in CI; the model's own behaviour tests need torch and therefore run locally, like the E2E suite.
+
+One boundary is deliberate: only Chinese phrasing is recognised (`距离井口 50 米，注入 10 天`). English word order (`50 meters from the well after 10 days`) is not matched, because supporting it means also matching bare `10 days` fragments that appear all over retrieved literature — and a false trigger is worse than no trigger, since it writes a pressure value into the report that nobody asked for.
 
 ---
 
@@ -774,7 +811,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **314 offline unit tests**, and a **146-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **350 offline unit tests**, and a **146-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -851,10 +888,12 @@ petro-rag-agent/
 │   ├── context_pruner.py     # Chunked context compression (unit-tested)
 │   ├── branch_merge.py       # Fan-in merge / degradation / timing, pure (unit-tested)
 │   ├── retry.py              # Exponential backoff for transient upstream errors (unit-tested)
+│   ├── pinn_query.py         # 问句 → (x, t) extraction for the PINN tool, pure (unit-tested)
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
-│   └── physics_tools.py      # calculate_co2_density (Function Calling tool)
+│   ├── physics_tools.py      # calculate_co2_density (Function Calling tool)
+│   └── (predict_pressure lives in pinn_model.py, imported lazily by aggregate)
 ├── fetch_ccus_papers.py      # arXiv search → relevance filter → PDF download + manifest
 ├── ingest_ccus_batch.py      # PDFs → ChromaDB (full text) + LightRAG (budgeted)
 ├── normalize_graph.py        # Alias merge + noise removal on a built graph (dry-run first)
@@ -863,6 +902,7 @@ petro-rag-agent/
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
 ├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
+├── pinn_model.py             # 1-D PINN (diffusion PDE) → predict_pressure(x, t); trains in 27 s
 ├── model_router.py           # Pure routing logic + complexity decision (unit-tested)
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
@@ -871,6 +911,7 @@ petro-rag-agent/
 ├── gateway.py                # In-repo OpenAI-compatible gateway on 127.0.0.1:3425
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
+├── models/                   # PINN weights (*.pt, ~18 KB each) + loss curves (*.png)
 ├── test_graph_rag_e2e.py     # End-to-end regression suite (146 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
@@ -1087,11 +1128,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 314 tests in 5.399s
+Ran 350 tests in 4.925s
 OK
 ```
 
-Fourteen suites:
+Seventeen suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -1107,6 +1148,9 @@ Fourteen suites:
 - `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
 - `test_degradation.py` — the requirement that matters most, tested **where it actually lands**: `final_report`. `test_branch_merge` proves the fallback text is *produced*; this suite proves it *survives the rest of the node* — that it is appended after the body rather than swallowed by `strip_tool_json`, that the chart reference does not overwrite it, and that the surviving branch's conclusion still reaches the generation prompt (i.e. "continue based on wellbore data" is checkable, not a claim). The branch layer is covered too: a retrieval timeout and an exhausted rate-limit retry both return state with `ok: false` instead of raising into LangGraph, while a healthy run carries **no** degradation text — otherwise every report would cry wolf. Runs locally rather than in CI, because importing *any* node pulls `sentence_transformers` through `utils/tokens.py` → `core.reranker`; installing torch to run one test file is not a trade worth making. This is the one place where the test split is a compromise rather than a design.
+- `test_pinn_query.py` — the natural-language front door to the PINN tool. A wrong extraction here does not raise: it produces a *plausible wrong number* (reading `250 bar` as `250 m`, or `240 hours` as `240 days` — a 24× error). So the cases are enumerated in three groups: must match (Chinese, abbreviations, reversed clause order, hours→days, decimals), must not match (`注入压力 250 bar` contains no distance; distance without time; time without distance), and must reject (`x = 500 m` is outside the domain, i.e. the regex grabbed the wrong number). English word order is pinned as **unsupported** on purpose, because matching bare `10 days` fragments from retrieved literature would fire the tool on questions nobody asked.
+- `test_pinn.py` — the model itself, checked against analysis rather than against itself: the `injection` scenario has an exact linear steady state (`P(50 m) = 110.000 bar`), and at 10 days the network returns **109.951**, a 0.049 bar error. It also asserts the PDE residual on random collocation points (mean 0.138 bar against a 20 bar signal), monotonic decay from well to far field, the maximum principle (in-domain values stay between the boundary values), clamping of out-of-range inputs, and the `baseline` scenario's degeneracy (`P ≡ 100` at every point, which is correct and useless — see the PINN section). One test checks **structure** rather than output: no `ReLU` may appear in the network, because `ReLU`'s zero second derivative makes the physics loss vanish and would make the residual test *pass harder*.
+- `test_pinn_tool.py` — the wiring, because "called" and "output" turned out to be different things: the 7B model did plan `predict_pressure`, the tool did return 109.95 bar, and the report **did not mention it at all**. Three links are pinned separately — the planned call executes, the regex fallback fires when the model plans nothing, and a missing number is appended by code — plus the two negative cases (unrelated questions must not sprout a pressure value; a missing weight file must degrade the report rather than fail it).
 
 ### End-to-end regression — requires local Ollama + built graph
 
@@ -1117,7 +1161,7 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 146 PASS / 0 FAIL   (425 s and 513 s on two consecutive runs —
+Test summary: 146 PASS / 0 FAIL   (413 s / 425 s / 513 s across three runs —
                                    three retrieval rounds, each fanning out into two branches;
                                    the spread is rerank-candidate variance, see the latency note above)
 ```

@@ -49,11 +49,38 @@ from utils.branch_merge import (
     degradation_block,
     parallel_timing_of,
 )
+from utils.pinn_query import extract_pinn_query
 from utils.tokens import record_llm_usage, record_usage_payload
 
 from utils.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+
+def _call_pinn(x, t, scenario: str = "injection") -> dict:
+    """调用 PINN 压力预测工具。
+
+    惰性 import：``pinn_model`` 会拉起 torch（约 1~2 s、数百 MB 常驻）。API
+    进程在别的路径上并不需要它，只有真的规划出这个工具时才值得付这笔钱。
+    顺带的好处是：torch 没装时接口照样能启动，工具调用失败而不是整个服务挂掉。
+
+    返回值做成 dict 而不是裸 float，是为了让"用了哪个场景、输入是什么"能和
+    数值一起进报告 —— 一个 110 bar 如果不说边界条件，读者无法判断它对不对。
+    """
+    from pinn_model import predict_pressure
+
+    x_f, t_f = float(x), float(t)
+    p = predict_pressure(x_f, t_f, scenario=scenario)
+    return {
+        "x_m": x_f,
+        "t_days": t_f,
+        "pressure_bar": p,
+        "scenario": scenario,
+        "text": (
+            f"距井口 {x_f:g} m、注入 {t_f:g} 天后地层压力 = {p:.2f} bar"
+            f"（一维扩散方程 PINN 数值解，D = 0.1 m²/s，{scenario} 边界条件）"
+        ),
+    }
 
 
 def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
@@ -292,11 +319,14 @@ def aggregate_report(state: AgentState, config=None):
     plan_prompt = materials + """
 
 【任务：只做工具规划，不要写报告】
-你有两个工具：
+你有三个工具：
 1. `calculate_co2_density` —— 参数中出现注入压力和温度时调用，不要自己口算密度。
 2. `generate_pressure_curve` —— 必须调用，生成"地层压力随深度"地质图。
    depth 取参数中的储层埋深；参数里没有就省略该字段（系统会按默认值绘制并标注"估算"），
    **不要编造深度**。
+3. `predict_pressure` —— 当问题问的是"距井口 X 米处、注入 T 天后的压力"时调用，
+   由物理信息神经网络解一维扩散方程给出数值，**不要自己推算压力随距离/时间的衰减**。
+   x 单位米（0~100），t 单位天（0~30），两者都必须取自问题原文，不要臆造。
 
 只输出 json 代码块，每个工具一个，不要输出任何解释或正文。数值必须取自【提取的 CCUS 参数】：
 ```json
@@ -304,6 +334,9 @@ def aggregate_report(state: AgentState, config=None):
 ```
 ```json
 {"tool": "generate_pressure_curve", "depth": 2500, "injection_pressure_bar": 250}
+```
+```json
+{"tool": "predict_pressure", "x": 50, "t": 10}
 ```"""
 
     plan_msgs = [
@@ -331,6 +364,7 @@ def aggregate_report(state: AgentState, config=None):
 
     density_result = None
     chart_result = None
+    pinn_result = None
     for req in tool_requests:
         name = req.get("tool")
         if name == "calculate_co2_density":
@@ -344,6 +378,24 @@ def aggregate_report(state: AgentState, config=None):
                 )
             except Exception as e:
                 log.warning(f"  [Warning] 图表生成失败: {e}")
+        elif name == "predict_pressure":
+            # 坐标必须能在**用户原话**里核对到，不能信模型给的数字。
+            # 原因很具体：plan_prompt 里有一个 {"x": 50, "t": 10} 的示例，
+            # 7B 模型很容易把它照抄进一个根本没问距离和时间的问题里，
+            # 于是报告多出一个"距井口 50 m = 109.95 bar"——用户没问，
+            # 数值还是精确的，这种污染比明显错误更难发现。
+            grounded = extract_pinn_query(state.get("user_input", ""))
+            if grounded is None:
+                log.warning(
+                    f"  [Warning] 模型规划了 PINN，但问句里没有可核对的 x/t"
+                    f"（{req}）→ 忽略，避免编造坐标"
+                )
+                continue
+            try:
+                pinn_result = _call_pinn(*grounded)
+                log.info(f"  [Tool 调用] PINN → {pinn_result['text']}")
+            except Exception as e:
+                log.warning(f"  [Warning] PINN 预测失败（不影响报告）: {e}")
 
     # ─── 确定性兜底：模型该调没调时，由代码补上 ─────────────
     # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
@@ -364,6 +416,21 @@ def aggregate_report(state: AgentState, config=None):
             log.warning(f"  [Warning] 图表生成失败（不影响报告）: {e}")
             chart_result = None
 
+    # ─── PINN 兜底：触发条件看**用户原话**，而不是提取出的参数 ───
+    # extract_params 会把"距离井口 50 米"改写成"储层埋深 2500 m"这类工程参数，
+    # 而 (x, t) 这组空间-时间坐标只存在于原话里。所以这里扫 user_input。
+    # 与密度/图表兜底同一个理由：压力随距离和时间的衰减不该由模型口算。
+    if pinn_result is None:
+        q = extract_pinn_query(state.get("user_input", ""))
+        if q is not None:
+            log.info(f"  [System] 问题含井口距离/注入时长（x={q[0]:g} m, t={q[1]:g} d）"
+                     f"但模型未规划 PINN → 确定性兜底调用")
+            try:
+                pinn_result = _call_pinn(q[0], q[1])
+                log.info(f"  [Tool 调用] PINN → {pinn_result['text']}")
+            except Exception as e:
+                log.warning(f"  [Warning] PINN 兜底调用失败（不影响报告）: {e}")
+
     chart_ok = bool(chart_result and chart_result.get("status") == "ok")
     if chart_ok:
         log.info(f"  [System] 图表已生成：{chart_result['rel_path']}")
@@ -382,6 +449,8 @@ def aggregate_report(state: AgentState, config=None):
         tool_facts.append(f"CO2 密度 = {density_result}（由物理工具计算）")
     if chart_ok:
         tool_facts.append(f"地层压力曲线结论：{chart_result['summary']}")
+    if pinn_result is not None:
+        tool_facts.append(f"PINN 压力预测：{pinn_result['text']}")
 
     facts_block = ""
     if tool_facts:
@@ -433,6 +502,16 @@ def aggregate_report(state: AgentState, config=None):
             report_text = report_text.rstrip() + (
                 f"\n\n> CO2 密度 {density_result}，按注入压力与温度由状态方程工具计算。"
             )
+
+    # ─── PINN 数值兜底：与密度同理，工具算了但没写进报告就等于没算 ───
+    # 实测本地 7B 会忽略 facts_block 里"必须写进正文"的指令（报告里只字未提
+    # 109.95 bar），所以这里和密度一样由代码补。判断依据是数值本身是否出现，
+    # 而不是"模型有没有提到压力" —— 后者无法可靠判断。
+    if pinn_result is not None:
+        pnum = f"{pinn_result['pressure_bar']:.2f}"
+        if pnum not in report_text:
+            log.info(f"  [System] 报告未包含 PINN 预测 {pnum} bar → 追加数值说明")
+            report_text = report_text.rstrip() + f"\n\n> {pinn_result['text']}。"
 
     # ─── 降级说明：代码追加，不依赖模型照做 ────────────────
     # 这段必须放在图片引用**之前**吗？不必 —— 但要放在正文之后、且保证唯一。
@@ -494,6 +573,7 @@ def aggregate_report(state: AgentState, config=None):
         "retry_count": current_retry + 1,
         "file_memory_context": file_memory_block,
         "chart_info": _chart_payload(chart_result) if chart_ok else {},
+        "pinn_prediction": pinn_result or {},
         **compress_update,
         **state_update,
     }

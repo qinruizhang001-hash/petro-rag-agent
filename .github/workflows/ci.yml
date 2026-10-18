@@ -170,7 +170,8 @@ jobs:
             tests.test_entity_aliases \
             tests.test_graph_analysis \
             tests.test_branch_merge \
-            tests.test_retry
+            tests.test_retry \
+            tests.test_pinn_query
 
   unit-charts:
     name: Unit tests · chart tool

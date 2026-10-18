@@ -83,6 +83,10 @@ class AgentState(TypedDict):
     memory_compression: dict       # 本次是否触发历史压缩及压缩统计
     # ─── 图表 ───
     chart_info: dict               # generate_pressure_curve 的结果（路径/结论）
+    # ─── PINN 压力预测 ───
+    # {x_m, t_days, pressure_bar, scenario, text}；未调用时为空 dict。
+    # 只有 aggregate 写这个字段（上游没有并发的写者），所以不需要 reducer。
+    pinn_prediction: dict
     # ─── Token 经济学：动态路由 ───
     complexity_mode: str           # 本次请求判定的档位："local" | "cloud"
     complexity_info: dict          # 判定依据（字符数/是否命中/RAG 相关度/日志标签）

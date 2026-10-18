@@ -132,6 +132,7 @@ def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
         "model_routing": values.get("model_routing", {}),
         "history_entry": values.get("history_entry", ""),
         "chart": values.get("chart_info", {}),
+        "pinn": values.get("pinn_prediction", {}),
         # ─── 物理一致性校验（规则引擎）───
         "physics_check": _physics_of(values),
         # ─── 人类在环 ───
@@ -171,6 +172,7 @@ async def analyze_sync(request: ProjectRequest):
             "model_routing": final_state.get("model_routing", {}),
             "history_entry": final_state.get("history_entry", ""),
             "chart": final_state.get("chart_info", {}),
+            "pinn": final_state.get("pinn_prediction", {}),
             # ─── 物理一致性校验 + 人类在环 ───
             "physics_check": _physics_of(final_state),
             "human_review": _human_review_of(final_state),
@@ -291,6 +293,7 @@ async def _event_stream(user_input: str, thread_id: str):
                 "extracted_params": node_outputs.get("extracted_params", ""),
                 "model_routing": node_outputs.get("model_routing", {}),
                 "chart": node_outputs.get("chart_info", {}),
+                "pinn": node_outputs.get("pinn_prediction", {}),
                 "history_entry": node_outputs.get("history_entry", ""),
                 # ─── 物理一致性校验 + 人类在环 ───
                 "physics_check": _physics_of(node_outputs),
