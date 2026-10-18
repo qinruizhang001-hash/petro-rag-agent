@@ -19,7 +19,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-306%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-314%20passing-brightgreen">
 </p>
 
 ---
@@ -67,7 +67,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 ### Beyond the graph
 
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 306 unit tests in CI.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 314 offline unit tests (306 of which run in CI).
 
 ---
 
@@ -267,13 +267,13 @@ Both branches **generate their own conclusion** (150–250 characters) rather th
 汇总节点        14.92 s
 ```
 
-Inside the full E2E suite (three workflows, 146 candidate fragments per round) the same numbers read 1.16× and 1.05× — the wellbore branch only takes 5–16 s, so the more the geology rerank dominates, the less there is to overlap.
+Inside the full E2E suite the same numbers read 1.16× / 1.05× in one run and 1.23× / 1.05× / 1.34× / 1.34× in the next — the wellbore branch only takes 5–20 s, so the more the geology rerank dominates, the less there is to overlap.
 
-**The honest part: this does not make the pipeline faster.** End-to-end per workflow went from ~98 s (linear) to ~121 s (fan-out + synthesis), and the E2E suite from 447 s to 513 s. Three effects, all measured:
+**The honest part: this does not make the pipeline faster.** The linear graph measured ~98 s per workflow. The fan-out graph measured 121 / 121 / 121 s in one run and 107 / 107 / 76 / 69 s in the next; the suite as a whole went 447 s → 513 s → 425 s. That spread (~90 s between runs with no code change) is larger than the effect being claimed, so the workflow-level comparison **cannot settle it either way**. The only number worth quoting is the within-run overlap, because both branches are timed against the same clock and the same rerank candidate set. Three effects, all measured:
 
 1. **Two extra generations per request.** Each branch writes its own conclusion, so the cloud is called twice more. That is the price of the architecture, not a bug.
 2. **GPU contention.** The wellbore branch's generation runs *while* the cross-encoder is reranking, and both compete for the same GPU. Geology took 74.7 s with the sibling running versus ~61 s of pure retrieval+rerank work — the overlap is real but it is not free.
-3. **Rerank candidate count varies run to run** (100 → 146 fragments for the same input, because LightRAG's keyword extraction is not deterministic). Cross-encoder cost is linear in candidates, so this alone moves the total by ~30 s and swamps any architectural comparison.
+3. **Rerank candidate count varies run to run** (100 → 146 fragments for the same input, because LightRAG's keyword extraction is not deterministic). Cross-encoder cost is linear in candidates, so this alone moves the total by ~30 s and swamps any architectural comparison. It is also why the suite total moves by ±90 s between runs, and why 513 s and 425 s are both reported instead of whichever one flatters the change.
 
 What the split buys is **fault isolation, per-domain evidence, and independent routing** — a wellbore failure now costs a paragraph instead of the whole report. If you want latency back, the lever is a faster cross-encoder or fewer candidates, not the fan-out; claiming parallelism made this faster would be dishonest arithmetic.
 
@@ -774,7 +774,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **306 offline unit tests**, and a **146-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **314 offline unit tests**, and a **146-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1087,11 +1087,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 306 tests in 3.497s
+Ran 314 tests in 5.399s
 OK
 ```
 
-Thirteen suites:
+Fourteen suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -1106,6 +1106,7 @@ Thirteen suites:
 - `test_branch_merge.py` — the fan-in logic, i.e. the code that only runs when something has already gone wrong. All four combinations are enumerated (both branches ok / geology down / wellbore down / both down), and two properties are locked: the text handed downstream for a failed branch is **never an empty string** (an empty section reads as "no requirement", a fallback sentence reads as "this requirement failed" — opposite meanings to a reader), and `parallel_timing_of` derives its speedup from branch timestamps rather than node names, so it reports ~1.0 if anyone ever turns the fan-out back into a serial chain. Non-string / non-dict state values are exercised too, because those functions are exactly what gets called on a corrupted state.
 - `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
+- `test_degradation.py` — the requirement that matters most, tested **where it actually lands**: `final_report`. `test_branch_merge` proves the fallback text is *produced*; this suite proves it *survives the rest of the node* — that it is appended after the body rather than swallowed by `strip_tool_json`, that the chart reference does not overwrite it, and that the surviving branch's conclusion still reaches the generation prompt (i.e. "continue based on wellbore data" is checkable, not a claim). The branch layer is covered too: a retrieval timeout and an exhausted rate-limit retry both return state with `ok: false` instead of raising into LangGraph, while a healthy run carries **no** degradation text — otherwise every report would cry wolf. Runs locally rather than in CI, because importing *any* node pulls `sentence_transformers` through `utils/tokens.py` → `core.reranker`; installing torch to run one test file is not a trade worth making. This is the one place where the test split is a compromise rather than a design.
 
 ### End-to-end regression — requires local Ollama + built graph
 
@@ -1116,7 +1117,9 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 146 PASS / 0 FAIL   (513 s — three retrieval rounds, each now fanning out into two branches)
+Test summary: 146 PASS / 0 FAIL   (425 s and 513 s on two consecutive runs —
+                                   three retrieval rounds, each fanning out into two branches;
+                                   the spread is rerank-candidate variance, see the latency note above)
 ```
 
 This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 10 successful upstream calls during the suite (3 workflows × 2 branches + 3 syntheses, plus the SSE one) — 4 of them streamed. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
