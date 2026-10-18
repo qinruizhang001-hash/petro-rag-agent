@@ -3,15 +3,20 @@
 输出：docs/knowledge-graph.svg
 
 设计取舍：
-- 只渲染**最大连通分量**。它是 CCUS 地质封存的核心因果链，其余碎片
-  （语料扩充后有 247 个分量，最大 83 节点）画上去只会让主图缩成一团，
-  信息密度反而下降。标题里如实标注总量（765 实体 / 559 关系），不夸大。
+- 只渲染**最大连通分量**。它是 CCUS 地质封存的核心因果链，其余碎片画上去
+  只会让主图缩成一团，信息密度反而下降。标题里如实标注总量，不夸大。
 - 每条边标注 LightRAG 抽取的关系关键词 —— 这是 GraphRAG 区别于向量检索的直接证据。
+- **只给度数 ≥3 的节点画标签**。主分量有 244 个节点，其中 119 个是叶子
+  （只连一条边）；全画标签会互相压字，读者反而一个都看不清。叶子节点保留
+  悬浮提示，鼠标移上去能看到名字、类型和描述。
 
-注意：分量数量本身就是个诚实指标。语料从 5 篇扩到 23 篇后，节点涨了 16 倍，
-但**分量数也跟着涨到 247** —— 说明"多喂论文"并不会自动产生一张连通的知识网，
-因为跨论文的实体合并依赖**名称完全一致**。要真正连起来需要实体归一化
-（caprock / Cap rock / Caprock Integrity 合成一个），这件事还没做。
+注意：分量数量本身就是个诚实指标。
+- 语料 5 篇时：46 节点 / 32 边，基本是一张手绘的种子图。
+- 扩到 23 篇、用通用 prompt：765 节点散成 **247 个分量**，最大只有 83 个
+  —— 多喂论文并没有自动产生连通性，因为 LightRAG 按**实体名完全相等**合并，
+  而 `CO2` 和 `Carbon dioxide (CO2)` 是两个节点。
+- 加了类型约束 + 别名归并后：389 节点 / 84 个分量 / 最大 244（62.7%）。
+  剩下的 84 个分量里有 61 个是孤立节点，真正"成块"的只有 23 个。
 """
 import html
 import math
@@ -25,8 +30,12 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 GRAPHML = os.path.join(ROOT, "lightrag_storage", "graph_chunk_entity_relation.graphml")
 OUT = os.path.join(ROOT, "docs", "knowledge-graph.svg")
 
-W, H = 1180, 780
+W, H = 1560, 1000
 PAD_X, PAD_TOP, PAD_BOT = 90, 110, 70
+
+# 低于这个度数的节点不画文字标签，只留悬浮提示。
+# 4 度在这个图上是 43 个标签 —— 再多就开始互相压字（3 度是 69 个，实测糊成一片）。
+LABEL_MIN_DEGREE = 4
 
 PALETTE = ["#4C9AFF", "#FF7A59", "#36B37E", "#B37FEB", "#FFC53D",
            "#40C4D0", "#FF5C8A", "#F2A65A", "#7FD1AE", "#9AA5B1"]
@@ -39,6 +48,26 @@ def esc(s):
 
 def shorten(name, limit=16):
     return name if len(name) <= limit else name[: limit - 1] + "…"
+
+
+def halo_text(x, y, text, *, size, fill, anchor="middle", weight="500"):
+    """
+    带描边光晕的文字，用**两层 <text>** 实现而不是 `paint-order`。
+
+    第一版用了 `paint-order="stroke"`，浏览器里正常，但 PyMuPDF 不认这个属性，
+    会按默认顺序"先填充、后描边"，于是 3.5px 的深色描边把字整个盖住 ——
+    导出的 PNG 上一个标签都看不见。双层写法在所有渲染器里都对：底层只负责
+    描边（填充也用背景色），上层只负责填充。
+    """
+    common = (
+        f'x="{x:.1f}" y="{y:.1f}" text-anchor="{anchor}" font-size="{size}" '
+        f'font-weight="{weight}" font-family="ui-sans-serif,Segoe UI,Helvetica,Arial"'
+    )
+    return (
+        f'<text {common} fill="{BG}" stroke="{BG}" stroke-width="3.5" '
+        f'stroke-linejoin="round">{esc(text)}</text>'
+        f'<text {common} fill="{fill}" fill-opacity="0.94">{esc(text)}</text>'
+    )
 
 
 def main():
@@ -93,12 +122,7 @@ def main():
             f'<title>{esc(", ".join(kws))} — {desc}</title></path>'
         )
         if kw and len(kw) <= 8:
-            kw_svg.append(
-                f'<text x="{mx:.1f}" y="{my - 4:.1f}" text-anchor="middle" font-size="9.5" '
-                f'font-family="ui-sans-serif,Segoe UI,Helvetica,Arial" fill="{MUTED}" '
-                f'paint-order="stroke" stroke="{BG}" stroke-width="3" stroke-linejoin="round">'
-                f'{esc(kw)}</text>'
-            )
+            kw_svg.append(halo_text(mx, my - 4, kw, size=9.5, fill=MUTED, weight="400"))
 
     node_svg, label_svg = [], []
     for n, data in g.nodes(data=True):
@@ -111,6 +135,10 @@ def main():
             f'fill-opacity="0.93" stroke="{BG}" stroke-width="2">'
             f'<title>{esc(n)} [{esc(etype)}] — {desc}</title></circle>'
         )
+        # 叶子节点不画标签：244 个节点里 119 个只连一条边，全标会糊成一片。
+        # 它们的名字和描述仍在 <title> 里，悬浮可见。
+        if deg.get(n, 0) < LABEL_MIN_DEGREE:
+            continue
         # 标签放在远离图心的方向，减少互相压字
         cx, cy = to_px((0, 0))
         ox, oy = x - cx, y - cy
@@ -122,10 +150,7 @@ def main():
         elif ox / norm < -0.45:
             anchor = "end"
         label_svg.append(
-            f'<text x="{lx:.1f}" y="{ly + 4:.1f}" text-anchor="{anchor}" font-size="11.5" '
-            f'font-weight="500" font-family="ui-sans-serif,Segoe UI,Helvetica,Arial" fill="{INK}" '
-            f'fill-opacity="0.94" paint-order="stroke" stroke="{BG}" stroke-width="3.5" '
-            f'stroke-linejoin="round">{esc(shorten(n))}</text>'
+            halo_text(lx, ly + 4, shorten(n), size=11.5, fill=INK, anchor=anchor)
         )
 
     legend = []
@@ -148,7 +173,7 @@ def main():
 <text x="{W - 28}" y="42" text-anchor="end" font-size="18" font-weight="700"
       font-family="ui-sans-serif,Segoe UI,Helvetica,Arial" fill="{INK}">CCUS Knowledge Graph</text>
 <text x="{W - 28}" y="64" text-anchor="end" font-size="11.5"
-      font-family="ui-sans-serif,Segoe UI,Helvetica,Arial" fill="{MUTED}">{full.number_of_nodes()} entities · {full.number_of_edges()} relations extracted by LightRAG — largest connected component shown</text>
+      font-family="ui-sans-serif,Segoe UI,Helvetica,Arial" fill="{MUTED}">{full.number_of_nodes()} entities · {full.number_of_edges()} relations · {len(comps)} components — largest component shown ({g.number_of_nodes()} nodes, {g.number_of_nodes() / full.number_of_nodes():.0%} of the graph)</text>
 {"".join(legend)}
 {"".join(edges_svg)}
 {"".join(kw_svg)}

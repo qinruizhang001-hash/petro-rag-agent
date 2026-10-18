@@ -1,0 +1,57 @@
+{
+  "stages": [
+    {
+      "stage": "seed_5docs_handwritten",
+      "docs": 5,
+      "nodes": 46,
+      "edges": 32,
+      "components": null,
+      "largest": 46,
+      "note": "手写种子语料 ccus_data.txt"
+    },
+    {
+      "stage": "baseline_23docs_default_prompt",
+      "docs": 23,
+      "nodes": 765,
+      "edges": 559,
+      "components": 247,
+      "largest": 83,
+      "largest_ratio": 0.108,
+      "isolated": 160,
+      "note": "LightRAG 通用实体类型表；5.6% 节点是作者单位与年份"
+    },
+    {
+      "stage": "rebuilt_23docs_domain_prompt",
+      "docs": 23,
+      "nodes": 433,
+      "edges": 426,
+      "components": 96,
+      "largest": 252,
+      "largest_ratio": 0.582,
+      "isolated": 66,
+      "note": "八类领域实体 + 显式排除名单；无 person/organization 节点"
+    },
+    {
+      "stage": "minus_offtopic_paper",
+      "docs": 22,
+      "nodes": 422,
+      "edges": 419,
+      "components": 91,
+      "largest": 252,
+      "largest_ratio": 0.597,
+      "isolated": 63,
+      "note": "剔除 ccus4.pdf（NOMA 上行功率控制，与 CCUS 无关）"
+    },
+    {
+      "stage": "final_alias_merged",
+      "docs": 22,
+      "nodes": 389,
+      "edges": 400,
+      "components": 84,
+      "largest": 244,
+      "largest_ratio": 0.627,
+      "isolated": 61,
+      "note": "别名归并 17 组 + 删除 8 个脏节点；实测与预演完全一致"
+    }
+  ]
+}

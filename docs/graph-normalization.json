@@ -1,0 +1,257 @@
+{
+  "before": {
+    "nodes": 422,
+    "edges": 419,
+    "components": 91,
+    "largest": 252,
+    "largest_ratio": 0.5972,
+    "isolated": 63,
+    "top": [
+      252,
+      16,
+      14,
+      7,
+      6,
+      6,
+      4,
+      4,
+      4,
+      3
+    ],
+    "types": {
+      "technology": 115,
+      "parameter": 84,
+      "process": 71,
+      "geologicalbody": 70,
+      "material": 25,
+      "risk": 23,
+      "unknown": 17,
+      "regulation": 9,
+      "wellborecomponent": 4,
+      "transport": 3,
+      "other": 1
+    }
+  },
+  "projected": {
+    "nodes": 389,
+    "edges": 400,
+    "components": 84,
+    "largest": 244,
+    "largest_ratio": 0.6272,
+    "top": [
+      244,
+      11,
+      8,
+      7,
+      6,
+      6,
+      4,
+      4,
+      4,
+      3
+    ]
+  },
+  "actual": {
+    "nodes": 389,
+    "edges": 400,
+    "components": 84,
+    "largest": 244,
+    "largest_ratio": 0.6272,
+    "isolated": 61,
+    "top": [
+      244,
+      11,
+      8,
+      7,
+      6,
+      6,
+      4,
+      4,
+      4,
+      3
+    ],
+    "types": {
+      "technology": 105,
+      "parameter": 81,
+      "geologicalbody": 64,
+      "process": 63,
+      "risk": 23,
+      "material": 23,
+      "unknown": 16,
+      "regulation": 7,
+      "wellborecomponent": 3,
+      "transport": 3,
+      "other": 1
+    }
+  },
+  "deleted": 8,
+  "failed_delete": 0,
+  "merged": 17,
+  "failed_merge": 0,
+  "plan": {
+    "merges": [
+      {
+        "target": "CCS",
+        "sources": [
+          "CCS",
+          "Carbon Capture and Sequestration",
+          "Carbon Capture and Sequestration (CCS)",
+          "Carbon Capture and Sequestration (CCUS)",
+          "Carbon Capture and Storage",
+          "Carbon Capture and Storage (C C S)",
+          "Carbon Capture and Storage (CCS)",
+          "Carbon Capture and Storage (CCUS)"
+        ]
+      },
+      {
+        "target": "CCUS",
+        "sources": [
+          "CCUS",
+          "Carbon Capture, Utilization, and Storage (CCUS)"
+        ]
+      },
+      {
+        "target": "CO2",
+        "sources": [
+          "CO2",
+          "Carbon Dioxide",
+          "Carbon Dioxide (C O 2)"
+        ]
+      },
+      {
+        "target": "Conditional Normalizing Flow",
+        "sources": [
+          "Conditional Normalizing Flow",
+          "Conditional Normalizing Flows"
+        ]
+      },
+      {
+        "target": "Depleted Hydrocarbon Field",
+        "sources": [
+          "Depleted Hydrocarbon Field",
+          "Depleted Hydrocarbon Fields"
+        ]
+      },
+      {
+        "target": "Fault",
+        "sources": [
+          "Fault",
+          "Faults"
+        ]
+      },
+      {
+        "target": "Geologic Carbon Storage",
+        "sources": [
+          "Geologic Carbon Storage",
+          "Geologic Carbon Storage (GCS)",
+          "Geological Carbon Storage (GCS)"
+        ]
+      },
+      {
+        "target": "IPCC",
+        "sources": [
+          "IPCC",
+          "Intergovernmental Panel on Climate Change (IPCC)"
+        ]
+      },
+      {
+        "target": "Investment Timing",
+        "sources": [
+          "Investment Timing",
+          "Investment-Timing"
+        ]
+      },
+      {
+        "target": "Monitoring Well",
+        "sources": [
+          "Monitoring Well",
+          "Monitoring Wells"
+        ]
+      },
+      {
+        "target": "POMDP",
+        "sources": [
+          "POMDP",
+          "Pomdp"
+        ]
+      },
+      {
+        "target": "Plastic Deformation",
+        "sources": [
+          "Plastic Deformation",
+          "Plastic Deformations"
+        ]
+      },
+      {
+        "target": "Reservoir Simulation",
+        "sources": [
+          "Reservoir Simulation",
+          "Reservoir Simulations"
+        ]
+      },
+      {
+        "target": "Saline Aquifer",
+        "sources": [
+          "Saline Aquifer",
+          "Saline Aquifers"
+        ]
+      },
+      {
+        "target": "Seismic Data",
+        "sources": [
+          "Seismic Data",
+          "Seismic Data (Noise)"
+        ]
+      },
+      {
+        "target": "Surrogate Model",
+        "sources": [
+          "Surrogate Model",
+          "Surrogate Models"
+        ]
+      },
+      {
+        "target": "Time-Lapse Seismic Monitoring",
+        "sources": [
+          "Time-Lapse Seismic Monitoring",
+          "Time-lapse Seismic Monitoring"
+        ]
+      }
+    ],
+    "noise": [
+      {
+        "name": "2045",
+        "reason": "year"
+      },
+      {
+        "name": "Empirical Results",
+        "reason": "meta-filler"
+      },
+      {
+        "name": "Europe",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Germany",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Poland",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Science-informed Machine Learning to Accelerate Real Time Decision Making for Carbon Storage (SMART-CS) Initiative",
+        "reason": "title-like"
+      },
+      {
+        "name": "U.S. Department of Energy",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Well Cement Degradation and Wellbore Integrity in Geological CO2 Storages: A Literature Review",
+        "reason": "title-like"
+      }
+    ],
+    "kept": 372
+  }
+}

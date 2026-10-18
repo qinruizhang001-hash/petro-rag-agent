@@ -66,6 +66,18 @@ SOURCE_COLLECTION = os.getenv("CCUS_COLLECTION", "ccus_knowledge_v2")
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 150
 
+# 语料黑名单。这不是"跑题打分的兜底"，而是**人工确认过的错标文件**：
+# ccus4.pdf 的实际内容是 "Deep Q-Learning-Driven Power Control for Enhanced
+# NOMA User Performance"（电信上行功率控制），与 CCUS 毫无关系 —— 它从最早的
+# 5 篇语料起就在库里，贡献了 `Base Station`、`Cell-Center User`、`UAV-relay`
+# 这类节点，并让图谱看起来比实际更连通（每篇论文都"共享"这些节点）。
+#
+# 保留在目录里、只在入库时跳过，而不是删文件：语料是输入，删了就再也
+# 说不清当初为什么排除了它。排除理由写在这里，可审计。
+EXCLUDED_PAPERS = {
+    "ccus4.pdf": "实际内容是 NOMA 上行功率控制（电信），与 CCUS 无关",
+}
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -160,6 +172,8 @@ def collect_pdfs(include_originals: bool = True) -> list[dict]:
     收集待入库的 PDF。
 
     返回 [{file, path, title, arxiv_id, year, is_auto}]，按文件名排序。
+    命中 ``EXCLUDED_PAPERS`` 的文件会被跳过并打印原因 —— 不允许静默排除，
+    否则"为什么这篇论文没进图谱"会变成一个查不出来的问题。
     """
     manifest = load_manifest()
     items: list[dict] = []
@@ -189,7 +203,14 @@ def collect_pdfs(include_originals: bool = True) -> list[dict]:
                 "is_auto": False,
             })
 
-    return items
+    kept = []
+    for it in items:
+        reason = EXCLUDED_PAPERS.get(it["file"])
+        if reason:
+            log(f"  ⏭  排除 {it['file']}：{reason}")
+            continue
+        kept.append(it)
+    return kept
 
 
 # ══════════════════════════════════════════════════════════
@@ -396,6 +417,38 @@ def reset_stuck_docs() -> int:
     return removed
 
 
+def reset_graph_storage() -> None:
+    """
+    清空 LightRAG 存储，为**从头重建**图谱做准备。
+
+    必须连 ``kv_store_llm_response_cache.json`` 一起删。LightRAG 的抽取结果
+    缓存按 prompt 内容做键，所以改了 prompt 之后旧缓存理论上不会命中；
+    但"理论上"不够 —— 一旦某个键的计算方式与预期不同，就会有一半文档用新
+    prompt、一半用旧 prompt 建的图混在一起，而这种混合在结果上只表现为
+    "图谱质量不如预期"，不会报错。全清最省心。
+
+    只删 ``lightrag_storage/``，不动 ChromaDB：向量库的切片与图谱的实体抽取
+    是两套独立产物，重建图谱不需要重新 embedding 1982 条切片。
+    """
+    import shutil
+
+    if os.path.isdir(LIGHTRAG_DIR):
+        names = sorted(os.listdir(LIGHTRAG_DIR))
+        log(f"  清空 {LIGHTRAG_DIR}（{len(names)} 个文件）")
+        for name in names[:4]:
+            log(f"    - {name}")
+        if len(names) > 4:
+            log(f"    … 其余 {len(names) - 4} 个")
+        shutil.rmtree(LIGHTRAG_DIR)
+        log("  ✅ LightRAG 存储已清空")
+    else:
+        log("  LightRAG 存储目录不存在，无需清空")
+
+    if os.path.exists(GRAPH_STATE_PATH):
+        os.remove(GRAPH_STATE_PATH)
+        log("  ✅ 已删除建图状态文件 graph_ingest_state.json（否则会跳过全部论文）")
+
+
 def sync_graph(items: list[dict], budget: int, force: bool = False) -> dict:
     """把每篇论文的前 ``budget`` 字符喂给 LightRAG 建图。"""
     from utils.text_cleaning import clean_pdf_text, select_graph_text, strip_front_matter
@@ -486,6 +539,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--force-graph", action="store_true", help="忽略状态文件重新建图")
     ap.add_argument("--reset-stuck", action="store_true",
                     help="先清理卡在 processing 的文档（中断后必须执行）")
+    ap.add_argument("--reset-graph", action="store_true",
+                    help="清空 LightRAG 存储后从头重建（改了抽取 prompt 时必须用）")
     ap.add_argument("--stats", action="store_true", help="只打印当前规模")
     args = ap.parse_args(argv)
 
@@ -496,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
     log("=" * 66)
     log("CCUS 文献批量入库")
     log("=" * 66)
+
+    if args.reset_graph:
+        log("\n[0/2] 清空知识图谱存储（准备从头重建）...")
+        reset_graph_storage()
 
     if args.reset_stuck:
         log("\n[0/2] 清理卡死文档...")

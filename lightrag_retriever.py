@@ -27,6 +27,10 @@ from lightrag.utils import EmbeddingFunc
 # 片段构建逻辑抽到纯函数模块，便于离线单元测试（CI 无需 Ollama）
 from fragment_builder import build_fragments, extract_data
 
+# 实体抽取的领域约束（只抽地质/工艺实体）。同样抽成独立模块：
+# 它是 prompt 的一部分，值得被单测覆盖，也不该埋在构造参数里。
+from utils.kg_prompt import addon_params as kg_addon_params
+
 from utils.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -110,6 +114,11 @@ class _LightRAGBridge:
             max_relation_tokens=1500,
             max_total_tokens=4000,
             chunk_token_size=400,
+            # 领域约束：只抽地质 / 井筒 / 材料 / 工艺 / 技术 / 参数 / 风险 / 法规
+            # 八类实体，并显式排除作者单位、年份、街道地址、期刊名、DOI。
+            # 这是 LightRAG 官方预留的覆盖点（渲染进 ---Entity Types--- 段），
+            # 不需要改包、也不依赖 PROMPT_DIR 环境变量。
+            addon_params=kg_addon_params(),
             embedding_func=EmbeddingFunc(
                 embedding_dim=768,
                 max_token_size=8192,
@@ -162,6 +171,14 @@ class _LightRAGBridge:
     def delete_document(self, doc_id: str):
         """删除一篇文档及其在图谱中的贡献（用于清理卡死的半成品）。"""
         return self._submit(lambda: self._rag.adelete_by_doc_id(doc_id))
+
+    def merge_entities(self, sources: list[str], target: str):
+        """把一批实体并进 target（图 + 实体向量库 + 关系向量库同步更新）。"""
+        return self._submit(lambda: self._rag.amerge_entities(sources, target))
+
+    def delete_entity(self, name: str):
+        """删除单个实体及其全部关系。"""
+        return self._submit(lambda: self._rag.adelete_by_entity(name))
 
 
 # 模块级单例（懒加载，首次调用时才启动后台线程和加载模型）
@@ -246,4 +263,38 @@ def delete_document(doc_id: str) -> bool:
         return True
     except Exception as e:
         log.warning(f"  [LightRAG] 删除文档异常: {e}")
+        return False
+
+
+def merge_entities(sources: list[str], target: str) -> bool:
+    """
+    把多个实体并成一个（别名归并的执行端）。
+
+    必须走 LightRAG 自己的 ``amerge_entities``，而不是直接改 graphml ——
+    它同时维护图存储、实体向量库、关系向量库和 chunk 追踪表。只改 graphml
+    会让向量库里留下指向已消失节点的向量，检索时命中一个"图里不存在的实体"，
+    这种不一致不会报错，只会让召回莫名其妙地变差。
+    """
+    try:
+        bridge = _get_bridge()
+        bridge.merge_entities(sources, target)
+        return True
+    except Exception as e:
+        log.warning(f"  [LightRAG] 合并实体异常 {target!r}: {e}")
+        return False
+
+
+def delete_entity(name: str) -> bool:
+    """
+    删除单个实体（脏节点清理的执行端）。
+
+    ``adelete_by_entity`` 会连带删除该实体的所有关系并清理 chunk 追踪，
+    比手工删 graphml 里的 ``<node>`` 安全 —— 后者会留下悬空边。
+    """
+    try:
+        bridge = _get_bridge()
+        bridge.delete_entity(name)
+        return True
+    except Exception as e:
+        log.warning(f"  [LightRAG] 删除实体异常 {name!r}: {e}")
         return False
