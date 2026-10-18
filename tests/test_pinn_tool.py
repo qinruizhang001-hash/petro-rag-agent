@@ -32,19 +32,32 @@ except Exception as exc:  # noqa: BLE001
     ERR = f"{type(exc).__name__}: {exc}"
 
 QUESTION = "预测距离井口 50 米处，注入 10 天后的压力"
-PLAN_WITH_TOOL = '```json\n{"tool": "predict_pressure", "x": 50, "t": 10}\n```'
+PLAN_WITH_TOOL = '```json\n{"tool": "predict_pressure_pinn", "x": 50, "t": 10}\n```'
 EXPECTED = 109.951          # injection 场景 x=50 m, t=10 d（解析解 110.000）
 
 
+def _fake_tool(name: str, arguments: dict) -> dict:
+    """MCP 工具替身（打在 _execute_tool 边界上）。"""
+    if name == "predict_pressure_pinn":
+        return {"pressure_bar": EXPECTED, "x_m": arguments.get("x"),
+                "t_days": arguments.get("t"), "scenario": "injection",
+                "analytic_steady_state_bar": 110.0}
+    if name == "get_co2_density":
+        return {"density_kg_m3": 0.785, "text": "0.785 g/cm3"}
+    if name == "query_ccus_graph":
+        return {"fragments": [], "count": 0}
+    return {}
+
+
 def _run(state: dict, plan: str, report_text: str = "报告正文：地质与井筒风险如下。") -> dict:
-    """跑一次真实的 aggregate_report，模型输出与图表用桩替换。"""
+    """跑一次真实的 aggregate_report，模型输出、MCP 工具与图表用桩替换。"""
 
     def _fake_streamed(stage, messages, temperature=0.3, sink=None, mode=None):
         return _Streamed(report_text)
 
     with patch("nodes.aggregate_node.llm_chat", return_value=_Resp(plan)), \
          patch("nodes.aggregate_node.llm_chat_streamed", side_effect=_fake_streamed), \
-         patch("nodes.aggregate_node.calculate_co2_density", return_value="0.785 g/cm3"), \
+         patch("nodes.aggregate_node._execute_tool", side_effect=_fake_tool), \
          patch("nodes.aggregate_node.generate_pressure_curve",
                side_effect=RuntimeError("绘图在测试中跳过")), \
          patch("nodes.aggregate_node.save_memory", return_value=None), \

@@ -43,7 +43,6 @@ from file_memory import (
     history_needs_compression,
 )
 from memory.memory_manager import save_memory
-from tools.physics_tools import calculate_co2_density
 from utils.branch_merge import (
     compose_branch_inputs,
     degradation_block,
@@ -57,30 +56,140 @@ from utils.logging_setup import get_logger
 log = get_logger(__name__)
 
 
-def _call_pinn(x, t, scenario: str = "injection") -> dict:
-    """调用 PINN 压力预测工具。
+def _execute_tool(name: str, arguments: dict) -> dict:
+    """通过 MCP Client 调用一个工具，返回其结构化结果。
 
-    惰性 import：``pinn_model`` 会拉起 torch（约 1~2 s、数百 MB 常驻）。API
-    进程在别的路径上并不需要它，只有真的规划出这个工具时才值得付这笔钱。
-    顺带的好处是：torch 没装时接口照样能启动，工具调用失败而不是整个服务挂掉。
+    工具不再由本模块 import 具体实现 —— 而是走 MCP 协议向 Server 请求。
+    失败返回 ``{}`` 而不是抛异常：工具不可用不该让整份报告生不出来，
+    降级路径（缺数值但仍然成稿）本来就是这个节点的既有设计。
+    """
+    try:
+        from mcp_client_ccus import get_client
+
+        return get_client().call(name, arguments)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(f"  [MCP] 调用 {name} 失败（不影响报告）: {type(exc).__name__}: {exc}")
+        return {}
+
+
+def _call_pinn(x, t, scenario: str = "injection") -> dict:
+    """调用 PINN 压力预测工具（经 MCP）。
 
     返回值做成 dict 而不是裸 float，是为了让"用了哪个场景、输入是什么"能和
     数值一起进报告 —— 一个 110 bar 如果不说边界条件，读者无法判断它对不对。
     """
-    from pinn_model import predict_pressure
+    payload = _execute_tool(
+        "predict_pressure_pinn",
+        {"x": float(x), "t": float(t), "scenario": scenario},
+    )
+    if "pressure_bar" not in payload:
+        raise RuntimeError(f"PINN 工具未返回压力值：{payload or '空响应'}")
 
-    x_f, t_f = float(x), float(t)
-    p = predict_pressure(x_f, t_f, scenario=scenario)
-    return {
+    x_f, t_f, p = float(x), float(t), float(payload["pressure_bar"])
+    out = {
         "x_m": x_f,
         "t_days": t_f,
         "pressure_bar": p,
-        "scenario": scenario,
+        "scenario": payload.get("scenario", scenario),
         "text": (
             f"距井口 {x_f:g} m、注入 {t_f:g} 天后地层压力 = {p:.2f} bar"
             f"（一维扩散方程 PINN 数值解，D = 0.1 m²/s，{scenario} 边界条件）"
         ),
     }
+    if payload.get("analytic_steady_state_bar") is not None:
+        out["analytic_bar"] = payload["analytic_steady_state_bar"]
+    return out
+
+
+def _call_density(pressure_bar, temperature_celsius) -> str | None:
+    """调用 CO2 密度工具（经 MCP），返回 "1.35 kg/m³" 这样的文本。"""
+    payload = _execute_tool(
+        "get_co2_density",
+        {"pressure_bar": float(pressure_bar), "temperature_celsius": float(temperature_celsius)},
+    )
+    text = payload.get("text")
+    return str(text) if text else None
+
+
+def _plan_prompt_tools() -> str:
+    """从 MCP Server 动态生成"可用工具"清单，客户端不硬编码工具名。
+
+    为什么还要 ``_TOOL_HINTS`` 这一层：Server 的 description 是给**外部**
+    客户端（Cursor / Claude Desktop）看的通用说明，而这一阶段需要的是"本节点
+    什么时候该调它"。两者不冲突，但职责不同，所以这里补一句上下文相关的提示。
+
+    ``query_ccus_graph`` 刻意不列进规划器：地质分支已经检索过一轮，让 7B
+    再规划一次同一批检索只会重复消耗 GPU。它改为**确定性触发**——只有当地质
+    分支降级（没产出结论）时才由代码调用，用来补证据（见下方 fallback）。
+    """
+    try:
+        specs = get_client_specs()
+    except Exception as exc:  # noqa: BLE001
+        log.warning(f"  [MCP] 工具发现失败，退回静态清单：{type(exc).__name__}: {exc}")
+        return (
+            "1. `get_co2_density` —— 参数中出现注入压力和温度时调用。\n"
+            "2. `predict_pressure_pinn` —— 问到\"距井口 X 米、注入 T 天后\"的压力时调用。"
+        )
+
+    lines, examples = [], []
+    for spec in specs:
+        name = spec["name"]
+        if name in _TOOL_POLICY["skip_in_planner"]:
+            continue
+        hint = _TOOL_HINTS.get(name) or spec.get("description", "")
+        lines.append(f"{len(lines) + 1}. `{name}` —— {hint}")
+        args = _example_args(spec)
+        if args:
+            examples.append(json.dumps({"tool": name, **args}, ensure_ascii=False))
+
+    body = "\n".join(lines)
+    blocks = "\n".join(f"```json\n{ex}\n```" for ex in examples)
+    return f"{body}\n\n只输出 json 代码块，每个工具一个，不要输出任何解释或正文。\n{blocks}"
+
+
+def _example_args(spec: dict) -> dict:
+    """按 schema 造一个示例参数，缺省值优先用领域里说得通的数字。"""
+    out = {}
+    for key in spec.get("required") or []:
+        if key in _EXAMPLE_VALUES:
+            out[key] = _EXAMPLE_VALUES[key]
+            continue
+        kind = (spec.get("properties", {}).get(key) or {}).get("type")
+        out[key] = 0.0 if kind == "number" else (0 if kind == "integer" else "…")
+    return out
+
+
+def get_client_specs() -> list[dict]:
+    """取 MCP 工具清单（薄封装，便于测试替换）。"""
+    from mcp_client_ccus import get_client
+
+    return get_client().list_tools()
+
+
+# 规划器里出现的工具提示：讲"什么时候调"，不是"这个工具是什么"
+_TOOL_HINTS = {
+    "get_co2_density": (
+        "参数中出现注入压力和温度时调用，不要自己口算密度。"
+    ),
+    "predict_pressure_pinn": (
+        "当问题问的是\"距井口 X 米处、注入 T 天后的压力\"时调用，"
+        "由物理信息神经网络解一维扩散方程给出数值，"
+        "**不要自己推算压力随距离/时间的衰减**。x 单位米（0~100），"
+        "t 单位天（0~30）。"
+    ),
+}
+
+# 示例值只用于让 7B 看懂参数形状；真实参数一律从用户输入里重新抽取，
+# 不采用模型给的数字（见 dispatch 里的接地守卫）。
+_EXAMPLE_VALUES = {
+    "pressure_bar": 250,
+    "temperature_celsius": 80,
+    "x": 50,
+    "t": 10,
+    "query": "断层活化与注入压力的关系",
+}
+
+_TOOL_POLICY = {"skip_in_planner": {"query_ccus_graph"}}
 
 
 def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
@@ -316,28 +425,17 @@ def aggregate_report(state: AgentState, config=None):
     # ══════════════════════════════════════════════════════
     # Phase A：工具规划（短输出、非流式）
     # ══════════════════════════════════════════════════════
-    plan_prompt = materials + """
+    plan_prompt = materials + f"""
 
 【任务：只做工具规划，不要写报告】
-你有三个工具：
-1. `calculate_co2_density` —— 参数中出现注入压力和温度时调用，不要自己口算密度。
-2. `generate_pressure_curve` —— 必须调用，生成"地层压力随深度"地质图。
-   depth 取参数中的储层埋深；参数里没有就省略该字段（系统会按默认值绘制并标注"估算"），
-   **不要编造深度**。
-3. `predict_pressure` —— 当问题问的是"距井口 X 米处、注入 T 天后的压力"时调用，
-   由物理信息神经网络解一维扩散方程给出数值，**不要自己推算压力随距离/时间的衰减**。
-   x 单位米（0~100），t 单位天（0~30），两者都必须取自问题原文，不要臆造。
-
-只输出 json 代码块，每个工具一个，不要输出任何解释或正文。数值必须取自【提取的 CCUS 参数】：
+你有以下工具（清单由 MCP Server 动态提供，本节点不硬编码工具名）：
+{_plan_prompt_tools()}
 ```json
-{"tool": "calculate_co2_density", "pressure_bar": 250, "temperature_celsius": 80}
+{{"tool": "generate_pressure_curve", "depth": 2500, "injection_pressure_bar": 250}}
 ```
-```json
-{"tool": "generate_pressure_curve", "depth": 2500, "injection_pressure_bar": 250}
-```
-```json
-{"tool": "predict_pressure", "x": 50, "t": 10}
-```"""
+（`generate_pressure_curve` 是本地图表工具：必须调用，depth 取参数中的储层埋深；
+参数里没有就省略该字段，系统会按默认值绘制并标注"估算"，**不要编造深度**。）
+数值必须取自【提取的 CCUS 参数】。"""
 
     plan_msgs = [
         {"role": "system", "content": "你是工具调用规划器，只输出 JSON 代码块。"},
@@ -365,12 +463,19 @@ def aggregate_report(state: AgentState, config=None):
     density_result = None
     chart_result = None
     pinn_result = None
+    graph_extra = ""
     for req in tool_requests:
         name = req.get("tool")
-        if name == "calculate_co2_density":
-            density_result = calculate_co2_density(
-                req.get("pressure_bar"), req.get("temperature_celsius")
-            )
+        if name == "get_co2_density":
+            # 压力/温度一律从提取出的参数里重新取，不采用模型给的数字：
+            # 规划 prompt 里有 {"pressure_bar": 250, ...} 的示例，7B 会照抄。
+            p_arg, t_arg = _extract_pressure_temperature(state.get("extracted_params", ""))
+            p_arg = req.get("pressure_bar") if p_arg is None else p_arg
+            t_arg = req.get("temperature_celsius") if t_arg is None else t_arg
+            if p_arg is None or t_arg is None:
+                log.warning(f"  [Warning] 密度指令缺压力/温度，且参数里也没有：{req}")
+                continue
+            density_result = _call_density(p_arg, t_arg)
         elif name == "generate_pressure_curve":
             try:
                 chart_result = generate_pressure_curve(
@@ -378,9 +483,9 @@ def aggregate_report(state: AgentState, config=None):
                 )
             except Exception as e:
                 log.warning(f"  [Warning] 图表生成失败: {e}")
-        elif name == "predict_pressure":
+        elif name == "predict_pressure_pinn":
             # 坐标必须能在**用户原话**里核对到，不能信模型给的数字。
-            # 原因很具体：plan_prompt 里有一个 {"x": 50, "t": 10} 的示例，
+            # 原因很具体：规划 prompt 里有一个 {"x": 50, "t": 10} 的示例，
             # 7B 模型很容易把它照抄进一个根本没问距离和时间的问题里，
             # 于是报告多出一个"距井口 50 m = 109.95 bar"——用户没问，
             # 数值还是精确的，这种污染比明显错误更难发现。
@@ -396,6 +501,16 @@ def aggregate_report(state: AgentState, config=None):
                 log.info(f"  [Tool 调用] PINN → {pinn_result['text']}")
             except Exception as e:
                 log.warning(f"  [Warning] PINN 预测失败（不影响报告）: {e}")
+        elif name == "query_ccus_graph":
+            # 规划器里没有列出它（见 _plan_prompt_tools 的说明），这里仍然
+            # 兼容：模型自己写出来时，用用户原话当 query，避免它编检索词。
+            payload = _execute_tool(
+                "query_ccus_graph", {"query": state.get("user_input", ""), "top_k": 4}
+            )
+            frags = payload.get("fragments") or []
+            if frags:
+                graph_extra = "\n".join(f"- {str(f)[:400]}" for f in frags)
+                log.info(f"  [MCP] query_ccus_graph 返回 {len(frags)} 条片段")
 
     # ─── 确定性兜底：模型该调没调时，由代码补上 ─────────────
     # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
@@ -404,7 +519,22 @@ def aggregate_report(state: AgentState, config=None):
     p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
     if density_result is None and p_val is not None and t_val is not None:
         log.info("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
-        density_result = calculate_co2_density(p_val, t_val)
+        density_result = _call_density(p_val, t_val)
+
+    # ─── 地质分支降级时，用图谱工具补证据 ────────────────────
+    # query_ccus_graph 不交给 7B 规划（会重复检索），而是绑定在这个明确的
+    # 条件下：地质分支没产出结论时，才值得再检索一次来补。
+    if not branch["geology_ok"] and not graph_extra:
+        log.info("  [System] 地质分支降级 → 调用 query_ccus_graph 补充证据")
+        payload = _execute_tool(
+            "query_ccus_graph", {"query": state.get("user_input", ""), "top_k": 4}
+        )
+        frags = payload.get("fragments") or []
+        if frags:
+            graph_extra = "\n".join(f"- {str(f)[:400]}" for f in frags)
+            log.info(f"  [MCP] 补到 {len(frags)} 条图谱片段")
+        else:
+            log.warning(f"  [MCP] 图谱补充检索无结果：{payload or '空响应'}")
 
     # 图表同理：报告没有配图会显得业余，且输入几乎总能从参数推出。
     if chart_result is None or chart_result.get("status") != "ok":
@@ -461,9 +591,20 @@ def aggregate_report(state: AgentState, config=None):
 
     # 工具结果放在**最前面**：实测本地模型对结尾处的约束遵守度很差，
     # 把数值要求前置后，模型更可能把密度直接写进正文而不是靠代码兜底补。
+    # 图谱补充证据（只有地质分支降级时才会有）单独成块，不要混进"工具结果"：
+    # 那一段的措辞是"数值必须原样写进正文"，而这里是待判断的证据片段。
+    graph_block = ""
+    if graph_extra:
+        graph_block = (
+            "\n\n【补充图谱证据（query_ccus_graph 检索，因地质分支缺失而补取）】\n"
+            + graph_extra
+            + "\n以上为原始证据片段，引用时注明来自知识图谱检索，不要当作已核实的结论。"
+        )
+
     final_user = (
         facts_block
         + materials
+        + graph_block
         + "\n\n请撰写完整报告。上面工具结果里的数值必须原样写进正文"
           "（例如在地质风险部分点明该压力/温度下的 CO2 密度），"
           "不要改写、不要省略，也不要单独列成附注；"

@@ -13,6 +13,12 @@ matplotlib>=3.8.0
 # ─── LLM client (OpenAI-compatible → Ollama) ───
 openai>=1.30.0
 
+# ─── MCP (Model Context Protocol) 工具服务 ───
+# 下限卡在 2.3：v2 把 FastMCP 改名为 MCPServer（mcp.server.mcpserver），
+# 且返回字段全改 snake_case（server_info 而非 serverInfo）。1.x 装上来
+# 会直接 ImportError，不是"少个功能"而是启动不了。
+mcp>=2.3.0
+
 # ─── Backend API ──────────────────────
 fastapi>=0.110.0
 uvicorn>=0.29.0

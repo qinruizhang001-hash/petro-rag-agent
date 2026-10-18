@@ -163,6 +163,13 @@ if st.button("启动评估", type="primary"):
                 if v.get("severity") == "warning":
                     st.warning(f"物理校验提示：{v.get('message')}")
 
+            # ─── PINN 数值（若本次问句带可核对的 x/t）───
+            # 报告正文里已经有这句话；这里单独提出来，是因为结构化字段
+            # 存在的意义就是"不靠模型复述也拿得到数值"。
+            pinn = done.get("pinn") or {}
+            if pinn.get("text"):
+                st.caption(f"🧮 {pinn['text']}")
+
             # ─── 人工审核状态 ───
             review = done.get("human_review") or {}
             if review.get("auto"):

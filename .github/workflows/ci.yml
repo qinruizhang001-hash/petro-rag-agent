@@ -84,6 +84,37 @@ jobs:
           fi
           echo "No print() in the runtime path."
 
+      - name: Guard the MCP wire
+        run: |
+          set -e
+          # 中文注释：stdio 传输把 JSON-RPC 直接写在 stdout 上，工具函数体里一句
+          # print() 就会让客户端解析失败，而报错只显示"无效的 JSON"，极难定位。
+          # 这个失败模式在离线单测里看不见（单测走 _execute_tool 打桩），
+          # 而能看见它的 test_mcp_client.py 需要 torch + 2.3 GB reranker，
+          # 不进 CI。所以这里用静态检查兜底：print 只允许出现在自检函数之后。
+          # 注意 grep 必须锚定行首：docstring 里那句 ``print()`` 也会被宽松匹配到。
+          test -s mcp_server_ccus.py
+          test -s mcp_client_ccus.py
+          sel=$(grep -n '^def _selftest' mcp_server_ccus.py | cut -d: -f1)
+          if [ -z "$sel" ]; then
+            echo "::error::mcp_server_ccus.py lost its --selftest entry (the only place print() is allowed)"
+            exit 1
+          fi
+          bad=$(grep -nE '^[[:space:]]*print\(' mcp_server_ccus.py | cut -d: -f1 | awk -v s="$sel" '$1 < s' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::print() above _selftest in mcp_server_ccus.py — it will corrupt the stdio JSON-RPC stream"
+            exit 1
+          fi
+          if grep -nE '^[[:space:]]*print\(' mcp_client_ccus.py; then
+            echo "::error::print() in mcp_client_ccus.py — the client runs inside the app's runtime path"
+            exit 1
+          fi
+          # 中文注释：v2 把 FastMCP 改名为 MCPServer。如果哪天 requirements 被降级
+          # 到 1.x，连接时会 ImportError；这里让它更早、更明确地失败。
+          grep -q 'from mcp.server.mcpserver import MCPServer' mcp_server_ccus.py \
+            || { echo "::error::mcp_server_ccus.py must use the v2 API (mcp.server.mcpserver.MCPServer)"; exit 1; }
+          echo "MCP wire is clean."
+
       - name: Verify container deployment files
         run: |
           set -e
@@ -242,6 +273,12 @@ jobs:
           # 中文注释：物理校验的阻断结论必须能被用户看见，不能被吞在详情里。
           grep -q 'physics_check' app.py \
             || { echo "::error::app.py must surface physics_check"; exit 1; }
+          # 中文注释：PINN 数值同理 —— 报告正文里那句话是模型转述，可能被漏掉；
+          # 结构化字段存在的意义就是"不靠模型复述也拿得到数值"。
+          grep -q '"pinn"' api_server.py \
+            || { echo "::error::api_server.py must expose the pinn field"; exit 1; }
+          grep -q '"pinn"' app.py \
+            || { echo "::error::app.py must surface the pinn value"; exit 1; }
           # 中文注释：后端必须从 workflow 取图，不能回退到 multi_agent_ccus 兼容入口
           # （否则哪天入口 shim 被删，后端会在运行时才炸）。
           grep -q 'from workflow import' api_server.py \

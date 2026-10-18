@@ -90,6 +90,39 @@ def shutdown_api_server():
         _API_SERVER = None
 
 
+def step_pinn():
+    """PINN 工具端到端（经 MCP Server）。
+
+    为什么必须单独跑一问带坐标的：其余测试问句都不含距离/时间，接地守卫会把
+    模型规划的 PINN 调用**全部**丢掉 —— 那样只验证了"该拦的拦住了"，没验证
+    "该出数的出得来"，守卫即使退化成永久关闭也照样全绿。这一问是需求原话。
+
+    为什么做成独立函数而不是写进 main：整套 E2E 约 10 分钟，调这一步时不该
+    为此重跑一遍。单独跑::
+
+        python -c "import time, test_graph_rag_e2e as t; t.step_pinn(); t.summary(time.time())"
+    """
+    try:
+        from workflow import app as agent_app
+        pinn_input = "预测距离井口 50 米处，注入 10 天后的压力。"
+        pinn_state = agent_app.invoke(
+            {"user_input": pinn_input},
+            {"configurable": {"thread_id": f"e2e_pinn_{int(time.time())}"}},
+        )
+        pinn = pinn_state.get("pinn_prediction") or {}
+        check("问句带坐标时 PINN 被调用", bool(pinn), str(list(pinn)[:5]) if pinn else "未调用")
+        p = pinn.get("pressure_bar")
+        check("工具返回了压力值", isinstance(p, (int, float)), str(p))
+        if isinstance(p, (int, float)):
+            # injection 场景 10 天 ≈ 8.6τ，解析稳态解 P(50 m) = 110.000 bar
+            check("与解析稳态解一致（110 bar ± 1）", abs(p - 110.0) <= 1.0,
+                  f"{p:.3f} bar vs 110.000")
+            check("报告正文写出了该数值", f"{p:.2f}" in (pinn_state.get("final_report") or ""),
+                  f"{p:.2f}")
+    except Exception as e:
+        check("PINN 端到端调用", False, f"{type(e).__name__}: {e}")
+
+
 def main():
     t0 = time.time()
     print("=" * 60)
@@ -689,6 +722,10 @@ def main():
         check("报告含 Markdown 图片引用",
               "![地层压力随深度变化曲线]" in report,
               chart.get("rel_path", "-"))
+
+    # ─── Step 5-B: PINN 工具（经 MCP，端到端）─────────
+    print("\n[Step 5-B] PINN 压力预测（MCP 工具，端到端约 1-2 分钟）")
+    step_pinn()
 
     # ─── Step 6: 流式输出 ─────────────────────────────
     print("\n[Step 6] 流式输出（SSE token 级推送）")

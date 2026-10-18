@@ -126,10 +126,28 @@ def _state(**over) -> dict:
     return base
 
 
+def _fake_tool(name: str, arguments: dict) -> dict:
+    """替身 MCP 工具：在 _execute_tool 这个边界上打桩。
+
+    工具实现现在通过 MCP 协议取（见 mcp_client_ccus.py），所以桩要打在
+    "客户端 → 服务端"这一层，而不是打在某个具体函数上。这样测试既不需要
+    torch，也不需要启动传输层，而被测的降级逻辑一行都没被绕过。
+    """
+    if name == "get_co2_density":
+        return {"density_kg_m3": 0.785, "text": "0.785 g/cm3"}
+    if name == "predict_pressure_pinn":
+        return {"pressure_bar": 109.951, "x_m": arguments.get("x"),
+                "t_days": arguments.get("t"), "scenario": "injection",
+                "analytic_steady_state_bar": 110.0}
+    if name == "query_ccus_graph":
+        return {"fragments": [], "count": 0}
+    return {}
+
+
 def _run_aggregate(state: dict) -> tuple[dict, list[dict]]:
     """跑一次真实的 aggregate_report，返回 (节点输出, 终稿 prompt 快照)。
 
-    patch 掉的四样东西都与本测试无关：模型、物理工具、绘图、长期记忆落库。
+    patch 掉的几样东西都与本测试无关：模型、MCP 工具边界、绘图、长期记忆落库。
     绘图尤其要挡 —— 它会往磁盘写 PNG，让测试变成有副作用的。
     """
     captured: dict = {}
@@ -140,7 +158,7 @@ def _run_aggregate(state: dict) -> tuple[dict, list[dict]]:
 
     with patch("nodes.aggregate_node.llm_chat", return_value=_Resp("")), \
          patch("nodes.aggregate_node.llm_chat_streamed", side_effect=_fake_streamed), \
-         patch("nodes.aggregate_node.calculate_co2_density", return_value="0.785 g/cm3"), \
+         patch("nodes.aggregate_node._execute_tool", side_effect=_fake_tool), \
          patch("nodes.aggregate_node.generate_pressure_curve",
                side_effect=RuntimeError("绘图在测试中被跳过")), \
          patch("nodes.aggregate_node.save_memory", return_value=None), \

@@ -67,7 +67,8 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 ### Beyond the graph
 
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 350 offline unit tests (320 of which run in CI).
+- **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **150 end-to-end assertions pass** through the real HTTP path, alongside 350 offline unit tests (320 of which run in CI).
 
 ---
 
@@ -269,7 +270,7 @@ Both branches **generate their own conclusion** (150–250 characters) rather th
 
 Inside the full E2E suite the same numbers read 1.16× / 1.05× in one run and 1.23× / 1.05× / 1.34× / 1.34× in the next — the wellbore branch only takes 5–20 s, so the more the geology rerank dominates, the less there is to overlap.
 
-**The honest part: this does not make the pipeline faster.** The linear graph measured ~98 s per workflow. The fan-out graph measured 121 / 121 / 121 s in one run and 107 / 107 / 76 / 69 s in the next; the suite as a whole went 447 s → 513 s → 425 s → 413 s. That spread (~100 s between runs with no code change) is larger than the effect being claimed, so the workflow-level comparison **cannot settle it either way**. The only number worth quoting is the within-run overlap, because both branches are timed against the same clock and the same rerank candidate set. Three effects, all measured:
+**The honest part: this does not make the pipeline faster.** The linear graph measured ~98 s per workflow. The fan-out graph measured 121 / 121 / 121 s in one run and 107 / 107 / 76 / 69 s in the next; the suite as a whole went 447 s → 513 s → 425 s → 413 s. (Those totals predate Step 5-B, which adds a fourth workflow for the PINN question — the suite now reports 540–650 s, and the two figures are not comparable.) That spread (~100 s between runs with no code change) is larger than the effect being claimed, so the workflow-level comparison **cannot settle it either way**. The only number worth quoting is the within-run overlap, because both branches are timed against the same clock and the same rerank candidate set. Three effects, all measured:
 
 1. **Two extra generations per request.** Each branch writes its own conclusion, so the cloud is called twice more. That is the price of the architecture, not a bug.
 2. **GPU contention.** The wellbore branch's generation runs *while* the cross-encoder is reranking, and both compete for the same GPU. Geology took 74.7 s with the sibling running versus ~61 s of pure retrieval+rerank work — the overlap is real but it is not free.
@@ -504,6 +505,122 @@ injection     4000   1.584e+03 → 5.389e-01        109.951      110.000
 Wiring follows the same rule as the other tools: the model is *asked* to plan `predict_pressure`, and if it doesn't, the code calls it anyway. The trigger is a pure regex extractor (`utils/pinn_query.py`) that reads `x` and `t` out of the user's sentence — deliberately **not** out of `extracted_params`, because extraction rewrites "50 m from the well" into "reservoir depth 2 500 m" and the space-time coordinates survive only in the original wording. The extractor has 14 tests in CI; the model's own behaviour tests need torch and therefore run locally, like the E2E suite.
 
 One boundary is deliberate: only Chinese phrasing is recognised (`距离井口 50 米，注入 10 天`). English word order (`50 meters from the well after 10 days`) is not matched, because supporting it means also matching bare `10 days` fragments that appear all over retrieved literature — and a false trigger is worse than no trigger, since it writes a pressure value into the report that nobody asked for.
+
+---
+
+## MCP Server — the tools, extracted
+
+<!-- 中文注释：MCP 这一节的核心不是"接了个协议"，而是"工具的边界从 import 变成了协议调用"。
+     三个工具原本散在 physics_tools.py / pinn_model.py / lightrag_retriever.py 里，靠 import 拿；
+     现在统一由 mcp_server_ccus.py 暴露，主系统通过 mcp_client_ccus.py 动态发现并调用。
+     好处不是时髦，而是同一份工具可以同时给主系统和 Cursor 用，且加工具不用改主程序。 -->
+
+The three tools that compute something — CO₂ density, PINN pressure, graph retrieval — used to be imported directly by the aggregation node. They are now served over MCP from `mcp_server_ccus.py`:
+
+| Tool | Returns | Backed by |
+|---|---|---|
+| `get_co2_density(pressure_bar, temperature_celsius)` | density in kg/m³ + the formula string | `tools/physics_tools.py` |
+| `predict_pressure_pinn(x, t, scenario)` | pressure in bar + the analytic steady state for cross-checking | `pinn_model.py` |
+| `query_ccus_graph(query, top_k)` | raw evidence fragments, never LLM-rewritten | `lightrag_retriever.py` |
+
+### What actually changed in the main system
+
+The Function Calling block was hard-coded: a Python list of tool schemas, a dict of if/elif dispatch, and the two had to be edited together. Now the node asks the server what exists:
+
+```python
+def _plan_prompt_tools() -> str:
+    try:
+        specs = get_client_specs()          # ← server.list_tools(), not a literal
+    except Exception:
+        return "1. `get_co2_density` …\n2. `predict_pressure_pinn` …"   # static fallback
+    ...
+```
+
+Adding a tool is now a one-file change (`mcp_server_ccus.py`); the planner prompt, the dispatch table and the client test all follow. What did **not** get delegated to the protocol is judgement about *when* to call — the server's descriptions say what a tool does, and `_TOOL_HINTS` in `nodes/aggregate_node.py` says when it is appropriate. Collapsing the two would make the tool list the prompt. Discovery failure is also handled: if the server cannot be reached, planning falls back to a two-entry static list rather than losing the tools entirely, which matters because a dead server and a dead model produce the same empty report.
+
+One tool stayed in-process on purpose. `generate_pressure_curve` writes a PNG and returns its path for the frontend to render — sending it over a process boundary means shipping bytes back and losing the `charts/` path convention, for no gain. It remains a hard-coded local entry in the plan prompt, and the prompt says so explicitly, so the model does not think the dynamic list is exhaustive.
+
+### Three places, or it only works when the model feels like it
+
+Tool registration is a contract with three ends, and dropping any one of them is a silent regression:
+
+1. **Plan prompt** — the model is told the tool exists and when to reach for it.
+2. **Dispatch** — the planned call is executed, with arguments re-derived from state rather than trusted from the model.
+3. **Deterministic fallback** — the code calls the tool itself when planning yields nothing.
+
+Ends 1 and 2 alone produce a system that works on Tuesday and not on Wednesday. That is not hypothetical: in E2E the 7B model invented `{"x": 50, "t": 10}` for a question that mentioned neither distance nor time — it copied the example values out of the prompt. Three separate runs. The guard is `utils/pinn_query.py`: if the question has no groundable `x`/`t`, the planned call is discarded and the report says nothing rather than something fabricated.
+
+`query_ccus_graph` is the deliberate exception to rule 1 — it is **not** offered to the planner, because the geology branch has already retrieved by then and a second retrieval would duplicate it. It fires on a condition instead: if the geology branch degraded (timeout, empty result), the aggregation node calls it to supply evidence the fan-out failed to produce.
+
+### Memory transport in-repo, stdio for everyone else
+
+`mcp_client_ccus.py` defaults to `transport="memory"` — an in-process pipe using `create_client_server_memory_streams()`, the same protocol, no subprocess. The reason is memory, not latency: LightRAG's `bge-reranker-v2-m3` holds ~3.95 GB, and a second process that loads its own copy gets OOM-killed mid-request with a bare `ConnectionReset` and no traceback. If `api_server` is already running, a stdio child would be that second process.
+
+External clients have no such conflict, so `test_mcp_client.py` exercises the real thing — a subprocess over stdio, exactly as Cursor launches it:
+
+```
+=== 连接 MCP Server（stdio 子进程）===
+  已连接：ccus-tools v1.0.0（1635 ms）
+
+=== ① 工具发现 ===
+  [PASS] 服务端暴露了 3 个工具  (['get_co2_density', 'predict_pressure_pinn', 'query_ccus_graph'])
+  [PASS] 每个工具都有 description（否则模型不知道何时调用）
+=== ② get_co2_density(250 bar, 80℃) ===
+  [PASS] 密度 ≈ 1.35 kg/m³（状态方程 1.9P/T）  (得到 1.35)
+=== ③ predict_pressure_pinn(50 m, 10 d) ===
+  [PASS] PINN 与解析解差值 < 0.5 bar  (PINN 109.951 vs 解析 110.0)
+  [PASS] baseline 场景恒为 100 bar（退化算例）  (得到 99.991 bar)
+=== ④ query_ccus_graph ===
+  [PASS] 返回了证据片段  (count=37)
+=== ⑤ 错误路径 ===
+  [PASS] 未知工具被拒绝  ({'_text': 'Unknown tool: no_such_tool'})
+  [PASS] 缺参数被拒绝  ({'_text': "1 validation error for get_co2_density..."})
+
+测试总结：17 PASS / 0 FAIL
+```
+
+Note the connection cost: **1 635 ms** to be ready, of which almost all is interpreter start plus importing the SDK. That number is the reason tool bodies import lazily — with `torch` and `lightrag` at module scope it would be tens of seconds, and Cursor would show a spinner on every launch.
+
+### Wiring it into Cursor or Claude Desktop
+
+The server speaks stdio, so it needs no port and no daemon. Absolute paths below are this machine's; the interpreter is the project venv, not the system Python (torch and `mcp` live there).
+
+**Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ccus-tools": {
+      "command": "D:\\python-learn\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\python-learn\\petro-rag-agent\\mcp_server_ccus.py"]
+    }
+  }
+}
+```
+
+**Cursor** — `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global), same shape:
+
+```json
+{
+  "mcpServers": {
+    "ccus-tools": {
+      "command": "D:\\python-learn\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\python-learn\\petro-rag-agent\\mcp_server_ccus.py"]
+    }
+  }
+}
+```
+
+Two things you would expect to need, and don't. `PYTHONIOENCODING=utf-8` is unnecessary — the SDK re-wraps stdin/stdout as UTF-8 itself, with the source comment "the std handles' platform encodings are unreliable". And no `cwd` is needed: every path the server touches (`models/`, `lightrag_storage/`, `.env`) resolves from `__file__`, which matters because Claude Desktop launches children with the home directory as cwd. `HF_HUB_OFFLINE=1` is set by `core/__init__.py` on import, not by the config.
+
+Verify before wiring, in two steps that separate "the tool is broken" from "the transport is broken":
+
+```bash
+python mcp_server_ccus.py --selftest    # direct calls, no protocol
+python test_mcp_client.py               # full stdio round-trip
+```
+
+One caveat worth knowing up front: `query_ccus_graph` is the slow one (≈9 s, first call loads the reranker). Cursor will appear to hang on that first query. `get_co2_density` and `predict_pressure_pinn` return in milliseconds because their imports are lazy and the tools that don't need torch never load it.
 
 ---
 
@@ -811,7 +928,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **350 offline unit tests**, and a **146-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **350 offline unit tests**, and a **150-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -836,6 +953,8 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 | Orchestration | LangGraph `StateGraph` + `SqliteSaver` checkpointing |
 | Graph RAG | LightRAG 1.5.7 (NetworkX graph + NanoVectorDB vectors) |
 | Reranker | `bge-reranker-v2-m3` via sentence-transformers |
+| Physics model | 1-D PINN (PyTorch, 2→64→64→1, tanh) — pressure from the diffusion PDE |
+| Tool protocol | MCP 2.3 (`MCPServer`, stdio) — three tools, also usable from Cursor / Claude Desktop |
 | Local LLM | Qwen2.5 7B served by Ollama — extraction, evaluation, memory compression |
 | Cloud LLM *(report stage)* | DeepSeek Chat via OpenAI-compatible API — swappable for any provider |
 | Embeddings | `nomic-embed-text` (768-dim) |
@@ -892,8 +1011,10 @@ petro-rag-agent/
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
-│   ├── physics_tools.py      # calculate_co2_density (Function Calling tool)
-│   └── (predict_pressure lives in pinn_model.py, imported lazily by aggregate)
+│   └── physics_tools.py      # calculate_co2_density (served over MCP, see below)
+├── mcp_server_ccus.py        # MCP Server (stdio): density / PINN / graph — 3 tools, lazy imports
+├── mcp_client_ccus.py        # Sync MCP client facade; memory transport for in-repo use
+├── test_mcp_client.py        # Real stdio round-trip against the server (17 assertions)
 ├── fetch_ccus_papers.py      # arXiv search → relevance filter → PDF download + manifest
 ├── ingest_ccus_batch.py      # PDFs → ChromaDB (full text) + LightRAG (budgeted)
 ├── normalize_graph.py        # Alias merge + noise removal on a built graph (dry-run first)
@@ -912,7 +1033,7 @@ petro-rag-agent/
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
 ├── models/                   # PINN weights (*.pt, ~18 KB each) + loss curves (*.png)
-├── test_graph_rag_e2e.py     # End-to-end regression suite (146 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (150 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -924,7 +1045,13 @@ petro-rag-agent/
 │   ├── test_text_cleaning.py      # Offline unit tests (de-hyphenation / references / chunks)
 │   ├── test_entity_aliases.py     # Offline unit tests (what merges, what must NOT merge)
 │   ├── test_graph_analysis.py     # Offline unit tests (components / projection)
-│   └── test_chart_tools.py        # Offline unit tests (chart physics & output)
+│   ├── test_branch_merge.py       # Offline unit tests (fan-in merge / degradation / timing)
+│   ├── test_retry.py              # Offline unit tests (backoff schedule / non-retryable)
+│   ├── test_pinn_query.py         # Offline unit tests (what counts as a groundable x/t)
+│   ├── test_chart_tools.py        # Offline unit tests (chart physics & output)
+│   ├── test_degradation.py        # Local only: stubs the MCP seam, no torch needed
+│   ├── test_pinn.py               # Local only (torch): analytic reconciliation / tanh check
+│   └── test_pinn_tool.py          # Local only (torch): planning, fallback, grounding guard
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── charts/                   # Generated figures (gitignored)
 ├── logs/                     # app.log lives here in Docker (gitignored)
@@ -1161,9 +1288,16 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 146 PASS / 0 FAIL   (413 s / 425 s / 513 s across three runs —
-                                   three retrieval rounds, each fanning out into two branches;
+Test summary: 150 PASS / 0 FAIL   (540 s before Step 5-B, 650 s with it —
+                                   three retrieval rounds, each fanning out into two branches,
+                                   plus a fourth workflow for the PINN question;
                                    the spread is rerank-candidate variance, see the latency note above)
+```
+
+Step 5-B is the newest and it exists for a specific reason: **every other question in the suite lacks coordinates**, so the grounding guard discarded every planned PINN call. The suite proved the guard blocks, and never proved the tool fires — a guard stuck in the "always discard" position would have stayed green forever. Step 5-B runs the acceptance sentence itself (`预测距离井口 50 米处，注入 10 天后的压力`) and asserts the value **and** that it reaches `final_report`. It is a separate function (`step_pinn()`) rather than inline code, because a 10-minute suite is the wrong loop in which to iterate on one step:
+
+```bash
+python -c "import time, test_graph_rag_e2e as t; t.step_pinn(); t.summary(time.time())"
 ```
 
 This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 10 successful upstream calls during the suite (3 workflows × 2 branches + 3 syntheses, plus the SSE one) — 4 of them streamed. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
@@ -1174,12 +1308,21 @@ Step 8 is the newest: it drives the physics rules as pure functions (a case that
 
 Step 6 brings up the API server **inside the test process** when nothing is listening on port 8000 (it reuses an already-running one if there is). That is not a shortcut around the HTTP path — the request still goes over a real socket and the SSE frames are parsed from the wire — it exists because `bge-reranker-v2-m3` needs ~3.95 GB of commit and a second process holding its own copy gets killed by the OS mid-request (`ConnectionReset` / segfault, with no traceback anywhere). Sharing the loaded model keeps the extra commit near zero.
 
+### MCP round-trip — requires the reranker, runs locally
+
+```bash
+python mcp_server_ccus.py --selftest   # tools only, no protocol
+python test_mcp_client.py              # real stdio subprocess, 17 assertions
+```
+
+Two scripts rather than one, because "the tool is broken" and "the transport is broken" produce the same symptom from the outside — a client that gets nothing back. `--selftest` calls the three functions directly and prints their return values; `test_mcp_client.py` spawns the server the way Cursor does and speaks JSON-RPC to it. If the first passes and the second fails, the problem is the wire, not the maths.
+
 ### Continuous integration
 
 | Workflow | Trigger | Scope |
 |---|---|---|
-| `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, container-file guard, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 146-assertion pipeline on a self-hosted runner with Ollama |
+| `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, **MCP-wire guard**, container-file guard, frontend-backend contract check |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 150-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
