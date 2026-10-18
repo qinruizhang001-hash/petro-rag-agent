@@ -1,0 +1,517 @@
+{
+  "generated_at": "2026-10-18T01:55:20+00:00",
+  "source": "arXiv",
+  "api": "http://export.arxiv.org/api/query",
+  "total": 18,
+  "papers": [
+    {
+      "file": "ccus_auto_01.pdf",
+      "arxiv_id": "2505.21511v2",
+      "dedupe_key": "2505.21511",
+      "title": "Geological CO2 storage assessment in emerging CCS regions: Review of sequestration potential, policy development, and socio-economic factors in Poland",
+      "authors": [
+        "Mohammad Nooraiepour",
+        "Karol M. Dąbrowski",
+        "Mohammad Masoudi",
+        "Szymon Kuczyński",
+        "Zezhang Song",
+        "Ane Elisabet Lothe"
+      ],
+      "published": "2025-05-19",
+      "abs_url": "https://arxiv.org/abs/2505.21511v2",
+      "pdf_url": "https://arxiv.org/pdf/2505.21511v2",
+      "score": 27.0,
+      "matched_terms": [
+        "co2 storage",
+        "carbon capture and storage",
+        "ccs",
+        "ccus",
+        "sequestration",
+        "saline aquifer",
+        "storage capacity",
+        "title:co2 storage",
+        "title:ccs",
+        "title:sequestration"
+      ],
+      "abstract": "Emerging carbon capture and storage (CCS) markets face critical challenges in developing systematic methodologies to assess geological CO2 storage potential under conditions of limited data availability, evolving regulatory frameworks, and nascent infrastructure development. This study establishes an assessment framework designed for lower-maturity CCS regions, using Poland as a representative case study to demonstrate methodology application and validate framework effectiveness. The framework integrates geological characterization, storage capacity assessment, regulatory analysis, and socio-economic evaluation through a structured approach adaptable to diverse global contexts. Poland's coal-reliant economy exemplifies the decarbonization challenges facing emerging CCS regions while meeting European Union climate mandates. The country's geological setting offers substantial sequestration opportunities across three major sedimentary regions. Through multidisciplinary analysis synthesizing scattered geological data, policy developments, CCUS value chain, and stakeholder perspectives, we systematically evaluate CO2 storage potential. Onshore saline aquifers and depleted hydrocarbon fields provide significant storage capacity, while offshore Baltic Basin sites face logistical and environmental regulatory constraints. Current assessments encounter critical limitations, including sparse data, restricted research access, and inadequate industry-academia collaboration, preventing basin-scale analyses from advancing to higher storage readiness levels and undermining business decision-making reliability. This study contributes a replicable methodology extending beyond Poland to lower-maturity CCS regions worldwide. The framework provides decision-makers with systematic tools for storage assessment, policy development, and stakeholder engagement, supporting evidence-based CCS deployment strategies.",
+      "bytes": 16967707
+    },
+    {
+      "file": "ccus_auto_02.pdf",
+      "arxiv_id": "2403.07360v2",
+      "dedupe_key": "2403.07360",
+      "title": "Optimization of Pressure Management Strategies for Geological CO2 Sequestration Using Surrogate Model-based Reinforcement Learning",
+      "authors": [
+        "Jungang Chen",
+        "Eduardo Gildin",
+        "Georgy Kompantsev"
+      ],
+      "published": "2024-03-12",
+      "abs_url": "https://arxiv.org/abs/2403.07360v2",
+      "pdf_url": "https://arxiv.org/pdf/2403.07360v2",
+      "score": 21.0,
+      "matched_terms": [
+        "sequestration",
+        "caprock",
+        "fault reactivation",
+        "saline aquifer",
+        "leakage",
+        "pressure management",
+        "surrogate",
+        "title:sequestration",
+        "title:pressure management"
+      ],
+      "abstract": "Injecting greenhouse gas into deep underground reservoirs for permanent storage can inadvertently lead to fault reactivation, caprock fracturing and greenhouse gas leakage when the injection-induced stress exceeds the critical threshold. Extraction of pre-existing fluids at various stages of injection process, referred as pressure management, can mitigate associated risks and lessen environmental impact. However, identifying optimal pressure management strategies typically requires thousands of full-order simulations due to the need for function evaluations, making the process computationally prohibitive. This paper introduces a novel surrogate model-based reinforcement learning method for devising optimal pressure management strategies for geological CO2 sequestration efficiently. Our approach comprises two steps. Firstly, a surrogate model is developed through the embed to control method, which employs an encoder-transition-decoder structure to learn latent dynamics. Leveraging this proxy model, reinforcement learning is utilized to find an optimal strategy that maximizes economic benefits while satisfying various control constraints. The reinforcement learning agent receives the latent state space representation and immediate reward tailored for CO2 sequestration and choose real-time controls which are subject to predefined engineering constraints in order to maximize the long-term cumulative rewards. To demonstrate its effectiveness, this framework is applied to a compositional simulation model where CO2 is injected into saline aquifer. The results reveal that our surrogate model-based reinforcement learning approach significantly optimizes CO2 sequestration strategies, leading to notable economic gains compared to baseline scenarios.",
+      "bytes": 1547291
+    },
+    {
+      "file": "ccus_auto_03.pdf",
+      "arxiv_id": "2301.02357v2",
+      "dedupe_key": "2301.02357",
+      "title": "Well Cement Degradation and Wellbore Integrity in Geological CO2 Storages: A Literature Review",
+      "authors": [
+        "Vu Nguyen",
+        "Olatunji Olayiwola",
+        "Boyun Guo",
+        "Ning Liu"
+      ],
+      "published": "2023-01-06",
+      "abs_url": "https://arxiv.org/abs/2301.02357v2",
+      "pdf_url": "https://arxiv.org/pdf/2301.02357v2",
+      "score": 20.5,
+      "matched_terms": [
+        "co2 storage",
+        "carbon capture and storage",
+        "ccs",
+        "geological storage",
+        "wellbore integrity",
+        "title:co2 storage",
+        "title:wellbore integrity"
+      ],
+      "abstract": "Carbon capture and storage (CCS) has emerged as the most effective method to curb the CO2 concentration in the atmosphere. It can store up to 5 billion tons of CO2 per year. To guarantee a safe and economical geological storage, the well cement degradation and wellbore integrity need to be studied thoroughly. This review paper is designed to provide a fundamental background of well cement degradation and wellbore integrity in geological CO2 storages to support the researchers in further investigation. The review mainly focuses on mechanical, thermal, chemical property changes and corrosion time for cement in experiments and simulation during geological CO2 storage. However, the debonding interface between casing/cement or cement/formation has not been addressed profoundly. A further investigation should inspect how pressure, temperature, and chemical reaction affect the micro-annuli of casing/cement or cement/formation. Also, a mathe-matical model should be established to predict the corrosion rate in geological CO2 storage.",
+      "bytes": 1589743
+    },
+    {
+      "file": "ccus_auto_04.pdf",
+      "arxiv_id": "2301.04931v2",
+      "dedupe_key": "2301.04931",
+      "title": "CO2 storage in deep saline aquifers: evaluation of geomechanical risks using integrated modeling workflow",
+      "authors": [
+        "Evgenii Kanin",
+        "Igor Garagash",
+        "Sergei Boronin",
+        "Svetlana Zhigulskiy",
+        "Artem Penigin",
+        "Andrey Afanasyev"
+      ],
+      "published": "2023-01-12",
+      "abs_url": "https://arxiv.org/abs/2301.04931v2",
+      "pdf_url": "https://arxiv.org/pdf/2301.04931v2",
+      "score": 19.5,
+      "matched_terms": [
+        "co2 storage",
+        "saline aquifer",
+        "leakage",
+        "multiphase flow",
+        "permeability",
+        "geomechanics",
+        "co2 injection",
+        "title:co2 storage",
+        "title:saline aquifer"
+      ],
+      "abstract": "CO2 injection into a saline aquifer crossed by a tectonic fault is studied with coupled fluid mechanics - geomechanics modeling. The simulation approach is based on coupling of the MUFITS reservoir simulator and the FLAC3D mechanical simulator via an in-house API (i.e., an algorithm for data transfer between simulators). MUFITS simulates the non-isothermal multiphase flow of CO2 and brine in rock formation accounting for phase transitions and thermal effects. The modeling workflow is sequential, so that hydrodynamical simulations are carried out at a certain time interval, after which pressure, temperature, and density distributions are passed to FLAC3D, which calculates the equilibrium mechanical state. Computed deformations and stresses are utilized to update the porosity and permeability fields for the subsequent hydrodynamic modeling. In particular, we focus on the tectonic fault and its behavior during CO2 injection. We distinguish the damage zone and core inside the fault and derive the closure relations for their permeability alteration analytically. The coupled approach developed here is applied to simulate CO2 injection into synthetic and realistic reservoir models. For the former one, we study the effect of formation depth and presence of the tectonic stresses at the initial mechanical state, while for the latter, we consider different injection modes (bottomhole pressure). In each numerical experiment, we describe the evolution of the fault permeability due to the slip along its plane and the development of plastic deformations leading to the loss of reservoir integrity and CO2 leakage. Sensitivity analysis of the coupled model to realistic values of input parameters to assess the fault stability is carried out.",
+      "bytes": 9651687
+    },
+    {
+      "file": "ccus_auto_05.pdf",
+      "arxiv_id": "2506.17241v2",
+      "dedupe_key": "2506.17241",
+      "title": "Self-Enhancing Halite Growth Creates Secondary Porous Networks During CO2 Storage in Saline Aquifers",
+      "authors": [
+        "Mohammad Nooraiepour",
+        "Mohammad Masoudi",
+        "Hannelore Derluyn",
+        "Pascale Senechal",
+        "Peter Moonen",
+        "Helge Hellevang"
+      ],
+      "published": "2025-06-05",
+      "abs_url": "https://arxiv.org/abs/2506.17241v2",
+      "pdf_url": "https://arxiv.org/pdf/2506.17241v2",
+      "score": 18.0,
+      "matched_terms": [
+        "co2 storage",
+        "carbon storage",
+        "saline aquifer",
+        "permeability",
+        "co2 injection",
+        "title:co2 storage",
+        "title:saline aquifer"
+      ],
+      "abstract": "Salt precipitation during CO2 injection into saline aquifers obstructs flow-controlling pore throats and reduces permeability, yet reactive transport models assume salt forms dispersed, non-porous crystals with minimal flow impact. We demonstrate that halite instead creates three-dimensional porous networks with 40% internal porosity through self-enhancing growth mechanisms absent from current models. Time-lapse X-ray micro-computed tomography and spectral imaging reveal preferential nucleation at gas-liquid interfaces, where porous hydrophilic aggregates generate capillary suction that draws brine films toward precipitation sites, accelerating growth and expanding reactive surface area in a positive feedback loop. Spectral tomography shows systematic density gradients reflecting two-stage precipitation: dense macrocrystalline cores formed under moderate supersaturation and evaporation, surrounded by microcrystalline overgrowths from rapid late-stage dynamics. These overgrowths create umbrella-like crusts that encapsulate residual brine beneath surface layers. This porous architecture explains why modest porosity reduction causes severe permeability decline, as aggregates preferentially obstruct flow percolation pathways rather than uniformly cementing grains or filling pore space. Five interconnected mechanisms drive self-enhancing growth across nano- to centimeter scales: interface nucleation, secondary porous structure formation, steep concentration gradients, hydrophilic substrate film maintenance, and capillary-driven solute delivery. Our quantitative characterization of internal salt architecture, reactive surface areas, and pore connectivity provides essential parameters for improving predictive models of evaporation-precipitation dynamics in carbon storage, soil salinization, and cultural heritage preservation.",
+      "bytes": 3936537
+    },
+    {
+      "file": "ccus_auto_06.pdf",
+      "arxiv_id": "2107.07274v1",
+      "dedupe_key": "2107.07274",
+      "title": "A Robust Deep Learning Workflow to Predict Multiphase Flow Behavior during Geological CO2 Sequestration Injection and Post-Injection Periods",
+      "authors": [
+        "Bicheng Yan",
+        "Bailian Chen",
+        "Dylan Robert Harp",
+        "Rajesh J. Pawar"
+      ],
+      "published": "2021-07-15",
+      "abs_url": "https://arxiv.org/abs/2107.07274v1",
+      "pdf_url": "https://arxiv.org/pdf/2107.07274v1",
+      "score": 18.0,
+      "matched_terms": [
+        "carbon storage",
+        "sequestration",
+        "co2 plume",
+        "saline aquifer",
+        "multiphase flow",
+        "reservoir simulation",
+        "co2 injection",
+        "title:sequestration"
+      ],
+      "abstract": "This paper contributes to the development and evaluation of a deep learning workflow that accurately and efficiently predicts the temporal-spatial evolution of pressure and CO2 plumes during injection and post-injection periods of geologic CO2 sequestration (GCS) operations. Based on a Fourier Neuron Operator, the deep learning workflow takes input variables or features including rock properties, well operational controls and time steps, and predicts the state variables of pressure and CO2 saturation. To further improve the predictive fidelity, separate deep learning models are trained for CO2 injection and post-injection periods due the difference in primary driving force of fluid flow and transport during these two phases. We also explore different combinations of features to predict the state variables. We use a realistic example of CO2 injection and storage in a 3D heterogeneous saline aquifer, and apply the deep learning workflow that is trained from physics-based simulation data and emulate the physics process. Through this numerical experiment, we demonstrate that using two separate deep learning models to distinguish post-injection from injection period generates the most accurate prediction of pressure, and a single deep learning model of the whole GCS process including the cumulative injection volume of CO2 as a deep learning feature, leads to the most accurate prediction of CO2 saturation. For the post-injection period, it is key to use cumulative CO2 injection volume to inform the deep learning models about the total carbon storage when predicting either pressure or saturation. The deep learning workflow not only provides high predictive fidelity across temporal and spatial scales, but also offers a speedup of 250 times compared to full physics reservoir simulation, and thus will be a significant predictive tool for engineers to manage the long term process of GCS.",
+      "bytes": 1574281
+    },
+    {
+      "file": "ccus_auto_07.pdf",
+      "arxiv_id": "2212.08596v1",
+      "dedupe_key": "2212.08596",
+      "title": "De-risking Carbon Capture and Sequestration with Explainable CO2 Leakage Detection in Time-lapse Seismic Monitoring Images",
+      "authors": [
+        "Huseyin Tuna Erdinc",
+        "Abhinav Prakash Gahlot",
+        "Ziyi Yin",
+        "Mathias Louboutin",
+        "Felix J. Herrmann"
+      ],
+      "published": "2022-12-16",
+      "abs_url": "https://arxiv.org/abs/2212.08596v1",
+      "pdf_url": "https://arxiv.org/pdf/2212.08596v1",
+      "score": 16.5,
+      "matched_terms": [
+        "co2 storage",
+        "sequestration",
+        "co2 plume",
+        "leakage",
+        "monitoring",
+        "seismic",
+        "title:sequestration",
+        "title:leakage"
+      ],
+      "abstract": "With the growing global deployment of carbon capture and sequestration technology to combat climate change, monitoring and detection of potential CO2 leakage through existing or storage induced faults are critical to the safe and long-term viability of the technology. Recent work on time-lapse seismic monitoring of CO2 storage has shown promising results in its ability to monitor the growth of the CO2 plume from surface recorded seismic data. However, due to the low sensitivity of seismic imaging to CO2 concentration, additional developments are required to efficiently interpret the seismic images for leakage. In this work, we introduce a binary classification of time-lapse seismic images to delineate CO2 plumes (leakage) using state-of-the-art deep learning models. Additionally, we localize the leakage region of CO2 plumes by leveraging Class Activation Mapping methods.",
+      "bytes": 23061375
+    },
+    {
+      "file": "ccus_auto_08.pdf",
+      "arxiv_id": "2512.12482v1",
+      "dedupe_key": "2512.12482",
+      "title": "Bayesian Full-waveform Monitoring of CO2 Storage with Fluid-flow Priors via Generative Modeling",
+      "authors": [
+        "Haipeng Li",
+        "Nanzhe Wang",
+        "Louis J. Durlofsky",
+        "Biondo L. Biondi"
+      ],
+      "published": "2025-12-13",
+      "abs_url": "https://arxiv.org/abs/2512.12482v1",
+      "pdf_url": "https://arxiv.org/pdf/2512.12482v1",
+      "score": 16.0,
+      "matched_terms": [
+        "co2 storage",
+        "sequestration",
+        "co2 plume",
+        "multiphase flow",
+        "bayesian",
+        "inversion",
+        "monitoring",
+        "seismic",
+        "title:co2 storage"
+      ],
+      "abstract": "Quantitative monitoring of subsurface changes is essential for ensuring the safety of geological CO2 sequestration. Full-waveform monitoring (FWM) can resolve these changes at high spatial resolution, but conventional deterministic inversion lacks uncertainty quantification and incorporates only limited prior information. Deterministic approaches can also yield unreliable results with sparse and noisy seismic data. To address these limitations, we develop a Bayesian FWM framework that combines reservoir flow physics with generative prior modeling. Prior CO2 saturation realizations are constructed by performing multiphase flow simulations on prior geological realizations. Seismic velocity is related to saturation through rock physics modeling. A variational autoencoder (VAE) trained on the priors maps high-dimensional CO2 saturation fields onto a low-dimensional, approximately Gaussian latent space, enabling efficient Bayesian inference while retaining the key geometrical structure of the CO2 plume. Hamiltonian Monte Carlo (HMC) is used to infer CO2 saturation changes from time-lapse seismic data and to quantify associated uncertainties. Numerical results show that this approach improves inversion stability and accuracy under extremely sparse and noisy acquisition, whereas deterministic methods become unreliable. Statistical seismic monitoring provides posterior uncertainty estimates that identify where additional measurements would most reduce ambiguity and mitigate errors arising from biased rock physics parameters. The framework combines reservoir physics, generative priors, and Bayesian inference to provide uncertainty quantification for time-lapse monitoring of CO2 storage and other subsurface processes.",
+      "bytes": 7062983
+    },
+    {
+      "file": "ccus_auto_09.pdf",
+      "arxiv_id": "2502.07169v1",
+      "dedupe_key": "2502.07169",
+      "title": "Advancing Geological Carbon Storage Monitoring With 3d Digital Shadow Technology",
+      "authors": [
+        "Abhinav Prakash Gahlot",
+        "Rafael Orozco",
+        "Felix J. Herrmann"
+      ],
+      "published": "2025-02-11",
+      "abs_url": "https://arxiv.org/abs/2502.07169v1",
+      "pdf_url": "https://arxiv.org/pdf/2502.07169v1",
+      "score": 15.5,
+      "matched_terms": [
+        "co2 storage",
+        "carbon storage",
+        "co2 plume",
+        "machine learning",
+        "bayesian",
+        "monitoring",
+        "seismic",
+        "title:carbon storage"
+      ],
+      "abstract": "Geological Carbon Storage (GCS) is a key technology for achieving global climate goals by capturing and storing CO2 in deep geological formations. Its effectiveness and safety rely on accurate monitoring of subsurface CO2 migration using advanced time-lapse seismic imaging. A Digital Shadow framework integrates field data, including seismic and borehole measurements, to track CO2 saturation over time. Machine learning-assisted data assimilation techniques, such as generative AI and nonlinear ensemble Bayesian filtering, update a digital model of the CO2 plume while incorporating uncertainties in reservoir properties. Compared to 2D approaches, 3D monitoring enhances the spatial accuracy of GCS assessments, capturing the full extent of CO2 migration. This study extends the uncertainty-aware 2D Digital Shadow framework by incorporating 3D seismic imaging and reservoir modeling, improving decision-making and risk mitigation in CO2 storage projects.",
+      "bytes": 14904345
+    },
+    {
+      "file": "ccus_auto_10.pdf",
+      "arxiv_id": "2408.01049v4",
+      "dedupe_key": "2408.01049",
+      "title": "Unexpected fault activation due to underground gas storage in produced reservoirs. Part II: Definition of safe operational bandwidths",
+      "authors": [
+        "Selena Baldan",
+        "Massimiliano Ferronato",
+        "Andrea Franceschini",
+        "Carlo Janna",
+        "Claudia Zoccarato",
+        "Matteo Frigo"
+      ],
+      "published": "2024-08-02",
+      "abs_url": "https://arxiv.org/abs/2408.01049v4",
+      "pdf_url": "https://arxiv.org/pdf/2408.01049v4",
+      "score": 15.5,
+      "matched_terms": [
+        "sequestration",
+        "caprock",
+        "fault reactivation",
+        "fault activation",
+        "seismic",
+        "title:fault activation"
+      ],
+      "abstract": "Underground gas storage is a versatile tool for managing energy resources and addressing pressing environmental concerns. While natural gas is stored in geological formations since the early 20th century, hydrogen has recently been considered as a potential candidate toward a more flexible and sustainable energy infrastructure. Furthermore, these formations can additionally capture gases that contribute to climate change, such as CO2. When such operations are implemented in faulted basins, however, safety concerns may arise due to the potential reactivation of pre-existing faults, which could trigger (micro)-seismicity events. In the Netherlands, it has been recently noted that fault reactivation can occur \"unexpectedly\" during the life of an underground gas storage (UGS) site, even when stress conditions are not expected to cause a failure. The present two-part work aims to develop a modeling framework to investigate the physical mechanisms causing such occurrences in previously produced gas reservoirs and define a safe operational bandwidth for pore pressure variation for UGS operations in the faulted reservoirs of the Upper Rotliegend Group, the Netherlands. This paper investigates in detail the mechanisms and crucial factors that result in fault reactivation at various stages of a UGS. The mathematical and numerical model described in Part I is used, also considering how the presence of stored gases may influence the mechanical properties of the reservoir and caprock, in particular the Young modulus. The study investigates the hazard of fault activation caused by the storage of different fluids for various purposes, such as long-term CO2 sequestration, CH4 and H2 injection and extraction cycles, and N2 injection as cushion gas. The results show how geological configuration, geomechanical properties, and reservoir operating conditions may increase the hazard of fault reactivation.",
+      "bytes": 8770956
+    },
+    {
+      "file": "ccus_auto_11.pdf",
+      "arxiv_id": "2404.14422v1",
+      "dedupe_key": "2404.14422",
+      "title": "Geomechanics Contribution to CO2 Storage Containment and Trapping Mechanisms in Tight Sandstone Complexes: A Case Study on Mae Moh Basin",
+      "authors": [
+        "Romal Ramadhan",
+        "Khomchan Promneewat",
+        "Vorasate Thanasaksukthawee",
+        "Teerapat Tosuai",
+        "Masoud Babaei",
+        "Seyyed A. Hosseini"
+      ],
+      "published": "2024-04-16",
+      "abs_url": "https://arxiv.org/abs/2404.14422v1",
+      "pdf_url": "https://arxiv.org/pdf/2404.14422v1",
+      "score": 15.5,
+      "matched_terms": [
+        "co2 storage",
+        "ccs",
+        "co2 plume",
+        "leakage",
+        "fracture",
+        "geomechanics",
+        "title:co2 storage"
+      ],
+      "abstract": "Recognized as a not-an-option approach to mitigate the climate crisis, carbon dioxide capture and storage (CCS) has a potential as much as gigaton of CO2 to sequestrate permanently and securely. Recent attention has been paid to store highly concentrated point-source CO2 into saline formation, of which Thailand considers one onshore case in the north located in Lampang, the Mae Moh coal-fired power plant matched with its own coal mine of Mae Moh Basin. The current study is thus aimed to examine the influence of reservoir geomechanics on CO2 storage containment and trapping mechanisms, with co-contributions from geochemistry and reservoir heterogeneity, using reservoir simulator, CMG-GEM. With the injection rate designed for 30-year injection, reservoir pressure build-ups were 77% of fracture pressure but increased to 80% when geomechanics excluded. Such pressure responses imply that storage security is associated with the geomechanics. Dominated by viscous force, CO2 plume migrated more laterally while geomechanics clearly contributed to lesser migration due to reservoir rock strength constraint. Reservoir geomechanics contributed to less plume traveling into more constrained spaces while leakage was secured, highlighting a significant and neglected influence of geomechanical factor. Spatiotemporal development of CO2 plume also confirms the geomechanics-dominant storage containment. Reservoir geomechanics as attributed to its respective reservoir fluid pressure controls development of trapping mechanisms, especially into residual and solubility traps. More secured storage containment after the injection was found with higher pressure, while less development into solubility trap was observed with lower pressure.",
+      "bytes": 1815769
+    },
+    {
+      "file": "ccus_auto_12.pdf",
+      "arxiv_id": "2508.11618v2",
+      "dedupe_key": "2508.11618",
+      "title": "Optimal CO2 storage management considering safety constraints in multi-stakeholder multi-site CCS projects: a Markov game perspective",
+      "authors": [
+        "Jungang Chen",
+        "Seyyed A. Hosseini"
+      ],
+      "published": "2025-08-15",
+      "abs_url": "https://arxiv.org/abs/2508.11618v2",
+      "pdf_url": "https://arxiv.org/pdf/2508.11618v2",
+      "score": 15.0,
+      "matched_terms": [
+        "co2 storage",
+        "carbon capture and storage",
+        "ccs",
+        "surrogate",
+        "title:co2 storage",
+        "title:ccs"
+      ],
+      "abstract": "Carbon capture and storage (CCS) projects typically involve a diverse array of stakeholders or players from public, private, and regulatory sectors, each with different objectives and responsibilities. Given the complexity, scale, and long-term nature of CCS operations, determining whether individual stakeholders can independently maximize their interests or whether collaborative coalition agreements are needed remains a central question for effective CCS project planning and management. CCS projects are often implemented in geologically connected sites, where shared geological features such as pressure space and reservoir pore capacity can lead to competitive behavior among stakeholders. Furthermore, CO2 storage sites are often located in geologically mature basins that previously served as sites for hydrocarbon extraction or wastewater disposal in order to leverage existing infrastructures, which makes unilateral optimization even more complicated and unrealistic. In this work, we propose a paradigm based on Markov games to quantitatively investigate how different coalition structures affect the goals of stakeholders. We frame this multi-stakeholder multi-site problem as a multi-agent reinforcement learning problem with safety constraints. Our approach enables agents to learn optimal strategies while compliant with safety regulations. We present an example where multiple operators are injecting CO2 into their respective project areas in a geologically connected basin. To address the high computational cost of repeated simulations of high-fidelity models, a previously developed surrogate model based on the Embed-to-Control (E2C) framework is employed. Our results demonstrate the effectiveness of the proposed framework in addressing optimal management of CO2 storage when multiple stakeholders with various objectives and goals are involved.",
+      "bytes": 5444817
+    },
+    {
+      "file": "ccus_auto_13.pdf",
+      "arxiv_id": "2502.07171v1",
+      "dedupe_key": "2502.07171",
+      "title": "Enhancing Robustness Of Digital Shadow For CO2 Storage Monitoring With Augmented Rock Physics Modeling",
+      "authors": [
+        "Abhinav Prakash Gahlot",
+        "Felix J. Herrmann"
+      ],
+      "published": "2025-02-11",
+      "abs_url": "https://arxiv.org/abs/2502.07171v1",
+      "pdf_url": "https://arxiv.org/pdf/2502.07171v1",
+      "score": 15.0,
+      "matched_terms": [
+        "co2 storage",
+        "carbon storage",
+        "leakage",
+        "machine learning",
+        "bayesian",
+        "monitoring",
+        "seismic",
+        "title:co2 storage"
+      ],
+      "abstract": "To meet climate targets, the IPCC underscores the necessity of technologies capable of removing gigatonnes of CO2 annually, with Geological Carbon Storage (GCS) playing a central role. GCS involves capturing CO2 and injecting it into deep geological formations for long-term storage, requiring precise monitoring to ensure containment and prevent leakage. Time-lapse seismic imaging is essential for tracking CO2 migration but often struggles to capture the complexities of multi-phase subsurface flow. Digital Shadows (DS), leveraging machine learning-driven data assimilation techniques such as nonlinear Bayesian filtering and generative AI, provide a more detailed, uncertainty-aware monitoring approach. By incorporating uncertainties in reservoir properties, DS frameworks improve CO2 migration forecasts, reducing risks in GCS operations. However, data assimilation depends on assumptions regarding reservoir properties, rock physics models, and initial conditions, which, if inaccurate, can compromise prediction reliability. This study demonstrates that augmenting forecast ensembles with diverse rock physics models mitigates the impact of incorrect assumptions and improves predictive accuracy, particularly in differentiating uniform versus patchy saturation models.",
+      "bytes": 1637409
+    },
+    {
+      "file": "ccus_auto_14.pdf",
+      "arxiv_id": "2105.09468v2",
+      "dedupe_key": "2105.09468",
+      "title": "A Deep Learning-Accelerated Data Assimilation and Forecasting Workflow for Commercial-Scale Geologic Carbon Storage",
+      "authors": [
+        "Hewei Tang",
+        "Pengcheng Fu",
+        "Christopher S. Sherman",
+        "Jize Zhang",
+        "Xin Ju",
+        "François Hamon"
+      ],
+      "published": "2021-05-09",
+      "abs_url": "https://arxiv.org/abs/2105.09468v2",
+      "pdf_url": "https://arxiv.org/pdf/2105.09468v2",
+      "score": 15.0,
+      "matched_terms": [
+        "carbon storage",
+        "co2 plume",
+        "reservoir simulation",
+        "neural network",
+        "surrogate",
+        "inversion",
+        "monitoring",
+        "seismic",
+        "title:carbon storage"
+      ],
+      "abstract": "Fast assimilation of monitoring data to update forecasts of pressure buildup and carbon dioxide (CO2) plume migration under geologic uncertainties is a challenging problem in geologic carbon storage. The high computational cost of data assimilation with a high-dimensional parameter space impedes fast decision-making for commercial-scale reservoir management. We propose to leverage physical understandings of porous medium flow behavior with deep learning techniques to develop a fast history matching-reservoir response forecasting workflow. Applying an Ensemble Smoother Multiple Data Assimilation framework, the workflow updates geologic properties and predicts reservoir performance with quantified uncertainty from pressure history and CO2 plumes interpreted through seismic inversion. As the most computationally expensive component in such a workflow is reservoir simulation, we developed surrogate models to predict dynamic pressure and CO2 plume extents under multi-well injection. The surrogate models employ deep convolutional neural networks, specifically, a wide residual network and a residual U-Net. The workflow is validated against a flat three-dimensional reservoir model representative of a clastic shelf depositional environment. Intelligent treatments are applied to bridge between quantities in a true-3D reservoir model and those in a single-layer reservoir model. The workflow can complete history matching and reservoir forecasting with uncertainty quantification in less than one hour on a mainstream personal workstation.",
+      "bytes": 10577916
+    },
+    {
+      "file": "ccus_auto_15.pdf",
+      "arxiv_id": "2408.01575v2",
+      "dedupe_key": "2408.01575",
+      "title": "Deep Learning Framework for History Matching CO2 Storage with 4D Seismic and Monitoring Well Data",
+      "authors": [
+        "Nanzhe Wang",
+        "Louis J. Durlofsky"
+      ],
+      "published": "2024-08-02",
+      "abs_url": "https://arxiv.org/abs/2408.01575v2",
+      "pdf_url": "https://arxiv.org/pdf/2408.01575v2",
+      "score": 14.5,
+      "matched_terms": [
+        "co2 storage",
+        "carbon storage",
+        "co2 plume",
+        "surrogate",
+        "monitoring",
+        "seismic",
+        "title:co2 storage"
+      ],
+      "abstract": "Geological carbon storage entails the injection of megatonnes of supercritical CO2 into subsurface formations. The properties of these formations are usually highly uncertain, which makes design and optimization of large-scale storage operations challenging. In this paper we introduce a history matching strategy that enables the calibration of formation properties based on early-time observations. Early-time assessments are essential to assure the operation is performing as planned. Our framework involves two fit-for-purpose deep learning surrogate models that provide predictions for in-situ monitoring well data and interpreted time-lapse (4D) seismic saturation data. These two types of data are at very different scales of resolution, so it is appropriate to construct separate, specialized deep learning networks for their prediction. This approach results in a workflow that is more straightforward to design and more efficient to train than a single surrogate that provides global high-fidelity predictions. The deep learning models are integrated into a hierarchical Markov chain Monte Carlo (MCMC) history matching procedure. History matching is performed on a synthetic case with and without 4D seismic data, which allows us to quantify the impact of 4D seismic on uncertainty reduction. The use of both data types is shown to provide substantial uncertainty reduction in key geomodel parameters and to enable accurate predictions of CO2 plume dynamics. The overall history matching framework developed in this study represents an efficient way to integrate multiple data types and to assess the impact of each on uncertainty reduction and performance predictions.",
+      "bytes": 10670608
+    },
+    {
+      "file": "ccus_auto_16.pdf",
+      "arxiv_id": "2403.19819v1",
+      "dedupe_key": "2403.19819",
+      "title": "A Digital Twin for Geological Carbon Storage with Controlled Injectivity",
+      "authors": [
+        "Abhinav Prakash Gahlot",
+        "Haoyun Li",
+        "Ziyi Yin",
+        "Rafael Orozco",
+        "Felix J. Herrmann"
+      ],
+      "published": "2024-03-28",
+      "abs_url": "https://arxiv.org/abs/2403.19819v1",
+      "pdf_url": "https://arxiv.org/pdf/2403.19819v1",
+      "score": 14.5,
+      "matched_terms": [
+        "co2 storage",
+        "carbon storage",
+        "neural network",
+        "bayesian",
+        "monitoring",
+        "seismic",
+        "injectivity",
+        "title:carbon storage"
+      ],
+      "abstract": "We present an uncertainty-aware Digital Twin (DT) for geologic carbon storage (GCS), capable of handling multimodal time-lapse data and controlling CO2 injectivity to mitigate reservoir fracturing risks. In GCS, DT represents virtual replicas of subsurface systems that incorporate real-time data and advanced generative Artificial Intelligence (genAI) techniques, including neural posterior density estimation via simulation-based inference and sequential Bayesian inference. These methods enable the effective monitoring and control of CO2 storage projects, addressing challenges such as subsurface complexity, operational optimization, and risk mitigation. By integrating diverse monitoring data, e.g., geophysical well observations and imaged seismic, DT can bridge the gaps between seemingly distinct fields like geophysics and reservoir engineering. In addition, the recent advancements in genAI also facilitate DT with principled uncertainty quantification. Through recursive training and inference, DT utilizes simulated current state samples, e.g., CO2 saturation, paired with corresponding geophysical field observations to train its neural networks and enable posterior sampling upon receiving new field data. However, it lacks decision-making and control capabilities, which is necessary for full DT functionality. This study aims to demonstrate how DT can inform decision-making processes to prevent risks such as cap rock fracturing during CO2 storage operations.",
+      "bytes": 1073865
+    },
+    {
+      "file": "ccus_auto_17.pdf",
+      "arxiv_id": "2311.00290v2",
+      "dedupe_key": "2311.00290",
+      "title": "Inference of CO2 flow patterns -- a feasibility study",
+      "authors": [
+        "Abhinav Prakash Gahlot",
+        "Huseyin Tuna Erdinc",
+        "Rafael Orozco",
+        "Ziyi Yin",
+        "Felix J. Herrmann"
+      ],
+      "published": "2023-11-01",
+      "abs_url": "https://arxiv.org/abs/2311.00290v2",
+      "pdf_url": "https://arxiv.org/pdf/2311.00290v2",
+      "score": 14.5,
+      "matched_terms": [
+        "co2 storage",
+        "ccs",
+        "sequestration",
+        "co2 plume",
+        "leakage",
+        "monitoring",
+        "seismic"
+      ],
+      "abstract": "As the global deployment of carbon capture and sequestration (CCS) technology intensifies in the fight against climate change, it becomes increasingly imperative to establish robust monitoring and detection mechanisms for potential underground CO2 leakage, particularly through pre-existing or induced faults in the storage reservoir's seals. While techniques such as history matching and time-lapse seismic monitoring of CO2 storage have been used successfully in tracking the evolution of CO2 plumes in the subsurface, these methods lack principled approaches to characterize uncertainties related to the CO2 plumes' behavior. Inclusion of systematic assessment of uncertainties is essential for risk mitigation for the following reasons: (i) CO2 plume-induced changes are small and seismic data is noisy; (ii) changes between regular and irregular (e.g., caused by leakage) flow patterns are small; and (iii) the reservoir properties that control the flow are strongly heterogeneous and typically only available as distributions. To arrive at a formulation capable of inferring flow patterns for regular and irregular flow from well and seismic data, the performance of conditional normalizing flow will be analyzed on a series of carefully designed numerical experiments. While the inferences presented are preliminary in the context of an early CO2 leakage detection system, the results do indicate that inferences with conditional normalizing flows can produce high-fidelity estimates for CO2 plumes with or without leakage. We are also confident that the inferred uncertainty is reasonable because it correlates well with the observed errors. This uncertainty stems from noise in the seismic data and from the lack of precise knowledge of the reservoir's fluid flow properties.",
+      "bytes": 5919338
+    },
+    {
+      "file": "ccus_auto_18.pdf",
+      "arxiv_id": "2304.09352v1",
+      "dedupe_key": "2304.09352",
+      "title": "Optimizing Carbon Storage Operations for Long-Term Safety",
+      "authors": [
+        "Yizheng Wang",
+        "Markus Zechner",
+        "Gege Wen",
+        "Anthony Louis Corso",
+        "John Michael Mern",
+        "Mykel J. Kochenderfer"
+      ],
+      "published": "2023-04-19",
+      "abs_url": "https://arxiv.org/abs/2304.09352v1",
+      "pdf_url": "https://arxiv.org/pdf/2304.09352v1",
+      "score": 14.5,
+      "matched_terms": [
+        "carbon storage",
+        "carbon capture and storage",
+        "ccs",
+        "neural network",
+        "surrogate",
+        "monitoring",
+        "title:carbon storage"
+      ],
+      "abstract": "To combat global warming and mitigate the risks associated with climate change, carbon capture and storage (CCS) has emerged as a crucial technology. However, safely sequestering CO2 in geological formations for long-term storage presents several challenges. In this study, we address these issues by modeling the decision-making process for carbon storage operations as a partially observable Markov decision process (POMDP). We solve the POMDP using belief state planning to optimize injector and monitoring well locations, with the goal of maximizing stored CO2 while maintaining safety. Empirical results in simulation demonstrate that our approach is effective in ensuring safe long-term carbon storage operations. We showcase the flexibility of our approach by introducing three different monitoring strategies and examining their impact on decision quality. Additionally, we introduce a neural network surrogate model for the POMDP decision-making process to handle the complex dynamics of the multi-phase flow. We also investigate the effects of different fidelity levels of the surrogate model on decision qualities.",
+      "bytes": 4791380
+    }
+  ]
+}

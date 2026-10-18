@@ -43,6 +43,29 @@ jobs:
       - name: Verify requirements.txt exists and is non-empty
         run: test -s requirements.txt
 
+      - name: Guard against corpus binaries in the repository
+        run: |
+          set -e
+          # 中文注释：语料 PDF 是**输入**，不是代码。18 篇 arXiv 论文就 125 MB，
+          # 塞进仓库会让每次 clone 都变慢，而且这些论文各有版权与 DOI。
+          # .gitignore 已经挡住新文件，但 gitignore **对已跟踪的文件无效** ——
+          # 早期提交过的 5 篇 PDF 就仍然留在版本库里。所以这里再加一道机器守卫：
+          # 一旦有人 `git add -f` 或忽略了这条规则，CI 当场失败。
+          if git ls-files | grep -qE '^ccus_docs/.*\.pdf$'; then
+            echo "::error::ccus_docs/*.pdf must not be tracked (run: git rm --cached ccus_docs/*.pdf)"
+            git ls-files | grep -E '^ccus_docs/.*\.pdf$'
+            exit 1
+          fi
+          # 单文件上限 1 MB：仓库里最大的合法文件是 docs/ 下的截图（约 430 KB）。
+          # 超过这个量级基本就是把数据/模型/语料误提交了。
+          big=$(git ls-files -z | xargs -0 ls -la 2>/dev/null | awk '$5 > 1048576 {print $5, $9}')
+          if [ -n "$big" ]; then
+            echo "::error::Tracked file larger than 1 MB — corpus and models belong outside git"
+            echo "$big"
+            exit 1
+          fi
+          echo "No corpus binaries tracked."
+
       - name: Guard against print() in the runtime path
         run: |
           set -e
@@ -129,7 +152,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 路由解析 /
-      # 上下文压缩 / 成本核算 / 物理规则 / 日志配置），故意**不装**
+      # 上下文压缩 / 成本核算 / 物理规则 / 日志配置 / 文本清洗），故意**不装**
       # requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       - name: Run offline unit tests
@@ -141,7 +164,8 @@ jobs:
             tests.test_context_pruner \
             tests.test_cost_model \
             tests.test_physics_rules \
-            tests.test_logging_setup
+            tests.test_logging_setup \
+            tests.test_text_cleaning
 
   unit-charts:
     name: Unit tests · chart tool

@@ -112,6 +112,20 @@ shot.log
 charts/
 
 # ============================================
+# Corpus PDFs (inputs, not code)
+# ============================================
+# 为什么连 PDF 一起排除：这批 arXiv 论文单个 1~15 MB，18 篇就 125 MB，
+# 原有 5 篇 70 MB。Git 不是文件柜 —— 把几十兆二进制塞进仓库会让每次 clone
+# 都变慢，而且这些论文有各自的版权与 DOI，仓库只该放**流水线**，不放语料。
+#
+# 语料怎么来：`python fetch_ccus_papers.py` 自动下载（见 README）。
+# manifest.json 例外保留 —— 它只有 40 KB，记录了每篇论文的 arXiv ID、
+# 标题、检索式与相关性得分，是"这批语料从哪来"的唯一凭证，值得进版本库。
+ccus_docs/*.pdf
+ccus_docs/*.part
+ccus_docs/graph_ingest_state.json
+
+# ============================================
 # Unrelated local study material (kept on disk, not in repo)
 # ============================================
 俄语.pdf

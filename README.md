@@ -19,7 +19,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-204%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-231%20passing-brightgreen">
 </p>
 
 ---
@@ -58,7 +58,7 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 ![Generated risk report with chart](docs/ui-stream.png)
 
-**Knowledge graph** — 46 entities / 32 relations extracted by LightRAG. The drawn subgraph is the largest connected component, which is exactly the causal chain the retriever reasons over (`fault activation → caprock → reservoir → wellbore integrity → monitoring`). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
+**Knowledge graph** — 765 entities / 559 relations extracted by LightRAG. The drawn subgraph is the largest connected component, which is exactly the causal chain the retriever reasons over (`fault activation → caprock → reservoir → wellbore integrity → monitoring`). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
 
 ![CCUS knowledge graph](docs/knowledge-graph.png)
 
@@ -94,7 +94,7 @@ flowchart TD
 
     FM --> EX["Agent 1 · Parameter Extraction<br/>LOCAL"]
     EX --> RT["Agent 2 · Graph Retrieval<br/>LOCAL"]
-    RT --> LR["LightRAG GraphRAG<br/>46 entities · 32 relations"]
+    RT --> LR["LightRAG GraphRAG<br/>765 entities · 559 relations"]
     LR --> RR["bge-reranker-v2-m3<br/>two-stage rerank → Top-2"]
     RR --> RP["Agent 3 · Report Generation"]
     RP --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
@@ -178,6 +178,57 @@ curl -s -X POST http://127.0.0.1:8000/api/approve \
 ```
 
 Rejections are capped (`_MAX_HUMAN_REJECTIONS = 2`). Without a cap, "human keeps rejecting / machine keeps rewriting" is an unbounded spend, and it is almost always caused by a review comment that did not say what to change.
+
+---
+
+## Literature Expansion Pipeline
+
+The corpus is an **input**, not part of the repository. Two scripts take it from "5 hand-picked papers" to a re-buildable corpus of 23, and both are safe to re-run.
+
+### 1. Fetch — `fetch_ccus_papers.py`
+
+```bash
+python fetch_ccus_papers.py --target 18          # download
+python fetch_ccus_papers.py --dry-run            # rank only, download nothing
+```
+
+arXiv is the source because it exposes a public REST API, serves stable PDF links, and has no anti-bot layer — a scraper aimed at publisher pages breaks on the next redesign and gets rate-limited at 2 a.m. The cost is recall quality: arXiv's `all:` field is **full-text**, so `all:"CO2 sequestration"` happily returns plankton carbon fixation, livestock emissions and drone-based gas sensing. All three contain the phrase and none of them are about geological storage.
+
+So the script filters twice:
+
+1. **Geological-context gate (hard).** Title + abstract must contain at least one of `geological / caprock / aquifer / reservoir / fault / saline / subsurface / wellbore / …`, otherwise the paper is discarded. This single rule removes the biological-sequestration class entirely.
+2. **Relevance scoring (soft).** Core terms (`CO2 storage`, `CCUS`, `caprock`, `fault reactivation`, `breakthrough pressure`) weigh 2.5–3; method terms (`machine learning`, `surrogate`, `inversion`, `monitoring`) weigh 1. Terms in the *title* score again, because a paper that announces itself as CCUS is more reliable than one that mentions it once in the abstract.
+
+On the current run: **163 candidates → 120 unique → 105 passing the gate → top 18 selected**. Every paper's arXiv id, title, the query that found it, and its score go into `ccus_docs/manifest.json` — so "where did this corpus come from" has an answer that does not depend on remembering.
+
+### 2. Ingest — `ingest_ccus_batch.py`
+
+```bash
+python ingest_ccus_batch.py --graph-budget 3000    # both stores
+python ingest_ccus_batch.py --skip-graph           # vectors only
+python ingest_ccus_batch.py --stats                # what do I have now
+python ingest_ccus_batch.py --reset-stuck          # recover from an interrupted run
+```
+
+Two stores, treated differently because their costs differ by three orders of magnitude:
+
+| | ChromaDB (`ccus_knowledge_v3`) | LightRAG (knowledge graph) |
+|---|---|---|
+| Cost driver | embedding only | one LLM entity-extraction call **per chunk** |
+| Scope | full text, 1200-char chunks | first `--graph-budget` chars per paper |
+| Measured | seconds for the whole corpus | ~45 s per paper at 3000 chars |
+
+The asymmetry is the whole design. Embedding 23 papers is cheap, so **nothing is thrown away**. Entity extraction costs a generation call per chunk, so the graph gets the **title + abstract + start of the introduction** — the part that says what problem the paper attacks and which geological concepts it involves. Results and discussion are mostly numbers, which contribute few *relations*.
+
+That budget is a measured tradeoff, not a guess. Full-text graph building for 23 papers would be hours of inference; if you want it, the right move is a faster extraction model, not a bigger number in this flag.
+
+**Incremental and idempotent:**
+
+- ChromaDB chunks get deterministic IDs (`ccus_auto_07::0042`) and each document is **deleted before it is re-written**. `upsert` alone is not enough: switching extractor or chunk size can make a re-run produce *fewer* chunks (165 → 130 in practice), and the leftover tail would keep being retrieved from the previous extraction.
+- LightRAG dedupes by content hash, and `ccus_docs/graph_ingest_state.json` records what was fed and how long it took, so a re-run skips unchanged papers instead of burning another 45 s each.
+- `--reset-stuck` exists because an interrupted insert leaves the document in `status=processing`, and **every later insert is then silently skipped**. Re-running does not error — it just does nothing. The recovery path is "delete the half-built document, then insert again".
+
+`ccus_knowledge_v3` is built as a **clone of v2 plus the PDF chunks** (671 existing vectors copied verbatim, not re-embedded). Starting an empty v3 and pointing the default at it would have been a silent knowledge *reduction*.
 
 ---
 
@@ -556,7 +607,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 
 <!-- 中文注释：核心亮点，面向评审/面试官的重点。 -->
 
-- **GraphRAG Integration** — A LightRAG knowledge graph is built from CCUS literature, extracting **46 geological entities** and **32 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.). This enables **multi-hop reasoning** that flat vector search cannot express.
+- **GraphRAG Integration** — A LightRAG knowledge graph is built from CCUS literature, extracting **765 geological entities** and **559 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.). This enables **multi-hop reasoning** that flat vector search cannot express.
 - **Two-Stage Retrieval** — Graph recall surfaces **35–44 candidate fragments**; fragments are merged into entity-relation-complete segments (average 305 characters) and reranked by a local **bge-reranker-v2-m3** model down to **Top-2** (peak score **0.99**). Longer, semantically complete segments give the reranker real discriminative power — and the rerank score doubles as the signal for whether the knowledge base actually matched (irrelevant questions score ~0.0001).
 - **Model Routing** — Two layers. A **static** table assigns each role the cheapest model that still does its job; a **per-request** decision then overrides `extract` and `report` based on input length and whether retrieval really hit, logging `[Cost-Saving: Local Mode]` or `[Premium: Cloud Mode]` with the reason. One call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
@@ -564,7 +615,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **204 offline unit tests**, and a **138-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **231 offline unit tests**, and a **138-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -631,11 +682,15 @@ petro-rag-agent/
 │   ├── tokens.py             # Token counting & usage accounting (single source of truth)
 │   ├── physics_rules.py      # Deterministic P_inj vs P_h / P_frac consistency checks
 │   ├── logging_setup.py      # app.log + stderr, model & token as structured fields
+│   ├── text_cleaning.py      # PDF text cleaning + paragraph-aware chunking (unit-tested)
+│   ├── embeddings.py         # The ONE place the ChromaDB embedding model is chosen
 │   ├── context_pruner.py     # Chunked context compression (unit-tested)
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
 │   └── physics_tools.py      # calculate_co2_density (Function Calling tool)
+├── fetch_ccus_papers.py      # arXiv search → relevance filter → PDF download + manifest
+├── ingest_ccus_batch.py      # PDFs → ChromaDB (full text) + LightRAG (budgeted)
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
@@ -655,6 +710,7 @@ petro-rag-agent/
 │   ├── test_cost_model.py         # Offline unit tests (pricing / baseline / formatting)
 │   ├── test_physics_rules.py      # Offline unit tests (pressure limits / claim direction)
 │   ├── test_logging_setup.py      # Offline unit tests (format fields / idempotency)
+│   ├── test_text_cleaning.py      # Offline unit tests (de-hyphenation / references / chunks)
 │   └── test_chart_tools.py        # Offline unit tests (chart physics & output)
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── charts/                   # Generated figures (gitignored)
@@ -662,6 +718,7 @@ petro-rag-agent/
 ├── docs/                     # Screenshots
 ├── .github/workflows/        # CI (fast checks) + E2E (manual, self-hosted)
 ├── ccus_data.txt             # CCUS seed corpus for graph construction
+├── ccus_docs/                # Corpus PDFs (gitignored) + manifest.json (tracked)
 ├── requirements.txt
 └── lightrag_storage/         # Graph & vector store (gitignored)
 ```
@@ -837,7 +894,9 @@ data: {"type":"done","score":9,"elapsed_s":73.7,"cost_estimation":{...}, ...}
 
 After `POST /api/approve` with `"approved": false`, the response is again `awaiting_approval` with a **rewritten** report and `rejections: 1`. Approving instead returns `status: "success"` with a populated `history_entry`. Rejecting beyond the cap returns **429**; approving a finished thread returns **409**; an unknown `thread_id` returns **404**.
 
-Typical end-to-end latency: **~70–120 s** on CPU-only local inference. Note where the time actually goes: retrieval dominates (reranking 40+ s), so the first token arrives around 60 s and the report then streams for ~10 s. Streaming doesn't make the pipeline faster — it makes the wait legible: node-level progress events start at 0.04 s, so the user sees which stage is running instead of a frozen spinner.
+Typical end-to-end latency: **~85 s** measured on the 23-paper graph (it was ~70 s on the 5-paper seed). Note where the time actually goes: retrieval dominates — **51 s of the 84 s is reranking** 87 candidate fragments with a cross-encoder — so the first token arrives around 65 s and the report then streams for ~10 s. Streaming doesn't make the pipeline faster — it makes the wait legible: node-level progress events start at 0.04 s, so the user sees which stage is running instead of a frozen spinner.
+
+That number is a **budget**, not a constant. Rerank cost is linear in candidate count, so growing the corpus grows latency until something bounds it. The default `top_k=40 / chunk_top_k=20` produced 120 fragments and a 76 s rerank — enough to push the whole workflow into the frontend's 120 s timeout. `LIGHTRAG_TOP_K=25 / LIGHTRAG_CHUNK_TOP_K=12` brings it to 87 fragments and 51 s **with an identical Top-1 score (0.9679) and identical Top-2 selection**, which is the honest way to say it: those 33 extra candidates were never going to be chosen. If you enlarge the corpus again, check these two knobs before assuming the machine got slower.
 
 <!-- 中文注释：一次完整评估约 55-95 秒（纯 CPU 推理），前端 timeout 设 120 秒。响应里回传 model_routing 与 history_entry，降级与否一眼可见。 -->
 
@@ -854,11 +913,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 204 tests in 3.175s
+Ran 231 tests in 3.208s
 OK
 ```
 
-Eight suites:
+Nine suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -867,6 +926,7 @@ Eight suites:
 - `test_cost_model.py` — pricing: `ollama/deepseek-r1` prices as local (the name says DeepSeek, the compute is local), unknown models fall back to the most expensive tier, `retrieve` statistics are not billed as tokens, `llm_total_tokens` is not double-counted, every stage row is recomputable by hand, savings never go negative, and `format_cny` keeps enough decimals that ¥0.015 does not render as `0.01`.
 - `test_physics_rules.py` — the deterministic gate: pressure formulas match `chart_tools` exactly, `MPa`/`km` are converted (not silently treated as bar/metres), injection pressure is preferred over the bare word "pressure" (otherwise the check compares fracture pressure with itself and always passes), a depth of `3` is rejected rather than used, claim detection is **directional** ("fracture pressure is above injection pressure" is a safety claim, not an acknowledgment) and negation-aware (`未超过` / `不超过` / `没有超过`), passive voice is accepted, and the 25 % fracture-value tolerance covers the legitimate 1.4–1.8× gradient range without letting a 32 % error through. It also locks the **prompt-rendering contract**: an `unverifiable` verdict must render to an **empty string**, so the reviewer is never shown a "check" that carries no result — a distinction that once cost a healthy report 4 points because the model read "not computed" as "did not pass".
 - `test_logging_setup.py` — observability: every line carries timestamp, module, model and token fields; missing fields render `-` instead of raising; repeated configuration does not stack handlers (a duplication that only shows up as an unexpectedly large log file); `LOG_LEVEL` is honoured and an unknown level falls back to `INFO`.
+- `test_text_cleaning.py` — the ingestion front end, where failures are silent by construction: `permea-` / `ability` across a line break must become one word (a missed join sends "permea ability" to the embedding model and that chunk can never match "permeability" again); the arXiv watermark stamp and bare page numbers must go; the reference list must be cut **only** when the heading is in the latter half (a paper *about* citation analysis must not lose its body); and chunking must not drop a character when a page arrives as one giant paragraph. Also locks the ordering constraint — hyphenation must be repaired **before** whitespace is collapsed, because afterwards there is no `\n` left to anchor on.
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
 
 ### End-to-end regression — requires local Ollama + built graph
@@ -913,7 +973,11 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
 
 ### What this system is not, yet
 
-**The knowledge graph is small.** 46 entities and 32 relations, hand-curated from a handful of CCUS papers. That is enough to demonstrate multi-hop retrieval (`fault activation → caprock → wellbore integrity → monitoring`) and to give the reranker something to discriminate between, but it is not a domain knowledge base. Ask it something outside the curated corpus and the honest answer is "no relevant record" — which the system does return rather than inventing one. Scaling to a real corpus needs incremental ingestion, entity canonicalisation, and a way to detect graph drift.
+**The knowledge graph is now corpus-sized, but it is 23 islands, not one net.** It grew from 46 entities / 32 relations (a hand-written seed file) to **765 / 559** by ingesting 23 papers — but those 765 nodes sit in **247 disconnected components**, the largest holding only 83 of them. Adding papers did not weave them together: LightRAG merges entities by **exact name**, and two abstracts that both discuss caprock integrity rarely use the same string twice. The result is honest breadth (caprock, fault reactivation, wellbore integrity, injectivity and plume monitoring all appear as connected subgraphs) without the cross-paper connectivity a domain knowledge graph is supposed to provide.
+
+It also only knows what each paper is *about*, not what it *found* — the 3 000-character budget stops before the results sections where the numbers live.
+
+Closing either gap needs three things this pipeline does not do yet: **entity canonicalisation** (`caprock` / `Cap rock` / `Caprock Integrity` are three nodes today, and only exact-string matching merges them), **entity resolution across papers** rather than per-document extraction, and **full-text extraction** at a cost that does not mean hours of inference. Until then the graph is a good multi-hop index over abstracts, not a domain model.
 
 **The physics tools are demonstrations, not engineering calculators.**
 
@@ -929,6 +993,10 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
 
 - **The cloud route is verified structurally, not by output quality.** Routing, fallback and observability are all tested (including a simulated key), but the repository was developed without a paid key, so no side-by-side quality comparison between Qwen2.5 and DeepSeek is claimed here. Configure `CLOUD_API_KEY` and re-run to measure it.
 - **The physics gate only sees what the extractor extracted.** If Agent 1 misses the depth, the gate returns `unverifiable` and cannot check anything. It fails *open*, deliberately: blocking on missing data would make the system unusable on sparse descriptions. The `checks` array makes that visible rather than hiding it.
+- **The graph only sees the first 3 000 characters of each paper.** Entity extraction costs one generation call per chunk, so the corpus is fed to LightRAG at the abstract + introduction level. Concepts introduced later in a paper (specific fault names, model setups, measured coefficients) will not become nodes. Raising `--graph-budget` is a linear cost increase, not a free improvement — measured at ~45 s per paper at 3 000 characters.
+- **The committed graph still carries ~5.6 % front-matter noise.** Measured on the current build: of 765 entities, 43 are author affiliations and years (`AGH University of Krakow`, `2050`) extracted from the title page rather than the science. `strip_front_matter` now removes that block before it reaches the extractor, but **the numbers in this README were produced before that fix** — a re-run should land near 720 nodes. The noise does not break retrieval; it dilutes it, which is exactly the kind of thing that never shows up as an error.
+- **The corpus was selected by keyword scoring, not by citation impact.** `fetch_ccus_papers.py` ranks by term presence and recency. It cannot tell a landmark paper from a mediocre one, and it has no notion of which venues matter. Treat the corpus as "relevant and recent", not "authoritative".
+- **Text extraction quality depends on the PDF's text layer.** PyMuPDF is used first because pypdf silently returns `actiontostabilizeatmosphericconcentrations` for some files (words positioned individually rather than separated by space glyphs). That class of failure is invisible downstream — the embedding model happily embeds nonsense. Where even PyMuPDF produces a poor layer (scans, complex two-column layouts), the chunks are degraded and nothing flags it.
 - **A report can still ship below the quality threshold.** Reflection is bounded at two rewrites; if the score is still under 8 the report is released anyway. That exit is now logged as a **warning** ("强制放行, 结论质量未达阈值") rather than "报告达标", because conflating "it passed" with "we gave up" makes the logs untrustworthy. In other words the model score is a **quality signal**, not a gate — only the physics check can veto.
 - **A verdict the gate could not compute is never shown to the reviewer.** When the parameters are insufficient the gate's block is omitted from the review prompt entirely, instead of being passed along as "unverifiable". This is deliberate (an empty verdict reads as a failed check to a small model, and cost a healthy report 4 points before it was fixed), but it means the reviewer's score for sparse inputs is based on the literature and the report alone — the "no physics check was possible" fact lives in `physics_check` for the human, not in the scoring.
 - **The gate's claim detection is regex-based.** It handles direction and negation, but a creative sentence ("the caprock would only fail under conditions this project does not reach") reads as an acknowledgment. The model layer is the backstop — which is exactly why the gate runs *first* and the model *second*.

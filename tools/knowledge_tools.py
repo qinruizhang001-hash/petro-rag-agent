@@ -48,15 +48,15 @@ def _get_notion():
 
 # ─── ChromaDB (CCUS knowledge base, same as existing) ─────────
 import chromadb
-from chromadb.utils import embedding_functions
 
+from utils.embeddings import describe as describe_embedding
+from utils.embeddings import get_embedding_function
 from utils.logging_setup import get_logger
 
 log = get_logger(__name__)
 
 CCUS_CHROMA_PATH = os.getenv("CCUS_CHROMA_PATH", r"D:\python-learn\chroma_petro")
-CCUS_COLLECTION = os.getenv("CCUS_COLLECTION", "ccus_knowledge_v2")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+CCUS_COLLECTION = os.getenv("CCUS_COLLECTION", "ccus_knowledge_v3")
 
 _chroma_client = None
 _chroma_collection = None
@@ -67,10 +67,11 @@ def _ensure_chroma():
     global _chroma_client, _chroma_collection, _embedding_fn
     if _chroma_collection is not None:
         return
-    log.info("[Knowledge Tools] 正在加载嵌入模型...")
-    _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=EMBEDDING_MODEL
-    )
+    # 嵌入函数统一由 utils.embeddings 决定，必须与 ingest_ccus_batch.py 写入时
+    # 用的完全一致。这里曾硬编码 BAAI/bge-small-zh-v1.5（512 维）去查一个
+    # 384 维的库，查询路径一直是坏的 —— 详见 utils/embeddings.py 的说明。
+    log.info(f"[Knowledge Tools] 正在加载嵌入模型: {describe_embedding()}")
+    _embedding_fn = get_embedding_function()
     _chroma_client = chromadb.PersistentClient(path=CCUS_CHROMA_PATH)
     _chroma_collection = _chroma_client.get_or_create_collection(
         name=CCUS_COLLECTION,
