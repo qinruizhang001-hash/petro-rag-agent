@@ -611,6 +611,8 @@ The server speaks stdio, so it needs no port and no daemon. Absolute paths below
 }
 ```
 
+`.cursor/mcp.json` is already written and gitignored — it carries this machine's absolute paths, so committing it would be wrong for anyone else. Open the repo in Cursor, and the server appears under Settings → MCP (green dot = connected); the three tools are then callable in plain language ("算一下 250 bar、80℃ 的 CO₂ 密度").
+
 Two things you would expect to need, and don't. `PYTHONIOENCODING=utf-8` is unnecessary — the SDK re-wraps stdin/stdout as UTF-8 itself, with the source comment "the std handles' platform encodings are unreliable". And no `cwd` is needed: every path the server touches (`models/`, `lightrag_storage/`, `.env`) resolves from `__file__`, which matters because Claude Desktop launches children with the home directory as cwd. `HF_HUB_OFFLINE=1` is set by `core/__init__.py` on import, not by the config.
 
 Verify before wiring, in two steps that separate "the tool is broken" from "the transport is broken":

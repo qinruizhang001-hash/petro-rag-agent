@@ -136,3 +136,10 @@ ccus_docs/graph_ingest_state.json
 俄语.pdf
 rus_lesson1.txt
 russian_docs/
+
+# ============================================
+# MCP client config (machine-specific absolute paths)
+# ============================================
+# .cursor/mcp.json 里写的是本机 venv 解释器与仓库绝对路径，
+# 提交上去对别人就是错的；README 里给的是同一份配置的模板。
+.cursor/mcp.json
