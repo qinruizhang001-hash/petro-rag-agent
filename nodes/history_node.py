@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from core.config import get_llm, llm_chat
 from core.state import AgentState
+from evolution_engine import record_experience
 from file_memory import append_project_history
 from utils.tokens import record_llm_usage
 
@@ -82,6 +83,31 @@ def save_file_memory(state: AgentState):
 
     size = append_project_history(entry)
     log.info(f"  -> 已追加到 project_history.md（当前 {size} 字符）")
+
+    # ─── 自我进化：沉淀经验，够 20 条就顺手反思一次 ───
+    # 挂在这里而不是 evaluate：evaluate 会被反思循环反复调用，一条记录会变成
+    # 好几条，经验库立刻被中间稿污染。这里与 project_history 共用同一个
+    # "每次任务只写一次"的位置，语义一致。
+    #
+    # record_experience 内部吞掉所有异常：进化是增强能力，不能因为"经验写不进去"
+    # 让一次正常评估失败。
+    evo = record_experience(state)
+    if evo.get("recorded"):
+        log.info(f"  [Evolution] 经验已记录（第 {evo['count']} 条）")
+    if evo.get("error"):
+        log.warning(f"  [Evolution] 经验记录失败（不影响评估）: {evo['error']}")
+    if evo.get("reflected"):
+        r = evo["reflected"]
+        if r.get("skipped"):
+            log.info(f"  [Evolution] 反思跳过：{r['skipped']}")
+        else:
+            added = len(r.get("added") or [])
+            rejected = (r.get("verify") or {}).get("rejected", 0)
+            log.info(
+                f"  [Evolution] ✅ 反思完成（批次 {r['batch']}）："
+                f"提炼 {len(r.get('patterns') or [])} 条，核查驳回 {rejected} 条，"
+                f"入库 {added} 条；图谱写入 {(r.get('graph') or {}).get('written', 0)} 条"
+            )
 
     return {
         "history_entry": entry,

@@ -10,8 +10,9 @@ CCUS 多智能体风险评估系统 —— 入口文件
 
 工具注册（Function Calling）不在本文件，见 nodes/aggregate_node.py 的
 Phase A（plan_prompt → 解析 → 执行 → 兜底），实现散在 pinn_model.py /
-tools/physics_tools.py / utils/pinn_query.py。加逻辑到这里会让"入口"变成
-第二个实现点 —— CI 有一条 40 行上限的守卫专门防这件事。
+tools/physics_tools.py / utils/pinn_query.py。extract 节点在
+nodes/extract_node.py（含 system_experience 先验注入）。加逻辑到这里会让
+"入口"变成第二个实现点 —— CI 有一条 40 行上限的守卫专门防这件事。
 
 两种用法都保持不变：
 

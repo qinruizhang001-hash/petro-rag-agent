@@ -184,7 +184,8 @@ jobs:
 
       # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 路由解析 /
       # 上下文压缩 / 成本核算 / 物理规则 / 日志配置 / 文本清洗 /
-      # 实体别名归并 / 图谱连通性分析 / 并行分支合并降级 / 退避重试），故意**不装** requirements.txt，
+      # 实体别名归并 / 图谱连通性分析 / 并行分支合并降级 / 退避重试 /
+      # PINN 问句抽取 / 经验库解析与排序），故意**不装** requirements.txt，
       # 保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       - name: Run offline unit tests
@@ -202,7 +203,8 @@ jobs:
             tests.test_graph_analysis \
             tests.test_branch_merge \
             tests.test_retry \
-            tests.test_pinn_query
+            tests.test_pinn_query \
+            tests.test_experience_memory
 
   unit-charts:
     name: Unit tests · chart tool

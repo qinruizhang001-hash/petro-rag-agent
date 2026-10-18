@@ -68,6 +68,10 @@ DEFAULT_ROUTING = {
     "history": "local",      # 文件记忆的结论压缩
     "summary": "local",      # 历史记忆的批量压缩（提炼核心经验）
     "prune": "local",        # 上下文压缩（用本地便宜模型换云端输入费）
+    # 反思（evolution_engine 的 ReflectionAgent）：每 20 次评估才跑一次，
+    # 但产出会作为先验注入**后续每一次**评估 —— 单位成本被摊薄 20 倍，
+    # 是少数几个"该用贵模型"的角色。没有 key 时按既有契约降级到本地。
+    "reflect": "cloud",
 }
 
 # 允许用 ROUTE_<STAGE> 环境变量覆盖默认路由，例如 ROUTE_REPORT=cloud:kimi/kimi-k2

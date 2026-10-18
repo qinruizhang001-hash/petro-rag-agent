@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import json
+import tempfile
 import urllib.request
 
 # ─── 前置：清代理（httpx 会读 http_proxy 导致 localhost Ollama 超时）───
@@ -21,6 +22,14 @@ for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy"
     os.environ.pop(_k, None)
 os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1")
 os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
+
+# ─── 前置：把自我进化引擎隔离到临时目录 ───
+# 每次评估结束时 history_node 会沉淀一条经验（这是被验证的功能，不该在测试里
+# 关掉）。但测试数据不能进真实的 history/：攒够 20 条就会触发一次真实反思，
+# 把测试问句当成"经验"去提炼规律，而它看起来完全正常。
+# 同时关掉图谱写入 —— 测试不该改动语料图谱。
+os.environ.setdefault("EVOLVE_HOME", tempfile.mkdtemp(prefix="ccus_e2e_evolve_"))
+os.environ.setdefault("EVOLVE_WRITE_GRAPH", "0")
 
 PASS, FAIL = [], []
 
@@ -699,6 +708,28 @@ def main():
                   f"{pruning['before_chars']} → {pruning['after_chars']}")
     except Exception as e:
         check("动态路由与上下文压缩（工作流实测）", False, str(e))
+
+    # ─── Step 4-C: 自我进化的经验沉淀 ─────────────────
+    # 只验证"沉淀"这一环：每次评估结束必须留下一条经验，否则反思永远不会被
+    # 触发，而"没沉淀"和"还没攒够 20 条"在日志里长得一样。
+    # 反思本身需要 20 条，不适合放进单次 E2E；它由 evolution_engine --simulate 覆盖。
+    print("\n[Step 4-C] 自我进化：经验沉淀")
+    try:
+        from utils.experience_memory import EXPERIENCES, count_experiences, read_experiences
+
+        exp_path = os.path.join(os.environ["EVOLVE_HOME"], EXPERIENCES)
+        n = count_experiences(exp_path)
+        check("评估结束后写入了经验文件", n >= 1, f"{exp_path}（{n} 条）")
+        if n:
+            last = read_experiences(exp_path)[-1]
+            check("经验含评分与检索质量", "score" in last and "retrieval" in last,
+                  f"score={last.get('score')} top={last['retrieval'].get('top_score')}")
+            check("经验不含报告全文（避免上下文膨胀）", "final_report" not in last)
+        check("E2E 未写入真实进化库",
+              os.path.abspath(os.environ["EVOLVE_HOME"]).startswith(tempfile.gettempdir()),
+              os.environ["EVOLVE_HOME"])
+    except Exception as e:
+        check("自我进化经验沉淀", False, str(e))
 
     # ─── Step 5: 图表生成 ─────────────────────────────
     print("\n[Step 5] 图表生成（Function Calling）")

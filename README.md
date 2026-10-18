@@ -68,7 +68,8 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **150 end-to-end assertions pass** through the real HTTP path, alongside 350 offline unit tests (320 of which run in CI).
+- **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **154 end-to-end assertions pass** through the real HTTP path, alongside 397 offline unit tests (367 of which run in CI).
 
 ---
 
@@ -805,6 +806,106 @@ The repo ships `project_history.md` with a few real entries so you can see the f
 
 ---
 
+## Self-Evolution — Memory Reflection
+
+<!-- 中文注释：这一节的四段分别对应四个"照字面实现会出错"的地方：
+     1) 触发只看 count%20 会让重跑脚本反复反思同一批数据；
+     2) 7B 的伪规律和真规律同置信度，阈值筛不掉，必须二次核查；
+     3) LightRAG 里没有"最高优先级"这个东西，写进去的先验要过 rerank 再被截到 Top-2；
+     4) 纯字面匹配看不见"字段缺失"，而那正是最有价值的那类规律。 -->
+
+Borrowed from Generative Agents' reflection loop, with the parts that do not survive contact with this system replaced. The closed loop:
+
+```
+every finished assessment
+    └─▶ history/experiences.jsonl          params · retrieval quality · score · physics verdict
+            └─▶ line count hits a multiple of 20
+                    └─▶ ReflectionAgent    "what recurs across these 20 runs?"
+                            ├─▶ verifier   "does the data actually support that?"  ← not optional
+                            ├─▶ history/semantic_memory.json   priors with confidence
+                            └─▶ LightRAG graph                 same priors, second channel
+                                    └─▶ extract node's prompt  ← what actually reaches the model
+```
+
+### The trigger needs batch bookkeeping, not modular arithmetic
+
+`count % 20 == 0` looks sufficient and is not. Re-run the script, or let two assessments land on the same count after a crash, and the same 20 records get reflected on again — semantic memory fills with near-duplicate patterns and each repeat costs a model call. The rule is therefore `due_batch(count, done_batches)`: the newest completed batch that has no record in `reflections.json`. A batch that already ran never runs again, and a verifier failure deliberately does **not** mark the batch done, so the next assessment retries instead of silently admitting unverified priors.
+
+The window is the *completed* batch (`[20, 40)` at 40 lines), not "the last 20" — with 45 lines the latter straddles two batches and both read the same records.
+
+### Measured: the 7B writes confident nonsense
+
+`python evolution_engine.py --simulate` generates 20 fake experiences with **three planted correlations** — 6 records lack reservoir depth and end up `unverifiable` with scores of 5–6, 4 records have weak retrieval and get penalised, the rest are healthy. Planting them is the only way to tell whether reflection works: with random noise the model can only produce plausible-sounding text, and the test degenerates into "did it hallucinate fluently".
+
+First run, no verification step:
+
+```
+{"pattern": "储层埋深大时评分较高",              "confidence": 0.8}   ✗ misattributed
+{"pattern": "隐伏断层存在时评分较低",            "confidence": 0.8}   ✗ no such correlation
+{"pattern": "注入压力高时评分较低",              "confidence": 0.8}   ✗ no such correlation
+{"pattern": "物理校验不可验证时评分较低",        "confidence": 0.8}   ✓
+{"pattern": "井筒状况不佳时评分较低且可能降级",  "confidence": 0.8}   ✗ 2 records
+```
+
+The real driver is **presence vs absence of depth**, not its magnitude — and three of the five are invented, all at exactly 0.80. **A confidence threshold cannot filter these, because the spurious ones are exactly as confident as the real one.** That is the finding that forced a second pass.
+
+So `ReflectionAgent.verify` asks the model to argue against its own patterns, with one criterion: *a single counterexample disqualifies*. Same data, after verification:
+
+```
+[5] 核查：检查 4 条，驳回 3 条
+    ✗ Top-1 相关度低于 0.3 时地质结论明显变短 —— 反例：sim_03, sim_06 …
+    ✗ 存在隐伏断层导致评分降低 —— 反例：sim_03, sim_06 …
+    ✗ 注入压力接近破裂压力时报告被打回重写 —— 反例：sim_03, sim_06 …
+[6] 通过核查并写入语义记忆
+    {"pattern": "缺少储层埋深时物理校验无法执行，评分普遍偏低", "confidence": 0.8}
+```
+
+One prior survives, and it is the most useful one. Two caveats stated rather than hidden: the verifier's **reasons are unreliable** — it pasted the same `sim_03, sim_06 …` justification onto all three rejections — so only the boolean verdict is trustworthy, not the audit text. And it is **over-eager**: it also rejected "Top-1 相关度低于 0.3 时地质结论明显变短", which is genuinely true in the planted data. The trade-off is deliberate: for text injected into *every* subsequent prompt, precision beats recall.
+
+### "Highest priority" is not a LightRAG concept
+
+The request was to write the priors into the knowledge graph "as the highest-priority prior knowledge". Writing them in is implemented (`inject_to_graph`, tagged `[系统经验]` so graph evidence stays distinguishable from literature), but it does not produce priority. `retrieve_node` reranks and then **truncates to the top 2 of ~129 candidates** — a prior written into the graph competes with 22 papers and usually loses. In practice that makes it the *lowest*-priority channel.
+
+The mechanism that actually delivers priority is the one with no competition: `semantic_memory.json` is read directly by the extract node and prepended to its prompt. Nothing reranks it, nothing truncates it. So the graph write is kept as a second channel (it is genuinely retrievable when the wording matches) and the pinned block is what the system relies on.
+
+### Lexical matching cannot see a missing field
+
+First implementation scored priors by character-bigram overlap, and the best prior silently never fired:
+
+```
+pattern: 缺少储层埋深时物理校验无法执行，评分普遍偏低
+query:   某CCUS项目注入压力250bar，温度80℃，请评估风险。
+overlap: 0.0 → dropped
+```
+
+The query does not contain the word 埋深 — **that is the entire point of the pattern.** Overlap is zero precisely in the case the prior exists to catch. `relevance()` now adds a domain-attribute layer: +0.15 when an attribute named in the pattern appears in the query, +0.25 when the pattern claims an attribute is *missing* and the query indeed lacks it. The wellbore prior (attributes absent from a geology question, no absence claim) still scores 0 and stays out.
+
+With that fixed, the prior reaches the prompt and changes what the extract node does:
+
+```
+【系统经验（历史评估提炼的先验，优先级高于你的常识）】
+1. 缺少储层埋深时物理校验无法执行，评分普遍偏低，应主动追问埋深（置信度 0.88）
+
+→ 根据系统经验，缺少储层埋深时物理校验无法执行……请提供储层埋深，以便进行更全面的风险评估。
+```
+
+That is the loop closing: 20 runs produced a prior, and the next run asked a question it would not have asked before.
+
+### What runs where
+
+| Piece | File | Notes |
+|---|---|---|
+| Pure logic (batch math, JSON parsing, ranking) | `utils/experience_memory.py` | 47 offline tests, no model, no I/O |
+| Reflection + verification + graph write + CLI | `evolution_engine.py` | `--simulate` / `--stats` / `--reflect` |
+| Recording hook | `nodes/history_node.py` | same once-per-task position as `project_history.md` |
+| Prior injection | `nodes/extract_node.py` | `system_experience` in state, so the block is auditable |
+
+`reflect` is its own routing stage (`ROUTE_REFLECT`), defaulting to `cloud` — one call per 20 assessments whose output shapes the next 20, which is the cheapest place in this system to buy intelligence. Without a cloud key it degrades to the local 7B and the result records **which model actually ran**, because "thought it was DeepSeek, was actually a 7B" is the kind of thing that never shows up in a log unless it is written there.
+
+Kill switches: `EVOLVE_HOME` (store location), `EVOLVE_WRITE_GRAPH=0` (skip the graph write, which blocks the shared LightRAG loop for up to 120 s), `EVOLVE_GRAPH_TIMEOUT`. The E2E suite points `EVOLVE_HOME` at a temp dir and disables graph writes, so test runs never become "experience".
+
+---
+
 ## Token Economics
 
 <!-- 中文注释：把"省钱"做成三条可测量、可解释、可复算的机制，而不是口号。
@@ -932,7 +1033,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **350 offline unit tests**, and a **150-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **397 offline unit tests**, and a **154-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -966,6 +1067,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 | Context pruning | `utils/context_pruner.py` — paragraph-aware chunking + local summarization |
 | Long-term Memory | File-based (`user_profile.md` + `project_history.md`) |
 | Long-term Memory *(optional)* | Notion API + ChromaDB |
+| Self-evolution | Memory Reflection — experience log → periodic reflection → verified priors → prompt |
 | Web Search *(optional)* | Tavily |
 
 ---
@@ -1012,6 +1114,7 @@ petro-rag-agent/
 │   ├── branch_merge.py       # Fan-in merge / degradation / timing, pure (unit-tested)
 │   ├── retry.py              # Exponential backoff for transient upstream errors (unit-tested)
 │   ├── pinn_query.py         # 问句 → (x, t) extraction for the PINN tool, pure (unit-tested)
+│   ├── experience_memory.py  # 经验库：批次判定 / 反思 JSON 解析 / 先验排序, pure (unit-tested)
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
@@ -1028,6 +1131,7 @@ petro-rag-agent/
 ├── file_memory.py            # File-based long-term memory (bounded reads)
 ├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
 ├── pinn_model.py             # 1-D PINN (diffusion PDE) → predict_pressure(x, t); trains in 27 s
+├── evolution_engine.py       # Memory Reflection: record → reflect → verify → priors; --simulate
 ├── model_router.py           # Pure routing logic + complexity decision (unit-tested)
 ├── user_profile.md           # Long-term preferences (human-curated)
 ├── project_history.md        # Per-assessment summaries (auto-appended)
@@ -1037,7 +1141,7 @@ petro-rag-agent/
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
 ├── models/                   # PINN weights (*.pt, ~18 KB each) + loss curves (*.png)
-├── test_graph_rag_e2e.py     # End-to-end regression suite (150 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (154 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -1055,7 +1159,9 @@ petro-rag-agent/
 │   ├── test_chart_tools.py        # Offline unit tests (chart physics & output)
 │   ├── test_degradation.py        # Local only: stubs the MCP seam, no torch needed
 │   ├── test_pinn.py               # Local only (torch): analytic reconciliation / tanh check
-│   └── test_pinn_tool.py          # Local only (torch): planning, fallback, grounding guard
+│   ├── test_pinn_tool.py          # Local only (torch): planning, fallback, grounding guard
+│   └── test_experience_memory.py  # Offline: batch math / reflection parsing / prior ranking
+├── history/                  # Self-evolution store (gitignored): experiences, priors
 ├── memory/                   # Optional personal memory (Notion + ChromaDB)
 ├── charts/                   # Generated figures (gitignored)
 ├── logs/                     # app.log lives here in Docker (gitignored)
@@ -1259,11 +1365,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 350 tests in 4.925s
+Ran 397 tests in 4.786s
 OK
 ```
 
-Seventeen suites:
+Eighteen suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -1282,6 +1388,7 @@ Seventeen suites:
 - `test_pinn_query.py` — the natural-language front door to the PINN tool. A wrong extraction here does not raise: it produces a *plausible wrong number* (reading `250 bar` as `250 m`, or `240 hours` as `240 days` — a 24× error). So the cases are enumerated in three groups: must match (Chinese, abbreviations, reversed clause order, hours→days, decimals), must not match (`注入压力 250 bar` contains no distance; distance without time; time without distance), and must reject (`x = 500 m` is outside the domain, i.e. the regex grabbed the wrong number). English word order is pinned as **unsupported** on purpose, because matching bare `10 days` fragments from retrieved literature would fire the tool on questions nobody asked.
 - `test_pinn.py` — the model itself, checked against analysis rather than against itself: the `injection` scenario has an exact linear steady state (`P(50 m) = 110.000 bar`), and at 10 days the network returns **109.951**, a 0.049 bar error. It also asserts the PDE residual on random collocation points (mean 0.138 bar against a 20 bar signal), monotonic decay from well to far field, the maximum principle (in-domain values stay between the boundary values), clamping of out-of-range inputs, and the `baseline` scenario's degeneracy (`P ≡ 100` at every point, which is correct and useless — see the PINN section). One test checks **structure** rather than output: no `ReLU` may appear in the network, because `ReLU`'s zero second derivative makes the physics loss vanish and would make the residual test *pass harder*.
 - `test_pinn_tool.py` — the wiring, because "called" and "output" turned out to be different things: the 7B model did plan `predict_pressure`, the tool did return 109.95 bar, and the report **did not mention it at all**. Three links are pinned separately — the planned call executes, the regex fallback fires when the model plans nothing, and a missing number is appended by code — plus the two negative cases (unrelated questions must not sprout a pressure value; a missing weight file must degrade the report rather than fail it).
+- `test_experience_memory.py` — the self-evolution loop's decision points, all of which fail silently rather than loudly. Batch bookkeeping: at 20 lines the batch triggers, at 21 it does not, and a batch already in `reflections.json` never triggers again (otherwise a re-run reflects on the same records and semantic memory fills with duplicates). Window: at 45 lines the window is `[20, 40)`, not "the last 20" — the latter straddles two batches. Parsing: fenced JSON, prose-wrapped JSON, a single object where an array was expected, `"0.95"` as a string, confidence out of `[0, 1]`, a two-character "pattern" — each case is pinned because a parser that silently returns `[]` looks exactly like "reflection did not trigger". Ranking: an absence claim (`缺少埋深`) must fire when the query has no 埋深 and must not fire the same way when it does, a prior with no real overlap must stay out, and relevance must outrank confidence — otherwise a 0.99-confidence irrelevant prior crowds out the one that applies.
 
 ### End-to-end regression — requires local Ollama + built graph
 
@@ -1292,13 +1399,14 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 150 PASS / 0 FAIL   (540 s before Step 5-B, 650 s with it —
-                                   three retrieval rounds, each fanning out into two branches,
-                                   plus a fourth workflow for the PINN question;
-                                   the spread is rerank-candidate variance, see the latency note above)
+Test summary: 154 PASS / 0 FAIL   (613 s / 650 s across two runs —
+                                   six workflow runs, each fanning out into two retrieval branches;
+                                   the ~40 s spread is rerank-candidate variance, see the latency note above)
 ```
 
-Step 5-B is the newest and it exists for a specific reason: **every other question in the suite lacks coordinates**, so the grounding guard discarded every planned PINN call. The suite proved the guard blocks, and never proved the tool fires — a guard stuck in the "always discard" position would have stayed green forever. Step 5-B runs the acceptance sentence itself (`预测距离井口 50 米处，注入 10 天后的压力`) and asserts the value **and** that it reaches `final_report`. It is a separate function (`step_pinn()`) rather than inline code, because a 10-minute suite is the wrong loop in which to iterate on one step:
+Step 4-C is the newest: it asserts that a finished assessment actually leaves an experience behind, that the record carries `score` and retrieval quality, and that the report body is **not** in it (a full report per record would fill the reflection context with one case's specifics). It also asserts the store lives in a temp directory — the suite sets `EVOLVE_HOME` there, because 20 test assessments would otherwise trigger a real reflection and teach the system from test questions. Reflection itself needs 20 records and is covered by `evolution_engine.py --simulate` instead.
+
+Step 5-B exists for a different reason: **every other question in the suite lacks coordinates**, so the grounding guard discarded every planned PINN call. The suite proved the guard blocks, and never proved the tool fires — a guard stuck in the "always discard" position would have stayed green forever. Step 5-B runs the acceptance sentence itself (`预测距离井口 50 米处，注入 10 天后的压力`) and asserts the value **and** that it reaches `final_report`. It is a separate function (`step_pinn()`) rather than inline code, because a 10-minute suite is the wrong loop in which to iterate on one step:
 
 ```bash
 python -c "import time, test_graph_rag_e2e as t; t.step_pinn(); t.summary(time.time())"
@@ -1326,7 +1434,7 @@ Two scripts rather than one, because "the tool is broken" and "the transport is 
 | Workflow | Trigger | Scope |
 |---|---|---|
 | `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, **MCP-wire guard**, container-file guard, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 150-assertion pipeline on a self-hosted runner with Ollama |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 154-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 

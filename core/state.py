@@ -74,6 +74,11 @@ class AgentState(TypedDict):
     personal_context: str          # 整理后注入给后续节点的上下文
     # ─── 联网搜索字段 ───
     web_content: str               # 联网搜索+自动沉淀的新内容
+    # ─── 自我进化：历史先验 ───
+    # extract 节点查 system_experience 后实际拼进 prompt 的文本块（含标题与
+    # 使用说明）；没有命中任何先验时为空串。留着它是为了可审计：报告里那句
+    # "参考了历史经验"必须有对应的原文，否则无法判断它是不是模型编的。
+    system_experience: str
     # ─── 反思重试计数 ───
     retry_count: int               # 报告重写次数，用于防止无限循环
     # ─── 文件记忆 ───
