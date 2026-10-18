@@ -19,7 +19,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-273%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-306%20passing-brightgreen">
 </p>
 
 ---
@@ -67,7 +67,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 ### Beyond the graph
 
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **138 end-to-end assertions pass** through the real HTTP path, alongside 273 unit tests in CI.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **146 end-to-end assertions pass** through the real HTTP path, alongside 306 unit tests in CI.
 
 ---
 
@@ -121,14 +121,15 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 | Layer | Runs on | Why it lives there |
 |---|---|---|
 | Parameter extraction (Agent 1) | **Local** Ollama · Qwen2.5 | Raw project descriptions may contain commercially sensitive well/reservoir data; extraction is structured and short, a 7B model is enough |
-| Graph retrieval + reranking (Agent 2) | **Local** LightRAG + bge-reranker | The corpus and the query never need to leave the machine |
+| Graph retrieval + reranking (geology branch) | **Local** LightRAG + bge-reranker | The corpus and the query never need to leave the machine |
+| Vector retrieval (wellbore branch) | **Local** ChromaDB | Same reason; and it is a 20 ms embedding lookup, not a network call |
 | Physics validation (Agent 4, rule layer) | **Local** pure Python | Determinism beats intelligence here — see [Physics-consistency gate](#physics-consistency-gate) |
 | Report scoring (Agent 4, model layer) | **Local** | Judging structure and grounding is cheap; no need for a frontier model |
 | History compression | **Local** | Pure information extraction |
-| **Report generation (Agent 3)** | **Cloud** via gateway (DeepSeek by default) | Long-form engineering prose is exactly where model quality shows. This is the only step worth paying for |
+| **Branch conclusions + final synthesis** | **Cloud** via gateway (DeepSeek by default) | Long-form engineering prose is exactly where model quality shows. These are the only steps worth paying for |
 | Human approval (HITL gate) | **Human** | A safety-critical conclusion should not be auto-approved |
 
-Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), so "which side of the line a step sits on" is a config change, not a code change. If the cloud is unreachable or unconfigured, the report stage degrades to the local model and the degradation is recorded in `model_routing` — it is never silent.
+Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), so "which side of the line a step sits on" is a config change, not a code change. If the cloud is unreachable or unconfigured, the branch and report stages degrade to the local model and the degradation is recorded in `model_routing` — it is never silent.
 
 ```mermaid
 flowchart TD
@@ -140,21 +141,31 @@ flowchart TD
     MR --> FM["File Memory<br/>user_profile.md<br/>project_history.md"]
 
     FM --> EX["Agent 1 · Parameter Extraction<br/>LOCAL"]
-    EX --> RT["Agent 2 · Graph Retrieval<br/>LOCAL"]
-    RT --> LR["LightRAG GraphRAG<br/>389 entities · 400 relations<br/>84 components · main 244"]
-    LR --> RR["bge-reranker-v2-m3<br/>two-stage rerank → Top-2"]
-    RR --> RP["Agent 3 · Report Generation"]
-    RP --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
+
+    EX -->|"fan-out<br/>(same superstep)"| GEO["Geology branch<br/>faults · caprock"]
+    EX -->|"fan-out<br/>(same superstep)"| WB["Wellbore branch<br/>corrosion · pressure"]
+
+    GEO --> LR["LightRAG GraphRAG<br/>389 entities · 400 relations<br/>84 components · main 244"]
+    LR --> RR["bge-reranker-v2-m3<br/>rerank → Top-2"]
+    RR --> GS["Geology conclusion<br/>CLOUD"]
+
+    WB --> CH["ChromaDB<br/>raw chunks · Top-4"]
+    CH --> WS["Wellbore conclusion<br/>CLOUD"]
+
+    GS -->|"fan-in<br/>(barrier)"| AG["Aggregate<br/>defensive merge"]
+    WS -->|"fan-in<br/>(barrier)"| AG
+
+    AG --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
     PLAN --> FC["Function Calling<br/>CO2 density · pressure curve"]
     FC --> RP2["Phase B · Final report<br/>(streamed, CLOUD via gateway)"]
     RP2 --> EV["Agent 4 · Evaluator"]
     EV --> PH{"Physics rules<br/>P_inj vs P_h / P_frac<br/>LOCAL · deterministic"}
-    PH -->|"contradiction"| RP
+    PH -->|"contradiction"| AG
     PH -->|"consistent"| SC["Model quality score<br/>LOCAL"]
     SC -->|"score ≥ 8 or retry ≥ 2"| HG["HITL gate<br/>(interrupt_before)"]
-    SC -->|"rewrite"| RP
+    SC -->|"rewrite"| AG
     HG -->|"approved"| HM["Append to<br/>project_history.md"]
-    HG -->|"rejected"| RP
+    HG -->|"rejected"| AG
     HM --> OUT["Final Report"]
 
     EX -.-> LOCAL["Local LLM<br/>Ollama · Qwen2.5"]
@@ -225,6 +236,65 @@ curl -s -X POST http://127.0.0.1:8000/api/approve \
 ```
 
 Rejections are capped (`_MAX_HUMAN_REJECTIONS = 2`). Without a cap, "human keeps rejecting / machine keeps rewriting" is an unbounded spend, and it is almost always caused by a review comment that did not say what to change.
+
+---
+
+## Parallel Fan-out / Fan-in
+
+<!-- 中文注释：extract 之后同时触发地质与井筒两条分支，两条都写完后在 aggregate 合流。
+     为什么不是"一个检索节点查两个库"：两个域的问题性质不同，检索的失效模式也不同。 -->
+
+After parameter extraction the graph **splits into two branches that run in the same superstep**, and joins them before anything is written:
+
+| Branch | Store | Answers | Why that store |
+|---|---|---|---|
+| `geology` | LightRAG graph (389 entities / 400 relations) + bge-reranker | "what is the relation between fault reactivation and injection pressure" | Multi-hop, cross-paper — needs entities and relations, not sentences |
+| `wellbore` | ChromaDB raw chunks (Top-4) | "which papers mention casing corrosion or annular pressure" | Single-fact, lexical — graph extraction would miss `环空带压` entirely if it never became an entity |
+
+Both branches **generate their own conclusion** (150–250 characters) rather than returning raw fragments, so the aggregate stage receives two digested opinions instead of thousands of characters of evidence. Raw evidence only ever enters a branch's own prompt.
+
+### Measured, not assumed
+
+`python bench_parallel.py` runs one workflow and reads the timestamps each branch writes into state:
+
+```
+地质分支        74.72 s
+井筒分支        19.01 s
+串行需          93.73 s   （两者相加）
+并行实际        74.73 s   （扇出墙钟）
+重叠            19.00 s
+加速比           1.25 ×
+汇总节点        14.92 s
+```
+
+Inside the full E2E suite (three workflows, 146 candidate fragments per round) the same numbers read 1.16× and 1.05× — the wellbore branch only takes 5–16 s, so the more the geology rerank dominates, the less there is to overlap.
+
+**The honest part: this does not make the pipeline faster.** End-to-end per workflow went from ~98 s (linear) to ~121 s (fan-out + synthesis), and the E2E suite from 447 s to 513 s. Three effects, all measured:
+
+1. **Two extra generations per request.** Each branch writes its own conclusion, so the cloud is called twice more. That is the price of the architecture, not a bug.
+2. **GPU contention.** The wellbore branch's generation runs *while* the cross-encoder is reranking, and both compete for the same GPU. Geology took 74.7 s with the sibling running versus ~61 s of pure retrieval+rerank work — the overlap is real but it is not free.
+3. **Rerank candidate count varies run to run** (100 → 146 fragments for the same input, because LightRAG's keyword extraction is not deterministic). Cross-encoder cost is linear in candidates, so this alone moves the total by ~30 s and swamps any architectural comparison.
+
+What the split buys is **fault isolation, per-domain evidence, and independent routing** — a wellbore failure now costs a paragraph instead of the whole report. If you want latency back, the lever is a faster cross-encoder or fewer candidates, not the fan-out; claiming parallelism made this faster would be dishonest arithmetic.
+
+### Two traps that fail loudly, but only if you know where to look
+
+1. **Concurrent writes need reducers.** Two branches writing the same state key in one superstep raises `InvalidUpdateError: At key 'token_usage': Can receive only one value per step`. `token_usage` and `model_routing` therefore carry `Annotated[dict, merge_dict]` reducers in `core/state.py`; the branch products use *separate fields* (`geology_report` / `wellbore_report`) so there is nothing to merge and nothing to overwrite.
+2. **A branch that raises destroys the other branch's work.** In LangGraph a node exception fails the whole superstep, discarding whatever the sibling already computed. So `geology` and `wellbore` catch everything and record it in `geology_status` / `wellbore_status` instead of raising.
+
+### Degradation is code, not a prompt instruction
+
+If a branch produces nothing, `aggregate` still writes a report — but the missing module is stated in the report body, **appended deterministically** rather than left to the model:
+
+```
+> ⚠️ **数据完整性提示**：本次报告未能获得全部分支的证据，
+> 以下模块失败，其结论**不代表该维度无风险**，请人工复核：
+> - 地质模块检索超时，请人工复核（原因：TimeoutError: read timed out）
+```
+
+The wording matters: without "不代表该维度无风险", a reader interprets a missing section as *no risk* — the most dangerous possible misreading of a safety report. `utils/branch_merge.py` owns this logic as pure functions, so all four combinations (both ok / geology down / wellbore down / both down) are unit-tested without a model.
+
+The rewrite loop (`evaluate → aggregate`) **does not re-run the branches**: the conclusions are already in state, and a rewrite changes wording and structure, not evidence. That is both cheaper and semantically correct.
 
 ---
 
@@ -371,7 +441,9 @@ Getting there required working around three things that don't do what you'd expe
 ```
 POST /api/analyze   (text/event-stream)
 
-data: {"type":"node","node":"retrieve","label":"GraphRAG 图谱检索 + 精排","status":"start"}
+data: {"type":"node","node":"geology","label":"地质分支：图谱检索断层 / 盖层","status":"start"}
+data: {"type":"node","node":"wellbore","label":"井筒分支：文献检索套管 / 压力异常","status":"start"}
+data: {"type":"node","node":"aggregate","label":"汇总两路结论并成稿","status":"start"}
 data: {"type":"token","text":"###","stage":"report"}
 data: {"type":"token","text":" 风险评估报告","stage":"report"}
 data: {"type":"chart","chart":{"rel_path":"charts/pressure_curve_....png","summary":"..."}}
@@ -407,7 +479,9 @@ Different agents have very different intelligence requirements. Parameter extrac
 | Stage | Role | Route | Rationale |
 |---|---|---|---|
 | `extract` | Agent 1 · Parameter extraction | `local` | Short structured output, judgment is trivial |
-| `report` | Agent 3 · Report generation | **`cloud`** | The actual deliverable — quality gap is largest here |
+| `geology` | Geology branch · conclusion | **`cloud`** | Domain judgment over graph evidence; runs concurrently with `wellbore` |
+| `wellbore` | Wellbore branch · conclusion | **`cloud`** | Same, over vector evidence |
+| `report` | Aggregate · final synthesis | **`cloud`** | The actual deliverable — quality gap is largest here |
 | `evaluate` | Agent 4 · Quality evaluator | `local` | Rubric scoring, runs up to 3× per task |
 | `history` | File-memory compression | `local` | Pure extraction, no reasoning needed |
 
@@ -693,14 +767,14 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 <!-- 中文注释：核心亮点，面向评审/面试官的重点。 -->
 
 - **GraphRAG Integration** — A LightRAG knowledge graph is built from CCUS literature, extracting **389 geological entities** and **400 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.), with **63 % of the nodes in one connected component**. This enables **multi-hop reasoning** that flat vector search cannot express — and the graph is kept honest by a domain type constraint at extraction time plus deterministic alias merging afterwards, not by hoping the model spells things consistently.
-- **Two-Stage Retrieval** — Graph recall surfaces **35–44 candidate fragments**; fragments are merged into entity-relation-complete segments (average 305 characters) and reranked by a local **bge-reranker-v2-m3** model down to **Top-2** (peak score **0.99**). Longer, semantically complete segments give the reranker real discriminative power — and the rerank score doubles as the signal for whether the knowledge base actually matched (irrelevant questions score ~0.0001).
+- **Parallel Two-Store Retrieval** — after extraction the graph fans out into a **geology** branch (LightRAG graph recall → bge-reranker down to Top-2, peak score 0.99) and a **wellbore** branch (ChromaDB raw chunks, Top-4), which run in the same superstep and join at the aggregate node. Longer, entity-relation-complete segments give the reranker real discriminative power — and the rerank score doubles as the signal for whether the knowledge base actually matched (irrelevant questions score ~0.0001). Splitting by *domain* rather than by *hop count* means each branch gets the retrieval method that suits its question, and a failure in one branch degrades the report instead of killing the run.
 - **Model Routing** — Two layers. A **static** table assigns each role the cheapest model that still does its job; a **per-request** decision then overrides `extract` and `report` based on input length and whether retrieval really hit, logging `[Cost-Saving: Local Mode]` or `[Premium: Cloud Mode]` with the reason. One call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
 - **Token Economics** — Three measurable mechanisms rather than a slogan: **context pruning** (local Qwen2.5 compresses long retrieved text in ≤3 000-char chunks before it reaches the paid model — measured 7 000 → 401 chars, 94 % saved), **dynamic routing** (per-request tier chosen from input length *and* whether the knowledge base actually matched, with a one-way `local → cloud` escalation), and a **cost dashboard** that prices every stage by the model that really ran — local inference at electricity cost, not zero. Every degradation carries a reason in state, so "we thought it was on the cloud" is auditable instead of invisible.
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **231 offline unit tests**, and a **138-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **306 offline unit tests**, and a **146-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -756,8 +830,10 @@ petro-rag-agent/
 ├── nodes/
 │   ├── memory_node.py        # memory_router → search_memory → inject_memory
 │   ├── extract_node.py       # Agent 1: parameter extraction + complexity decision
-│   ├── retrieve_node.py      # Agent 2: GraphRAG recall → local rerank → context pruning
-│   ├── report_node.py        # Agent 3: tool planning + one streamed final report
+│   ├── geology_node.py       # fan-out L: LightRAG → rerank → geology conclusion (never raises)
+│   ├── wellbore_node.py      # fan-out R: ChromaDB → wellbore conclusion (never raises)
+│   ├── retrieve_node.py      # Graph retrieval used by the geology branch (rerank + pruning)
+│   ├── aggregate_node.py     # fan-in: defensive merge → tool planning → one streamed report
 │   ├── evaluate_node.py      # Agent 4: physics rules first, then model scoring
 │   ├── hitl_node.py          # Human gate: auto-approve with trace, or wait for a human
 │   ├── history_node.py       # save_file_memory: append to project_history.md
@@ -773,6 +849,8 @@ petro-rag-agent/
 │   ├── entity_aliases.py     # Alias normalisation + dirty-node rules (unit-tested)
 │   ├── graph_analysis.py     # Connected components, stdlib-only (unit-tested)
 │   ├── context_pruner.py     # Chunked context compression (unit-tested)
+│   ├── branch_merge.py       # Fan-in merge / degradation / timing, pure (unit-tested)
+│   ├── retry.py              # Exponential backoff for transient upstream errors (unit-tested)
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
@@ -781,6 +859,7 @@ petro-rag-agent/
 ├── ingest_ccus_batch.py      # PDFs → ChromaDB (full text) + LightRAG (budgeted)
 ├── normalize_graph.py        # Alias merge + noise removal on a built graph (dry-run first)
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
+├── chroma_retriever.py       # ChromaDB chunk retrieval for the wellbore branch
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
 ├── file_memory.py            # File-based long-term memory (bounded reads)
 ├── chart_tools.py            # Formation-pressure chart generator (unit-tested)
@@ -791,7 +870,8 @@ petro-rag-agent/
 ├── check_gateway.py          # Gateway doctor: reachability / models / routes
 ├── gateway.py                # In-repo OpenAI-compatible gateway on 127.0.0.1:3425
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
-├── test_graph_rag_e2e.py     # End-to-end regression suite (138 assertions)
+├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
+├── test_graph_rag_e2e.py     # End-to-end regression suite (146 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -1007,11 +1087,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 273 tests in 3.281s
+Ran 306 tests in 3.497s
 OK
 ```
 
-Eleven suites:
+Thirteen suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -1023,6 +1103,8 @@ Eleven suites:
 - `test_text_cleaning.py` — the ingestion front end, where failures are silent by construction: `permea-` / `ability` across a line break must become one word (a missed join sends "permea ability" to the embedding model and that chunk can never match "permeability" again); the arXiv watermark stamp and bare page numbers must go; the reference list must be cut **only** when the heading is in the latter half (a paper *about* citation analysis must not lose its body); and chunking must not drop a character when a page arrives as one giant paragraph. Also locks the ordering constraint — hyphenation must be repaired **before** whitespace is collapsed, because afterwards there is no `\n` left to anchor on.
 - `test_entity_aliases.py` — the merge rules, tested in **both directions**, because the two failure modes cost very different amounts. A missed merge leaves two nodes where there should be one (one edge lost). A wrong merge permanently fuses two distinct geological concepts, concatenates their descriptions, and cannot be undone. So the suite asserts what must merge (`CO2` / `Carbon Dioxide (CO2)` / `Carbon dioxide (CO2)`; `CCS` / seven spellings; `Fault` / `Faults`; `Cap Rock` / `Caprock`) **and** what must not (`Fault` vs `Pre-Existing Faults`, `Caprock` vs `Caprock Fracturing`). It also pins three traps: `Gas` must not singularise to `Ga`, two-character Chinese geology terms (`井筒` / `储层` / `断层` / `盖层`) must survive the "too short" filter, and `IPCC` typed as `organization` must not be deleted — the type is unreliable enough that deleting by type loses real policy entities.
 - `test_graph_analysis.py` — connected components on graphs whose answer can be counted by hand (a chain is one component; two chains plus an isolated node is three), plus edge cases that corrupt the metric silently: duplicate edges must not inflate anything, an edge pointing at a node that is not in the node list must be *added* rather than dropped (dropping it makes the component count look better than it is), and empty graphs must return empty rather than raise. It also locks the `--dry-run` projection: merging two variants must join two components, removing a noise node must take its edges with it, and a merge that collapses an edge into a self-loop must delete that edge.
+- `test_branch_merge.py` — the fan-in logic, i.e. the code that only runs when something has already gone wrong. All four combinations are enumerated (both branches ok / geology down / wellbore down / both down), and two properties are locked: the text handed downstream for a failed branch is **never an empty string** (an empty section reads as "no requirement", a fallback sentence reads as "this requirement failed" — opposite meanings to a reader), and `parallel_timing_of` derives its speedup from branch timestamps rather than node names, so it reports ~1.0 if anyone ever turns the fan-out back into a serial chain. Non-string / non-dict state values are exercised too, because those functions are exactly what gets called on a corrupted state.
+- `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
 
 ### End-to-end regression — requires local Ollama + built graph
@@ -1034,10 +1116,10 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 138 PASS / 0 FAIL   (447 s — three retrieval rounds on the densified graph)
+Test summary: 146 PASS / 0 FAIL   (513 s — three retrieval rounds, each now fanning out into two branches)
 ```
 
-This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 14 successful upstream calls during the suite — including the SSE ones. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
+This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 10 successful upstream calls during the suite (3 workflows × 2 branches + 3 syntheses, plus the SSE one) — 4 of them streamed. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
 
 If that gateway is not running, the suite fails at *workflow execution* with `Connection error` — correctly, since the report stage genuinely cannot run. That failure mode is worth knowing precisely: it looks like a broken application and is actually an unstarted dependency, which is why `check_gateway.py` exists as a separate first check.
 
@@ -1050,7 +1132,7 @@ Step 6 brings up the API server **inside the test process** when nothing is list
 | Workflow | Trigger | Scope |
 |---|---|---|
 | `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, container-file guard, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 138-assertion pipeline on a self-hosted runner with Ollama |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 146-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
