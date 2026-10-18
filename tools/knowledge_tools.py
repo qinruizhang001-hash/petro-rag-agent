@@ -80,6 +80,17 @@ def _ensure_chroma():
     log.info(f"[Knowledge Tools] ChromaDB 就绪 (collection={CCUS_COLLECTION})")
 
 
+def get_collection():
+    """返回就绪的 CCUS 集合（必要时惰性初始化）。
+
+    对外暴露这个函数，是为了让 ``chroma_retriever`` 之类的新检索入口
+    不必自己去 import 模块级全局变量 —— 集合名/路径/嵌入函数只在这里定义，
+    少一条绕路就少一次"两边不一致"的机会。
+    """
+    _ensure_chroma()
+    return _chroma_collection
+
+
 def is_tavily_configured() -> bool:
     """Check if Tavily API key is set."""
     return bool(TAVILY_API_KEY)

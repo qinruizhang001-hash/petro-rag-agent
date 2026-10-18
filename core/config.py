@@ -61,7 +61,9 @@ CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
 DEFAULT_ROUTING = {
     "extract": "local",      # Agent 1 参数提取（受动态复杂度路由管辖）
     "report_plan": "local",  # 工具规划：结构化短输出，本地足够（不参与动态路由）
-    "report": "cloud",       # Agent 3 报告生成（受动态复杂度路由管辖）
+    "geology": "cloud",      # 并行左分支：地质结论生成（受动态复杂度路由管辖）
+    "wellbore": "cloud",     # 并行右分支：井筒结论生成（受动态复杂度路由管辖）
+    "report": "cloud",       # aggregate 汇总终稿（受动态复杂度路由管辖）
     "evaluate": "local",     # Agent 4 评审员
     "history": "local",      # 文件记忆的结论压缩
     "summary": "local",      # 历史记忆的批量压缩（提炼核心经验）

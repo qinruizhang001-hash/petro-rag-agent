@@ -166,7 +166,7 @@ def main():
     try:
         import file_memory
         from core.config import get_llm, llm_chat
-        from nodes.report_node import SUMMARY_PROMPT
+        from nodes.aggregate_node import SUMMARY_PROMPT
 
         orig_path = file_memory.PROJECT_HISTORY_PATH
         tmp_path = orig_path + ".e2e-compress-tmp"
@@ -546,6 +546,35 @@ def main():
           final_state.get("token_usage", {}).get("retrieve", {}).get("engine") == "lightrag")
     check("检索到候选片段", final_state.get("token_usage", {})
           .get("retrieve", {}).get("candidate_docs", 0) > 0)
+
+    # ─── 并行扇出 / 扇入 ─────────────────────────────
+    # 这一段验证的不是"报告写得好不好"，而是"两条分支是否真的并发跑完并合流"。
+    # 数字全部来自分支自己打的时间戳，不是按节点名推算的。
+    geo_rep = final_state.get("geology_report") or ""
+    well_rep = final_state.get("wellbore_report") or ""
+    check("地质分支产出了独立结论", len(geo_rep) > 50, f"{len(geo_rep)} 字")
+    check("井筒分支产出了独立结论", len(well_rep) > 50, f"{len(well_rep)} 字")
+    check("两条分支结论互不相同（没有串写同一字段）",
+          bool(geo_rep) and bool(well_rep) and geo_rep != well_rep)
+
+    merge = final_state.get("branch_merge") or {}
+    check("本次未降级（两条分支都成功）", merge.get("degraded") is False, str(merge.get("missing")))
+
+    timing = final_state.get("parallel_timing") or {}
+    check("记录了并行耗时", bool(timing.get("wall_s")), str(timing))
+    if timing:
+        print(f"      地质 {timing.get('geology_s')}s ∥ 井筒 {timing.get('wellbore_s')}s"
+              f" → 并行 {timing.get('wall_s')}s"
+              f"（串行需 {timing.get('serial_s')}s，加速 {timing.get('speedup')}×，"
+              f"重叠 {timing.get('overlap_s')}s）")
+        check("并行墙钟小于两分支耗时之和（确实并发了）",
+              float(timing.get("wall_s", 0)) < float(timing.get("serial_s", 0)),
+              f"wall={timing.get('wall_s')} serial={timing.get('serial_s')}")
+        check("加速比 >= 1.0", float(timing.get("speedup", 0)) >= 1.0,
+              f"{timing.get('speedup')}×")
+        check("汇总节点耗时被单独记录",
+              float(timing.get("aggregate_s", 0)) > 0,
+              f"{timing.get('aggregate_s')}s")
 
     # ─── 物理一致性校验（规则引擎，不是模型打分）───
     phys = final_state.get("physics_check") or {}

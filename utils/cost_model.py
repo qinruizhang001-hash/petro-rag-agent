@@ -113,7 +113,9 @@ def _iter_stage_usage(token_usage: dict):
     比维护一张"哪些 stage 是 LLM"的名单更不容易漏。
     """
     for stage, payload in (token_usage or {}).items():
-        if stage in ("llm_total_tokens", "retrieve"):
+        # 检索统计条目（图谱 / 向量库）没有 prompt_tokens，下面的字段检查
+        # 已经能挡住；这里再点名一次，是为了让"这两个不是 LLM"这件事显式可读。
+        if stage in ("llm_total_tokens", "retrieve", "chroma_retrieve"):
             continue
         if not isinstance(payload, dict):
             continue

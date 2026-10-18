@@ -1,27 +1,38 @@
 """
-Agent 3：报告生成
-=================
-本模块里最贵的一步，也是整个系统里唯一被流式展示的一步。
+汇总节点（aggregate_agent）：把两条并行分支的结论融合成最终报告
+==============================================================
+Fan-in 节点。上游是 ``geology`` 与 ``wellbore`` 两条并行分支，LangGraph 保证
+**两条都写完才会触发这里**（实测：不等长分支的 join 节点只执行一次，
+且看到的是两份完整更新）。
 
-两阶段结构（有意为之，不是图省事）：
+三件事，按顺序：
 
-  Phase A「工具规划」—— 非流式、短输出、低温。只让模型回答"要调哪些工具、
-    参数是什么"，把 JSON 指令拿回来。
-  Phase B「终稿」—— 流式输出，且**只流这一遍**。
+  ① **防御性合并**（``compose_branch_inputs``）—— 纯函数，不看模型。
+     任何一条分支挂掉，这里都要把"缺什么"翻译成用户能看懂的话，
+     而不是让 ``KeyError`` 冒到 API 层。
+  ② **工具规划 + 确定性兜底** —— 密度与图表不依赖分支结论，只看提取到的参数，
+     所以即使两条分支全挂，数值仍然来自物理工具而不是模型猜测。
+  ③ **终稿流式输出** —— 唯一被流式展示的一遍，且只流这一遍。
 
-为什么不沿用"一稿带工具指令 + 二次整合"：那种写法必须生成两遍完整报告，
-前端若两遍都流式，用户会看到报告重复出现，而且第一遍里的 ```json``` 会原样
-显示在屏幕上，成本也翻倍。拆成"短规划 + 单次终稿"后：只流一份、不出现原始
-JSON、总 token 更少。
+为什么降级说明要**用代码追加**而不是交给模型
+--------------------------------------------
+"如果地质模块挂了，报告里必须写'地质模块检索超时，请人工复核'"这条要求，
+交给模型就是在赌它照做。实测本地 7B 模型对"缺失模块"这类元信息极不敏感：
+prompt 里写了它也可能只字不提，而这类遗漏恰恰是最危险的 ——
+读者会把"没写"理解成"没风险"。所以这里用代码在报告末尾追加一段
+不可省略的「数据完整性提示」。
 
-两个确定性兜底，都针对同一个失效模式 —— "模型该调工具却没调"：
-密度值用正则兜住 P/T，图表用代码兜底绘制。数值来自工具是核心承诺，
-模型"觉得够了自己算"会直接破坏它，所以不让它靠自觉。
+与 report 节点的关系
+--------------------
+本文件由 ``nodes/report_node.py`` 迁移而来（工具规划、图表兜底、流式终稿、
+历史压缩、报告落记忆等逻辑原样保留）。改名是为了让"节点名 = 文件名 = 职责"
+重新对齐：扇出之后，这个节点不再是"生成报告"，而是"**汇总**两段结论并成稿"。
 """
 from __future__ import annotations
 
 import json
 import re
+import time
 
 from chart_tools import generate_pressure_curve
 from core.config import get_llm, llm_chat, llm_chat_streamed
@@ -33,6 +44,11 @@ from file_memory import (
 )
 from memory.memory_manager import save_memory
 from tools.physics_tools import calculate_co2_density
+from utils.branch_merge import (
+    compose_branch_inputs,
+    degradation_block,
+    parallel_timing_of,
+)
 from utils.tokens import record_llm_usage, record_usage_payload
 
 from utils.logging_setup import get_logger
@@ -177,9 +193,9 @@ def compress_history_with_llm(state: AgentState) -> dict:
     return update
 
 
-def generate_report(state: AgentState, config=None):
+def aggregate_report(state: AgentState, config=None):
     """
-    Agent 3：生成评估报告。
+    汇总节点：把地质 / 井筒两段分支结论融合成最终报告。
 
     两阶段结构（这是有意为之，不是为了省事）：
 
@@ -191,9 +207,27 @@ def generate_report(state: AgentState, config=None):
     那种写法必须生成两遍完整报告，前端若两遍都流式，用户会看到报告重复出现，
     而且第一遍里的 ```json``` 会原样显示在屏幕上。成本也翻倍。
     拆成"短规划 + 单次终稿"后：只流一份、不出现原始 JSON、总 token 更少。
-    """
 
-    log.info("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
+    扇出之后多了一层：**上游可能缺数据**。所以本节点第一件事不是写报告，
+    而是先判断"两段结论齐不齐"，齐了走正常融合，缺了走降级路径 ——
+    降级路径仍然出报告，只是多一段代码追加的完整性提示。
+    """
+    t_agg = time.perf_counter()
+
+    # ─── ① 防御性合并：先看两段结论齐不齐 ──────────────────
+    branch = compose_branch_inputs(state)
+    timing = parallel_timing_of(state)
+    log.info("\n[Aggregate] 正在汇总地质 + 井筒分支结论并生成最终报告...")
+    log.info(
+        f"  [Aggregate] 分支耗时：地质 {timing['geology_s']}s ∥ 井筒 {timing['wellbore_s']}s"
+        f" → 并行墙钟 {timing['wall_s']}s（串行需 {timing['serial_s']}s，"
+        f"加速 {timing['speedup']}×）"
+    )
+    if branch["degraded"]:
+        log.warning(
+            f"  [Aggregate] ⚠️ 降级运行：缺失分支 {branch['missing']}；"
+            f"报告将显式标注并基于剩余数据生成"
+        )
 
     # ─── 文件记忆：读取 user_profile.md + project_history.md ───
     # 首次进入本节点时读取一次并写回 state，重写轮次直接复用（避免每轮重复 IO）
@@ -208,9 +242,6 @@ def generate_report(state: AgentState, config=None):
             log.info("  -> 文件记忆为空，跳过注入")
 
     personal_context = state.get("personal_context", "")
-    web_context = ""
-    if state.get("web_content"):
-        web_context = f"\n【联网搜索补充内容（已自动入库）】：\n{state['web_content']}"
 
     # 所有流式调用共用的 token 推送通道（SSE 用；invoke 时为 None）
     sink = (config or {}).get("configurable", {}).get("token_sink")
@@ -227,12 +258,31 @@ def generate_report(state: AgentState, config=None):
 4. 如果本次场景与「历史评估记录」中的某次相近，应显式做纵向对比
    （例如"相比上次 250bar/80℃ 的评估，本次压力更高，断层活化风险上升"）。
 5. 请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。
-6. **绝对不要输出 JSON、工具指令或图片 Markdown 路径**，只写正文。"""
+6. **绝对不要输出 JSON、工具指令或图片 Markdown 路径**，只写正文。
+7. 下面给的是**两条并行分支各自产出的结论**（地质 / 井筒）。你的任务是
+   **融合**而不是复述：保留两段中的全部数值与判断，去掉重复表述，
+   按上面的 1/2/3 结构重新组织。**不要新增两段里没有的结论。**"""
 
     # ─── 本次任务的材料（两个阶段共用）───
+    # 注意：这里不再拼 state["retrieved_knowledge"]。扇出之后，注入给下游的
+    # 是两条分支**已经消化过的结论**（各 150~250 字），而不是原始片段 ——
+    # 这正是并行架构省 token 的地方：原始证据只进分支的 prompt，不进终稿的。
+    degraded_hint = ""
+    if branch["degraded"]:
+        degraded_hint = (
+            "\n【数据完整性警告】：本次缺失以下分支，"
+            "请在报告开头用一句话说明结论不完整、需人工复核：\n"
+            + "\n".join(f"- {m}" for m in branch["missing"])
+            + "\n"
+        )
+
     materials = f"""【提取的 CCUS 参数】：{state['extracted_params']}
-【知识库检索到的标准】：{state['retrieved_knowledge']}
-{web_context}
+【地质分支结论（LightRAG 图谱证据）】：
+{branch['geology']}
+
+【井筒分支结论（ChromaDB 文献证据）】：
+{branch['wellbore']}
+{degraded_hint}
 {personal_context}
 【上一版报告的修改意见】：{state.get('feedback', '无')}"""
 
@@ -384,6 +434,14 @@ def generate_report(state: AgentState, config=None):
                 f"\n\n> CO2 密度 {density_result}，按注入压力与温度由状态方程工具计算。"
             )
 
+    # ─── 降级说明：代码追加，不依赖模型照做 ────────────────
+    # 这段必须放在图片引用**之前**吗？不必 —— 但要放在正文之后、且保证唯一。
+    # 重写轮次（feedback 非空）会重新生成本节点，所以这里每次都重新追加，
+    # 不会因为上一轮的追加而重复（report_text 是本轮模型输出，不含旧尾巴）。
+    note = degradation_block(branch)
+    if note:
+        report_text = report_text.rstrip() + f"\n\n{note}\n"
+
     # ─── 报告末尾补齐图片引用（代码保证，不靠模型自觉）──────
     # 报告本体存 Markdown 相对路径，便于归档与其它消费者；
     # 前端用 chart 事件里的真实路径调 st.image，不会重复渲染。
@@ -405,9 +463,34 @@ def generate_report(state: AgentState, config=None):
         except Exception as e:
             log.warning(f"  -> 记忆保存失败（不影响主流程）: {e}")
 
+    # ─── 证据合并：评审节点仍读 retrieved_knowledge ─────────
+    # 评审要回答"报告里的结论有没有证据支撑"，所以它需要的是**证据**，
+    # 而不是两段已经消化过的结论（拿结论去评结论，等于让模型自己给自己打分）。
+    merged_evidence = (
+        f"【地质图谱证据】\n{state.get('geology_evidence') or '（无）'}\n\n"
+        f"【井筒文献证据】\n{state.get('wellbore_evidence') or '（无）'}"
+    )
+
+    agg_elapsed = time.perf_counter() - t_agg
+    timing = {**timing, "aggregate_s": round(agg_elapsed, 2),
+              "total_s": round(timing["wall_s"] + agg_elapsed, 2)}
+    log.info(
+        f"  [Aggregate] ✅ 汇总完成（{agg_elapsed:.1f}s）；"
+        f"扇出+汇总总耗时 {timing['total_s']}s"
+    )
+
     current_retry = state.get("retry_count", 0)
     return {
         "final_report": report_text,
+        "retrieved_knowledge": merged_evidence,
+        "parallel_timing": timing,
+        "branch_merge": {
+            "degraded": branch["degraded"],
+            "missing": branch["missing"],
+            "geology_ok": branch["geology_ok"],
+            "wellbore_ok": branch["wellbore_ok"],
+            "reasons": branch["reasons"],
+        },
         "retry_count": current_retry + 1,
         "file_memory_context": file_memory_block,
         "chart_info": _chart_payload(chart_result) if chart_ok else {},
