@@ -615,6 +615,8 @@ The server speaks stdio, so it needs no port and no daemon. Absolute paths below
 
 Two things you would expect to need, and don't. `PYTHONIOENCODING=utf-8` is unnecessary — the SDK re-wraps stdin/stdout as UTF-8 itself, with the source comment "the std handles' platform encodings are unreliable". And no `cwd` is needed: every path the server touches (`models/`, `lightrag_storage/`, `.env`) resolves from `__file__`, which matters because Claude Desktop launches children with the home directory as cwd. `HF_HUB_OFFLINE=1` is set by `core/__init__.py` on import, not by the config.
 
+That last claim was measured rather than assumed, since it is exactly the kind of thing that works locally and fails for the user: the server was launched with `cwd=C:\Users\yeeun` (outside the repo) and all three tools returned correct values — density 1.35 kg/m³, PINN 109.951 bar, 37 graph fragments — with LightRAG resolving its store to the repo's absolute `lightrag_storage/`.
+
 Verify before wiring, in two steps that separate "the tool is broken" from "the transport is broken":
 
 ```bash
