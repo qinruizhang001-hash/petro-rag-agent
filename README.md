@@ -24,6 +24,53 @@
 
 ---
 
+## 🚀 Key Achievements
+
+<!-- 中文注释：四条硬指标。每一条都能在本仓库内用脚本复现，审计记录在 docs/graph-normalization.json，
+     不是估算值。数字之所以精确到个位，是因为它们来自 --dry-run 预演 + 真实执行的双重记录。 -->
+
+| # | Metric | Before → After | Change |
+|---|--------|----------------|--------|
+| 1 | Knowledge-graph connected components | 247 → **84** | **−66 %** |
+| 2 | Largest connected component | 83 → **244** nodes | **×2.9** |
+| 3 | Rerank candidate fragments | 120 → **87** | **−28 %** |
+| 4 | Rerank latency (identical Top-1 / Top-2) | 76 s → **51 s** | **−33 %** |
+
+### 1–2. From a fragment cloud to a geological knowledge network
+
+Naively ingesting the 23-paper CCUS corpus produced 765 entities — but **247 separate islands**, the largest holding only 83 nodes. The cause was not a weak extractor: **5.6 % of the nodes were author affiliations, publication years and paper titles.** Every paper mentions the same university and the same year, so those nodes became *cross-paper false hubs* — they connected unrelated papers to each other while the actual geology stayed disconnected.
+
+Two interventions fixed it, and the measurement shows which one mattered:
+
+| Stage | Nodes | Edges | Components | Largest | What changed |
+|-------|------:|------:|-----------:|--------:|--------------|
+| Default LightRAG type table | 765 | 559 | 247 | 83 | — |
+| **+ 8-type domain ontology** | 433 | 426 | **96** | 252 | explicit *never-extract* list |
+| + corpus screening | 422 | 419 | 91 | 252 | `ccus4.pdf` dropped (NOMA paper, not CCUS) |
+| **+ entity disambiguation** | 389 | 400 | **84** | **244** | 17 alias groups merged, 8 dirty nodes deleted |
+
+**The ontology constraint did 61 % of the work (247 → 96); alias merging only did 91 → 84.** That is the useful finding: *typed* extraction beats *synonym* merging, because the damage was never "two names for one thing" — it was "things that should not be entities at all." Merging `CO2` / `Carbon Dioxide (CO2)` matters, but deleting `AGH University of Krakow` matters far more.
+
+The merge rules are deliberately boring — case, plural, parenthetical gloss, citation suffix, plus a hand-written synonym table. No fuzzy matching, no edit distance, no embedding similarity: **a missed merge costs one edge, a wrong merge permanently fuses two distinct geological concepts.** `normalize_graph.py` therefore defaults to `--dry-run`, which replays the whole plan through a union-find projection before touching storage; the projection (389/400/84/244) matched the real rebuild exactly, so the 15-minute re-ingest never had to be repeated.
+
+### 3–4. 33 % off the rerank, with the answer left untouched
+
+The default LightRAG caps pulled 120 candidate fragments through a cross-encoder for 76 s — long enough to blow the frontend's 120 s timeout. Tightening two knobs gave back a third of the latency **without changing the retrieved evidence**:
+
+| `LIGHTRAG_TOP_K` / `CHUNK_TOP_K` | Fragments | Rerank | Top-1 score | Top-2 fragment |
+|----------------------------------|----------:|-------:|------------:|----------------|
+| `40 / 20` (default) | 120 | 76 s | 0.9679 | — |
+| **`25 / 12`** | **87** | **51 s** | **0.9679** | **identical** |
+
+Those 33 extra candidates were never going to be selected. Two honest caveats, both measured rather than assumed: after disambiguation the same `25 / 12` yields **124–150 fragments instead of 87**, because alias merging gives every node more relations and the cross-encoder is linear in candidates — connectivity is paid for in the rerank stage. And tightening further to `15 / 8` was tested and **rejected**: it saves 3 s but the second-best fragment changes to a worse one (0.0553 → 0.0334).
+
+### Beyond the graph
+
+- **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **138 end-to-end assertions pass** through the real HTTP path, alongside 273 unit tests in CI.
+
+---
+
 ## Overview
 
 <!-- 中文注释：项目定位——面向 CO2 地质封存（CCUS）的风险评估系统。用户输入一段项目描述，
@@ -406,6 +453,21 @@ python check_gateway.py --local  # same checks against Ollama
 
 It distinguishes the four failures that otherwise look alike: gateway not running, a proxy hijacking the loopback request (returns a misleading **502** instead of connection refused), model name mismatch, and bad credentials.
 
+#### The in-repo gateway — `gateway.py`
+
+If you would rather not install a third-party aggregator, this repository ships one: `gateway.py`, standard library only. It listens on the same `127.0.0.1:3425` and speaks the same OpenAI wire format, so it is a drop-in replacement for magpie — `.env` does not change.
+
+```bash
+python gateway.py                  # 127.0.0.1:3425, routes provider/model to configured upstreams
+python check_gateway.py --send     # verify the hop
+```
+
+It routes `provider/model` names to whichever upstream is actually configured (`ollama` / `deepseek` / `openai`), aggregates `/v1/models` across them with the `provider/` prefix preserved, and passes streams through as `text/event-stream`. An upstream with no key is **absent** from `/v1/models` rather than failing later with a 401 — the model list is the truth about what you can call. `GET /health` reports the live provider table.
+
+One incompatibility it fixes rather than inherits: this app sends `stream_options={"include_usage": true}` to obtain token counts, which Ollama rejects outright. The gateway strips that field for the `ollama` provider and forwards it untouched for everyone else. Binding a non-loopback host is refused unless `GATEWAY_API_KEY` is set — an open relay to your paid keys is not a default worth having.
+
+**What it is not:** a source of models. With no vendor keys it is a gateway in front of local Ollama, and the `report` stage still runs on Qwen2.5 — which is precisely what makes it a useful test of the hop.
+
 #### Wiring up magpie specifically
 
 [magpie](https://github.com/yetone/magpie) (MIT) runs a gateway on `127.0.0.1:3425` that speaks OpenAI Chat/Responses, Anthropic Messages and Gemini, translating between them.
@@ -605,7 +667,7 @@ Local inference is **not** priced at zero. At roughly 60 tok/s and 250 W, one mi
 
 Three definitions that make the saving figure meaningful instead of decorative:
 
-1. **Priced by the model that actually ran, not by the tier label.** This project currently points `CLOUD_BASE_URL` at a local magpie gateway whose only upstream is Ollama — so `tier="cloud"` calls are served by the local 7B and cost electricity. Pricing by tier would report a fake ¥0.017 charge and then "save" a fictional amount. `ollama/deepseek-r1` is therefore matched as local: the name says DeepSeek, the compute is on this machine.
+1. **Priced by the model that actually ran, not by the tier label.** This project currently points `CLOUD_BASE_URL` at a local gateway (`gateway.py`, or magpie — same port, same protocol) whose only upstream is Ollama — so `tier="cloud"` calls are served by the local 7B and cost electricity. Pricing by tier would report a fake ¥0.017 charge and then "save" a fictional amount. `ollama/deepseek-r1` is therefore matched as local: the name says DeepSeek, the compute is on this machine.
 2. **The baseline is a stated counterfactual.** `saved_cny = (all tokens at deepseek-chat list price) − actual`. It is *not* "what your last bill was" — the previous version also ran locally. The response carries `baseline_note` saying exactly this.
 3. **Unknown models fall back to the most expensive tier.** Over-reporting a bill is recoverable; under-reporting it is not.
 
@@ -727,6 +789,7 @@ petro-rag-agent/
 ├── project_history.md        # Per-assessment summaries (auto-appended)
 ├── graph_rag_test.py         # Graph construction & multi-hop query test
 ├── check_gateway.py          # Gateway doctor: reachability / models / routes
+├── gateway.py                # In-repo OpenAI-compatible gateway on 127.0.0.1:3425
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── test_graph_rag_e2e.py     # End-to-end regression suite (138 assertions)
 ├── tests/
@@ -971,10 +1034,12 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 138 PASS / 0 FAIL   (467 s — three retrieval rounds on the densified graph)
+Test summary: 138 PASS / 0 FAIL   (447 s — three retrieval rounds on the densified graph)
 ```
 
-One environment note, because it changes what the number means: the report stage is routed to the `cloud` tier, which by default goes through the magpie gateway on `127.0.0.1:3425`. If that gateway is not running, the suite fails at *workflow execution* with `Connection error` — correctly, since the stage genuinely cannot run. This run pointed `CLOUD_BASE_URL` at Ollama's OpenAI-compatible endpoint instead, so what it verifies is the pipeline (routing, retrieval, generation, gate, reflection), not the gateway. `python check_gateway.py --send` is the tool for the gateway itself.
+This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 14 successful upstream calls during the suite — including the SSE ones. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
+
+If that gateway is not running, the suite fails at *workflow execution* with `Connection error` — correctly, since the report stage genuinely cannot run. That failure mode is worth knowing precisely: it looks like a broken application and is actually an unstarted dependency, which is why `check_gateway.py` exists as a separate first check.
 
 Step 8 is the newest: it drives the physics rules as pure functions (a case that must be blocked, the same case once the report acknowledges the risk, a "smooth injection" claim that contradicts a sub-hydrostatic pressure, and a missing-depth case that must stay `unverifiable` rather than pass or fail), then runs a **full HTTP round-trip through the human gate** — `hitl` → `review` → reject → rewrite → approve — including the 404/409 error paths.
 
