@@ -32,6 +32,10 @@ from utils.tokens import (
     record_usage_payload,
 )
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def _env_int(name: str, default: int) -> int:
     """读取整数型环境变量；非法值退回默认，不让配置失误炸掉主流程。"""
@@ -41,7 +45,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
-        print(f"  [Config] {name}={raw!r} 不是合法整数，使用默认值 {default}")
+        log.info(f"  [Config] {name}={raw!r} 不是合法整数，使用默认值 {default}")
         return default
 
 
@@ -52,7 +56,7 @@ CONTEXT_PRUNE_THRESHOLD = _env_int("CONTEXT_PRUNE_THRESHOLD", 4000)
 
 
 def retrieve_knowledge(state: AgentState):
-    print("\n[Agent 2] 正在通过 LightRAG 知识图谱检索，并执行本地 Rerank 精排...")
+    log.info("\n[Agent 2] 正在通过 LightRAG 知识图谱检索，并执行本地 Rerank 精排...")
     query = state["extracted_params"]
 
     # ─── 第一阶段：LightRAG 图谱检索（实体 + 关系 + chunk） ──
@@ -72,13 +76,13 @@ def retrieve_knowledge(state: AgentState):
                 "engine": "lightrag",
             },
         )
-        print("  -> Token 消耗 [retrieve]: 图谱中无相关记录")
+        log.info("  -> Token 消耗 [retrieve]: 图谱中无相关记录")
         # 没召回到东西 = RAG 未命中，复杂度判定维持 extract 阶段的结论
         complexity = classify_complexity(
             state["user_input"], rag_triggered=False, top_score=None
         )
         complexity = escalate_complexity(state.get("complexity_info"), complexity)
-        print(f"  [Router] {complexity['label']} {complexity['reason']}")
+        log.info(f"  [Router] {complexity['label']} {complexity['reason']}")
         return {
             "retrieved_knowledge": "知识库中无相关记录",
             "token_usage": empty_usage,
@@ -86,10 +90,10 @@ def retrieve_knowledge(state: AgentState):
             "complexity_info": complexity,
         }
 
-    print(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
+    log.info(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
 
     # ─── 第二阶段：本地 Rerank 精排（语义重排打分） ────────
-    print(f"  -> 正在对 {len(raw_docs)} 个候选片段进行本地 Rerank 精排...")
+    log.info(f"  -> 正在对 {len(raw_docs)} 个候选片段进行本地 Rerank 精排...")
     pairs = [[query, doc] for doc in raw_docs]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(scores, raw_docs), key=lambda x: x[0], reverse=True)
@@ -110,15 +114,15 @@ def retrieve_knowledge(state: AgentState):
     )
     complexity = escalate_complexity(state.get("complexity_info"), complexity)
     mode = complexity["mode"]
-    print(f"  [Router] {complexity['label']} {complexity['reason']}")
+    log.info(f"  [Router] {complexity['label']} {complexity['reason']}")
 
     query_tokens = count_tokens(query)
     candidate_tokens = sum(count_tokens(doc) for doc in raw_docs)
     rerank_input_tokens = query_tokens * len(raw_docs) + candidate_tokens
 
-    print(f"  -> 精排完成！已从 {len(raw_docs)} 个片段中过滤出最相关的 {len(top_docs)} 个。")
+    log.info(f"  -> 精排完成！已从 {len(raw_docs)} 个片段中过滤出最相关的 {len(top_docs)} 个。")
     for i, (score, doc) in enumerate(ranked[:5], start=1):
-        print(f"     #{i} score={float(score):.4f} tokens={count_tokens(doc)}")
+        log.info(f"     #{i} score={float(score):.4f} tokens={count_tokens(doc)}")
 
     # ─── 第三阶段：上下文压缩（Context Pruning）────────────
     # 用本地便宜模型把长文本压成要点，再送给云端。
@@ -152,7 +156,7 @@ def retrieve_knowledge(state: AgentState):
     prune_update: dict = {}
 
     if needs_pruning(retrieved_text, CONTEXT_PRUNE_THRESHOLD):
-        print(f"  [Prune] 检索上下文 {context_char_count(retrieved_text)} 字 "
+        log.info(f"  [Prune] 检索上下文 {context_char_count(retrieved_text)} 字 "
               f"> {CONTEXT_PRUNE_THRESHOLD} 字阈值 → 调用本地模型压缩")
         # 超长上下文会被切成多块分别压缩（本地模型只有 4096 tokens 上下文），
         # 所以这里必须**累加**每次调用的 token，不能只记最后一次 ——
@@ -199,13 +203,13 @@ def retrieve_knowledge(state: AgentState):
 
         if prune_result["status"] == "pruned":
             retrieved_text = prune_result["compressed"]
-            print(f"  [Prune] 🗜️ {prune_result['before_chars']} → "
+            log.info(f"  [Prune] 🗜️ {prune_result['before_chars']} → "
                   f"{prune_result['after_chars']} 字"
                   f"（省 {prune_result['saved_chars']} 字 / "
                   f"{prune_result['saved_ratio'] * 100:.0f}%，"
                   f"{prune_result['chunks']} 块 / {prune_result['calls']} 次调用）")
         else:
-            print(f"  [Prune] ⚠️ 压缩未生效，保留原文：{prune_result['reason']}")
+            log.warning(f"  [Prune] ⚠️ 压缩未生效，保留原文：{prune_result['reason']}")
 
     # 压缩后重新统计实际注入量（这是真正花在云端输入上的那份）
     injected_tokens = count_tokens(retrieved_text)
@@ -214,7 +218,7 @@ def retrieve_knowledge(state: AgentState):
         base_usage["retrieve"]["prune_saved_chars"] = prune_result["saved_chars"]
     base_usage["retrieve"]["prune_status"] = prune_result["status"]
 
-    print(
+    log.info(
         f"  -> Token 消耗 [retrieve]: query={query_tokens}, "
         f"candidates={candidate_tokens}, rerank_input≈{rerank_input_tokens}, "
         f"injected_context={injected_tokens}"

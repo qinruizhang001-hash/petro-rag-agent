@@ -4,11 +4,15 @@ Notion Structured Memory
 Write / search personal notes to a Notion page.
 Falls back gracefully if Notion is not configured.
 """
-
 from typing import Optional
 
 import sys
 import os
+
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
@@ -34,7 +38,7 @@ def add_note(title: str, content: str, tags: Optional[list] = None) -> Optional[
     """
     notion = _get_client()
     if notion is None:
-        print("[Memory/Notion] Not configured — skipping Notion write")
+        log.info("[Memory/Notion] Not configured — skipping Notion write")
         return None
 
     # Chunk content to respect Notion's 2000-char limit per rich_text block
@@ -70,10 +74,10 @@ def add_note(title: str, content: str, tags: Optional[list] = None) -> Optional[
             },
             children=children
         )
-        print(f"[Memory/Notion] Saved: {title}")
+        log.info(f"[Memory/Notion] Saved: {title}")
         return page
     except Exception as e:
-        print(f"[Memory/Notion] Error: {e}")
+        log.warning(f"[Memory/Notion] Error: {e}")
         return None
 
 
@@ -103,5 +107,5 @@ def search(query: str, page_size: int = 5) -> list:
             })
         return pages
     except Exception as e:
-        print(f"[Memory/Notion] Search error: {e}")
+        log.warning(f"[Memory/Notion] Search error: {e}")
         return []

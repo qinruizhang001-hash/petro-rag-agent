@@ -35,6 +35,10 @@ from memory.memory_manager import save_memory
 from tools.physics_tools import calculate_co2_density
 from utils.tokens import record_llm_usage, record_usage_payload
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
     """
@@ -152,9 +156,9 @@ def compress_history_with_llm(state: AgentState) -> dict:
     result = compress_history_if_needed(summarizer=_summarizer)
 
     if result["status"] == "compressed":
-        print(f"  [Memory] 🗜️ 历史压缩：{result['before_chars']} → "
+        log.info(f"  [Memory] 🗜️ 历史压缩：{result['before_chars']} → "
               f"{result['after_chars']} 字，{result['dropped_entries']} 条旧记录已提炼")
-        print(f"  [Memory] 核心经验：\n{result['lessons']}")
+        log.info(f"  [Memory] 核心经验：\n{result['lessons']}")
 
     if "response" not in captured:
         return {}
@@ -189,7 +193,7 @@ def generate_report(state: AgentState, config=None):
     拆成"短规划 + 单次终稿"后：只流一份、不出现原始 JSON、总 token 更少。
     """
 
-    print("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
+    log.info("\n[Agent 3] 正在生成 CCUS 项目综合评估报告...")
 
     # ─── 文件记忆：读取 user_profile.md + project_history.md ───
     # 首次进入本节点时读取一次并写回 state，重写轮次直接复用（避免每轮重复 IO）
@@ -199,9 +203,9 @@ def generate_report(state: AgentState, config=None):
         compress_update = compress_history_with_llm(state)
         file_memory_block = build_memory_context()
         if file_memory_block:
-            print(f"  -> 文件记忆已加载（{len(file_memory_block)} 字）")
+            log.info(f"  -> 文件记忆已加载（{len(file_memory_block)} 字）")
         else:
-            print("  -> 文件记忆为空，跳过注入")
+            log.info("  -> 文件记忆为空，跳过注入")
 
     personal_context = state.get("personal_context", "")
     web_context = ""
@@ -269,11 +273,11 @@ def generate_report(state: AgentState, config=None):
         try:
             data = json.loads(block)
         except Exception as e:
-            print(f"  [Warning] 工具指令解析失败: {e}")
+            log.warning(f"  [Warning] 工具指令解析失败: {e}")
             continue
         if isinstance(data, dict) and data.get("tool"):
             tool_requests.append(data)
-    print(f"  -> 工具规划返回 {len(tool_requests)} 条指令")
+    log.info(f"  -> 工具规划返回 {len(tool_requests)} 条指令")
 
     density_result = None
     chart_result = None
@@ -289,7 +293,7 @@ def generate_report(state: AgentState, config=None):
                     req.get("depth"), req.get("injection_pressure_bar")
                 )
             except Exception as e:
-                print(f"  [Warning] 图表生成失败: {e}")
+                log.warning(f"  [Warning] 图表生成失败: {e}")
 
     # ─── 确定性兜底：模型该调没调时，由代码补上 ─────────────
     # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
@@ -297,22 +301,22 @@ def generate_report(state: AgentState, config=None):
     # 因此不让它靠自觉：参数里有 P/T 就必须有工具结果。
     p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
     if density_result is None and p_val is not None and t_val is not None:
-        print("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
+        log.info("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
         density_result = calculate_co2_density(p_val, t_val)
 
     # 图表同理：报告没有配图会显得业余，且输入几乎总能从参数推出。
     if chart_result is None or chart_result.get("status") != "ok":
         depth_val = _extract_depth(state.get("extracted_params", ""))
-        print("  [System] 模型未规划图表 → 确定性兜底绘图")
+        log.info("  [System] 模型未规划图表 → 确定性兜底绘图")
         try:
             chart_result = generate_pressure_curve(depth_val, p_val)
         except Exception as e:
-            print(f"  [Warning] 图表生成失败（不影响报告）: {e}")
+            log.warning(f"  [Warning] 图表生成失败（不影响报告）: {e}")
             chart_result = None
 
     chart_ok = bool(chart_result and chart_result.get("status") == "ok")
     if chart_ok:
-        print(f"  [System] 图表已生成：{chart_result['rel_path']}")
+        log.info(f"  [System] 图表已生成：{chart_result['rel_path']}")
         # 立刻推给前端：用户不用等报告写完就能看到图
         if sink is not None:
             try:
@@ -358,7 +362,7 @@ def generate_report(state: AgentState, config=None):
     report_mode = state.get("complexity_mode") or "cloud"
     complexity = state.get("complexity_info") or {}
     if complexity.get("label"):
-        print(f"  [Router] {complexity['label']} {complexity.get('reason', '')}")
+        log.info(f"  [Router] {complexity['label']} {complexity.get('reason', '')}")
 
     _, model, tier, _ = get_llm("report", report_mode)
     streamed = llm_chat_streamed("report", final_msgs, 0.3, sink=sink, mode=report_mode)
@@ -375,7 +379,7 @@ def generate_report(state: AgentState, config=None):
     if density_result is not None:
         numeric = density_result.split()[0] if density_result else ""
         if numeric and numeric not in report_text:
-            print(f"  [System] 报告未包含工具算出的密度 {numeric} → 追加数值说明")
+            log.info(f"  [System] 报告未包含工具算出的密度 {numeric} → 追加数值说明")
             report_text = report_text.rstrip() + (
                 f"\n\n> CO2 密度 {density_result}，按注入压力与温度由状态方程工具计算。"
             )
@@ -391,15 +395,15 @@ def generate_report(state: AgentState, config=None):
     # ─── 自动保存报告到个人长期记忆 ───────────────────────
     if not state.get("feedback"):
         try:
-            print("  -> 正在保存报告到个人长期记忆...")
+            log.info("  -> 正在保存报告到个人长期记忆...")
             save_memory(
                 title=f"CCUS评估报告: {state['user_input'][:50]}",
                 content=report_text,
                 tags=["CCUS", "评估报告", "auto-save"]
             )
-            print("  -> 报告已保存到个人长期记忆 (Notion + ChromaDB)")
+            log.info("  -> 报告已保存到个人长期记忆 (Notion + ChromaDB)")
         except Exception as e:
-            print(f"  -> 记忆保存失败（不影响主流程）: {e}")
+            log.warning(f"  -> 记忆保存失败（不影响主流程）: {e}")
 
     current_retry = state.get("retry_count", 0)
     return {

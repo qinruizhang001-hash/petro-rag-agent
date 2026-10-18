@@ -7,16 +7,21 @@ LangGraph 工作流定义与编译
 应该只需要读这一个文件就能看懂整条链路，而不是在 1300 行里翻找
 ``add_edge``。节点文件只回答"这一步做什么"，这里只回答"步骤怎么串"。
 
-两个编译版本，差异是 checkpoint：
+三个编译版本，差异只在编译参数：
 
   ``app``         带 SqliteSaver，供同步 ``invoke``（CLI、/api/analyze/sync）
   ``app_stream``  不带 checkpointer，供 ``astream_events``（SSE 端点）
+  ``app_hitl``    带 SqliteSaver + ``interrupt_before=["hitl_gate"]``，
+                  供 ``/api/analyze/hitl`` + ``/api/approve`` 的人工审核链路
 
 必须分开的原因：``SqliteSaver`` 只实现同步接口，``astream_events`` 走异步路径
 会直接抛 ``NotImplementedError: The SqliteSaver does not support async methods``。
 无 checkpoint 的代价是流式请求不能跨连接续跑；附带好处是 checkpoint.db
 不再随每次 API 调用膨胀。长期记忆由文件记忆与 Memory Router 承担，
 与 checkpoint 是两套机制，不受影响。
+
+``app_hitl`` 必须带 checkpointer：暂停意味着"进程可以退出、几小时后由另一次
+HTTP 请求续跑"，状态只能落在 sqlite 里。
 """
 from __future__ import annotations
 
@@ -40,13 +45,21 @@ from nodes.conditions import check_quality, route_memory
 from nodes.evaluate_node import evaluate_report
 from nodes.extract_node import extract_params
 from nodes.history_node import save_file_memory
+from nodes.hitl_node import hitl_gate, route_after_hitl
 from nodes.memory_node import inject_memory, memory_router, search_memory
 from nodes.report_node import generate_report
 from nodes.retrieve_node import retrieve_knowledge
 from nodes.web_search_node import should_search, web_search_save
 from utils.cost_model import compute_cost_estimation
 
-__all__ = ["app", "app_stream", "NODE_LABELS", "compute_cost_estimation", "main"]
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
+__all__ = [
+    "app", "app_stream", "app_hitl",
+    "NODE_LABELS", "compute_cost_estimation", "main",
+]
 
 
 workflow = StateGraph(AgentState)
@@ -60,6 +73,8 @@ workflow.add_node("retrieve", retrieve_knowledge)
 workflow.add_node("web_search", web_search_save)
 workflow.add_node("report", generate_report)
 workflow.add_node("evaluate", evaluate_report)
+# 人类在环闸门：自动模式下自己放行并留痕，人工模式下被 interrupt_before 拦住
+workflow.add_node("hitl_gate", hitl_gate)
 workflow.add_node("save_file_memory", save_file_memory)
 
 # 入口 → memory_router
@@ -102,8 +117,18 @@ workflow.add_conditional_edges(
     "evaluate",
     check_quality,
     {
-        "pass": "save_file_memory",
+        "pass": "hitl_gate",
         "rewrite": "report"
+    }
+)
+
+# 人工闸门：通过 → 落盘；驳回 → 带审核意见回到 report
+workflow.add_conditional_edges(
+    "hitl_gate",
+    route_after_hitl,
+    {
+        "approve": "save_file_memory",
+        "reject": "report",
     }
 )
 
@@ -129,6 +154,20 @@ app = workflow.compile(checkpointer=memory_saver)
 # 附带好处：checkpoint.db 不再随每次 API 调用膨胀。
 app_stream = workflow.compile()
 
+# ─── HITL 专用编译版本：在人工闸门前暂停 ──────────────────
+# 三个版本共用同一份图定义（节点、边、条件路由只有一处），差别只在编译参数：
+#   app        带 checkpointer，同步 invoke，自动放行闸门
+#   app_stream 不带 checkpointer，供 SSE 异步流
+#   app_hitl   带 checkpointer + interrupt_before，跑到闸门前停住等人工决定
+#
+# 为什么必须带 checkpointer：暂停意味着"进程可以退出、几小时后由另一次 HTTP
+# 请求续跑"，状态只能存在 sqlite 里。`POST /api/approve` 就是拿 thread_id
+# 找到那个断点，把 human_decision 写进 state 再 invoke(None)。
+app_hitl = workflow.compile(
+    checkpointer=memory_saver,
+    interrupt_before=["hitl_gate"],
+)
+
 # 节点名 → 面向用户的中文进度文案（SSE 的 node 事件用）
 NODE_LABELS = {
     "memory_router": "判断是否需要调取个人记忆",
@@ -139,6 +178,7 @@ NODE_LABELS = {
     "web_search": "联网补充资料",
     "report": "生成风险评估报告",
     "evaluate": "评审报告质量",
+    "hitl_gate": "人工审核闸门",
     "save_file_memory": "写入项目历史记忆",
 }
 
@@ -148,23 +188,23 @@ def main() -> None:
 
     与原 ``python multi_agent_ccus.py`` 的行为一致（那里现在只做入口转发）。
     """
-    print("\n🚀 开始执行 CCUS 多智能体（多模型路由 + 文件记忆 + 反思循环）...")
+    log.info("\n🚀 开始执行 CCUS 多智能体（多模型路由 + 文件记忆 + 反思循环）...")
 
     # 确保文件记忆的两个 .md 存在
     ensure_memory_files()
 
     # 启动时打印一次路由表，便于确认配置是否生效
-    print("\n[Model Routing] 配置：")
-    print(f"  local base : {LOCAL_BASE_URL}")
-    print(f"  cloud base : {CLOUD_BASE_URL}")
+    log.info("\n[Model Routing] 配置：")
+    log.info(f"  local base : {LOCAL_BASE_URL}")
+    log.info(f"  cloud base : {CLOUD_BASE_URL}")
     for _stage in MODEL_ROUTING:
         _cli, _mdl, _tier, _reason = get_llm(_stage)
-        print(f"  {_stage:<10} → {_tier}:{_mdl}"
+        log.info(f"  {_stage:<10} → {_tier}:{_mdl}"
               + (f"  ⚠️ {_reason}，已降级" if _reason else ""))
     if not cloud_available():
-        print("  （未配置 CLOUD_API_KEY，report 阶段将使用本地模型；"
+        log.info("  （未配置 CLOUD_API_KEY，report 阶段将使用本地模型；"
               "在 .env 中设置后可启用云端）")
-    print("  （网关连通性自检：python check_gateway.py）")
+    log.info("  （网关连通性自检：python check_gateway.py）")
 
     # 你的测试输入（含压力/温度参数，用于触发 Function Calling 密度计算）
     test_input = "某CCUS项目注入压力250bar，温度80℃，存在隐伏碳盐酸岩储层断层，请评估风险。"
@@ -175,29 +215,29 @@ def main() -> None:
     # 执行工作流（已移除 interrupt_before，一次 invoke 跑完整个流程）
     final_state = app.invoke({"user_input": test_input}, config)
 
-    print("\n" + "=" * 40)
-    print("最终生成的 CCUS 风险评估报告：")
-    print("=" * 40)
-    print(final_state["final_report"])
+    log.info("\n" + "=" * 40)
+    log.info("最终生成的 CCUS 风险评估报告：")
+    log.info("=" * 40)
+    log.info(final_state["final_report"])
 
-    print("\n" + "=" * 40)
-    print("模型路由（实际使用）：")
-    print("=" * 40)
-    print(final_state.get("model_routing", {}))
+    log.info("\n" + "=" * 40)
+    log.info("模型路由（实际使用）：")
+    log.info("=" * 40)
+    log.info(final_state.get("model_routing", {}))
 
-    print("\n" + "=" * 40)
-    print("本次写入 project_history.md 的记录：")
-    print("=" * 40)
-    print(final_state.get("history_entry", "（无）"))
+    log.info("\n" + "=" * 40)
+    log.info("本次写入 project_history.md 的记录：")
+    log.info("=" * 40)
+    log.info(final_state.get("history_entry", "（无）"))
 
-    print("\n" + "=" * 40)
-    print("Token 消耗统计：")
-    print("=" * 40)
+    log.info("\n" + "=" * 40)
+    log.info("Token 消耗统计：")
+    log.info("=" * 40)
     # 打印 Token 统计（根据你代码里的结构，这里可能需要微调）
     if "token_usage" in final_state:
-        print(final_state["token_usage"])
+        log.info(final_state["token_usage"])
     else:
-        print("未找到 Token 统计，请检查代码中的 merge_token_usage 逻辑。")
+        log.info("未找到 Token 统计，请检查代码中的 merge_token_usage 逻辑。")
 
 
 if __name__ == "__main__":

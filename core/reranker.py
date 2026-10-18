@@ -13,7 +13,11 @@
 """
 from sentence_transformers import CrossEncoder
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # 本地 Rerank 只加载一次，避免重复占内存
-print("正在加载本地 Rerank 重排模型...")
+log.info("正在加载本地 Rerank 重排模型...")
 reranker = CrossEncoder('./models/bge-reranker-v2-m3', max_length=512)
-print("✅ Rerank 模型加载完成！")
+log.info("✅ Rerank 模型加载完成！")

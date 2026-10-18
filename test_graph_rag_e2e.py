@@ -41,6 +41,55 @@ def ollama_get(path: str, payload: dict = None):
         return json.loads(r.read().decode())
 
 
+# ─── 进程内 API 服务（Step 6 与 Step 8 共用）──────────────
+_API_SERVER = None
+
+
+def ensure_api_server(check):
+    """
+    确保 127.0.0.1:8000 上有服务；没有就在**本进程内**起一个 uvicorn 线程。
+
+    这不是绕过 HTTP（请求仍走真 socket、SSE 仍真分帧），而是被内存逼的：
+    bge-reranker-v2-m3 单份约 3.95 GB commit，本机可用 commit 只有 4.5 GB 左右，
+    两个进程各持一份必然有一个被系统杀掉（ConnectionReset / 裸 segfault，
+    且没有任何 traceback）。同进程起服务共享已加载的模型，commit 增量接近 0。
+    """
+    global _API_SERVER
+    import requests as _rq
+
+    def _ready(timeout=5.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                if _rq.get("http://127.0.0.1:8000/health", timeout=1).status_code == 200:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.2)
+        return False
+
+    if _ready(timeout=1.0):
+        check("复用已在运行的外部 API 服务", True, "127.0.0.1:8000")
+        return
+
+    import threading
+    import uvicorn
+    from api_server import api as _api
+
+    _API_SERVER = uvicorn.Server(
+        uvicorn.Config(_api, host="127.0.0.1", port=8000, log_level="warning")
+    )
+    threading.Thread(target=_API_SERVER.run, daemon=True).start()
+    check("进程内启动 API 服务（避免第二份 reranker）", _ready(timeout=30.0))
+
+
+def shutdown_api_server():
+    global _API_SERVER
+    if _API_SERVER is not None:
+        _API_SERVER.should_exit = True
+        _API_SERVER = None
+
+
 def main():
     t0 = time.time()
     print("=" * 60)
@@ -498,6 +547,18 @@ def main():
     check("检索到候选片段", final_state.get("token_usage", {})
           .get("retrieve", {}).get("candidate_docs", 0) > 0)
 
+    # ─── 物理一致性校验（规则引擎，不是模型打分）───
+    phys = final_state.get("physics_check") or {}
+    check("评审节点产出了物理校验结果", bool(phys), str(phys.get("status")))
+    check("物理校验状态合法",
+          phys.get("status") in ("pass", "warning", "violation", "unverifiable"),
+          str(phys.get("status")))
+    check("物理校验未误判为矛盾（本次工况不该被拦）",
+          not phys.get("blocking"), str(phys.get("summary")))
+    check("物理校验可解释（checks 逐条留痕）",
+          bool(phys.get("checks")) and all("detail" in c for c in phys["checks"]),
+          f"{len(phys.get('checks') or [])} 条")
+
     # ─── Step 4: 新特性断言 ───────────────────────────
     print("\n[Step 4] 新特性断言（多模型路由 + 文件记忆）")
 
@@ -606,39 +667,8 @@ def main():
         import json as _json
         import requests as _rq
 
-        # 前置：确保 8000 端口上有服务。
-        #
-        # 若外部已经起着 `python api_server.py`，直接用它（最贴近生产）。
-        # 否则在本进程内起一个 uvicorn 线程 —— 这不是偷懒，是被内存逼出来的：
-        # bge-reranker-v2-m3 单份就要约 3.95 GB commit，本机可用 commit 只有
-        # 4.5 GB 左右，两个进程各持一份必然有一个被系统杀掉（表现为
-        # ConnectionReset / Segmentation fault，且没有任何 traceback）。
-        # 同进程起服务共享已加载的模型，commit 增量接近 0，而 HTTP 传输、
-        # SSE 分帧、JSON 载荷全部仍是真实的。
-        _server = None
-
-        def _api_ready(timeout=5.0):
-            end = time.time() + timeout
-            while time.time() < end:
-                try:
-                    if _rq.get("http://127.0.0.1:8000/health", timeout=1).status_code == 200:
-                        return True
-                except Exception:
-                    pass
-                time.sleep(0.2)
-            return False
-
-        if not _api_ready(timeout=1.0):
-            import threading
-            import uvicorn
-            from api_server import api as _api
-
-            _cfg = uvicorn.Config(_api, host="127.0.0.1", port=8000, log_level="warning")
-            _server = uvicorn.Server(_cfg)
-            threading.Thread(target=_server.run, daemon=True).start()
-            check("进程内启动 API 服务（避免第二份 reranker）", _api_ready(timeout=30.0))
-        else:
-            check("复用已在运行的外部 API 服务", True, "127.0.0.1:8000")
+        # 前置：确保 8000 端口上有服务（外部已有则复用，否则进程内起一个）
+        ensure_api_server(check)
 
         tokens, node_names, chart_events = [], [], []
         done_ev = None
@@ -671,9 +701,7 @@ def main():
                 elif et == "done":
                     done_ev = ev
 
-        # 流已消费完，本进程内起的服务可以收了（不留在 8000 端口上挡后续手工启动）
-        if _server is not None:
-            _server.should_exit = True
+        # 注意：这里**不**关服务 —— Step 8 的人工审核还要用它，最后统一收尾
 
         check("收到 token 流", len(tokens) > 100, f"{len(tokens)} 个 token")
         streamed = "".join(tokens)
@@ -783,6 +811,120 @@ def main():
               '"cost_estimation": compute_cost_estimation(node_outputs)' in api_src)
     except Exception as e:
         check("成本仪表盘", False, str(e))
+
+    # ─── Step 8: 物理一致性校验 + 人工审核（HITL）───────
+    print("\n[Step 8] 物理一致性校验 + 人工审核（HITL）")
+    try:
+        import requests as _rq
+        from utils.physics_rules import evaluate_physics
+
+        # ─── A. 规则层：纯函数，不花一分钱 ───
+        # 这一段的意义是"确定性可验证"：同样的输入永远得到同样的判定，
+        # 不依赖模型的措辞偏好。
+        bad = evaluate_physics(
+            params_text="埋深1500m，注入压力250bar，温度80℃",
+            report_text="本项目管理规范，风险可控，注入作业安全。",
+        )
+        check("规则层拦住『超破裂压力却称安全』", bad["blocking"], bad["summary"])
+        check("拦截理由指向破裂压力超限",
+              "P_INJ_ABOVE_FRACTURE_UNACKNOWLEDGED"
+              in [v["code"] for v in bad["violations"]])
+        check("打回时给出可执行的修正数值",
+              "≤ 227" in bad["feedback"] and "≥ 1649" in bad["feedback"])
+
+        good = evaluate_physics(
+            params_text="埋深1500m，注入压力250bar，温度80℃",
+            report_text="注入压力 250 bar 已超过 1500 m 处地层破裂压力 227 bar，"
+                        "存在盖层压裂与 CO2 泄漏风险。",
+        )
+        check("报告点明风险后不再拦截", not good["blocking"], good["status"])
+
+        smooth = evaluate_physics(
+            params_text="埋深2500m，注入压力250bar，温度80℃",
+            report_text="注入顺畅，注入压力充足。",
+        )
+        check("规则层拦住『注不进却称注入顺畅』", smooth["blocking"], smooth["verdict"])
+
+        no_depth = evaluate_physics(params_text="注入压力250bar", report_text="安全。")
+        check("缺深度时判为『无法验证』而非放行或误拦",
+              no_depth["status"] == "unverifiable" and not no_depth["blocking"])
+
+        # ─── B. HITL：HTTP 往返（暂停 → 驳回重写 → 通过落盘）───
+        base = "http://127.0.0.1:8000"
+        r = _rq.post(
+            f"{base}/api/analyze/hitl",
+            json={"user_input": "某CCUS项目埋深2000m，注入压力250bar，温度80℃，请评估风险。"},
+            timeout=(5, 600),
+        )
+        check("HITL 端点返回 200", r.status_code == 200, f"HTTP {r.status_code}")
+        first = r.json()
+        tid = first.get("thread_id", "")
+        check("HITL 在人工闸门前暂停",
+              first.get("status") == "awaiting_approval", str(first.get("status")))
+        check("暂停时已产出完整报告",
+              len(first.get("report") or "") > 200,
+              f"{len(first.get('report') or '')} 字")
+        check("暂停时带物理校验结论", bool(first.get("physics_check")),
+              str((first.get("physics_check") or {}).get("status")))
+        check("human_review 标记为待确认",
+              (first.get("human_review") or {}).get("approved") is None
+              and (first.get("human_review") or {}).get("auto") is False,
+              str(first.get("human_review")))
+        check("审核前不写入历史（未落盘）", not first.get("history_entry"))
+
+        rv = _rq.get(f"{base}/api/review/{tid}", timeout=30)
+        check("review 接口可查到待审状态",
+              rv.status_code == 200
+              and rv.json().get("status") == "awaiting_approval",
+              f"HTTP {rv.status_code}")
+
+        rj = _rq.post(
+            f"{base}/api/approve",
+            json={"thread_id": tid, "approved": False, "reviewer": "e2e",
+                  "comment": "请补充断层活化对盖层完整性的定量影响。"},
+            timeout=(5, 600),
+        )
+        check("驳回请求返回 200", rj.status_code == 200, f"HTTP {rj.status_code}")
+        rejected = rj.json()
+        check("驳回后带意见重写并再次停在闸门前",
+              rejected.get("status") == "awaiting_approval",
+              str(rejected.get("status")))
+        check("驳回次数被记录",
+              (rejected.get("human_review") or {}).get("rejections") == 1,
+              str((rejected.get("human_review") or {}).get("rejections")))
+        check("重写后的报告与首版不同",
+              (rejected.get("report") or "") != (first.get("report") or ""))
+
+        ap = _rq.post(
+            f"{base}/api/approve",
+            json={"thread_id": tid, "approved": True, "reviewer": "e2e",
+                  "comment": "确认风险结论。"},
+            timeout=(5, 600),
+        )
+        check("通过请求返回 200", ap.status_code == 200, f"HTTP {ap.status_code}")
+        done = ap.json()
+        check("通过后流程结束", done.get("status") == "success", str(done.get("status")))
+        check("human_review 记录为人工通过（auto=false）",
+              (done.get("human_review") or {}).get("approved") is True
+              and (done.get("human_review") or {}).get("auto") is False,
+              str(done.get("human_review")))
+        check("通过后才写入历史", bool(done.get("history_entry")))
+        check("人工链路同样带成本核算",
+              (done.get("cost_estimation") or {}).get("stages_priced", 0) >= 3,
+              f"¥{(done.get('cost_estimation') or {}).get('total_cny', 0):.6f}")
+
+        # ─── 错误路径 ───
+        again = _rq.post(f"{base}/api/approve",
+                         json={"thread_id": tid, "approved": True}, timeout=30)
+        check("已结束的 thread 再 approve 返回 409",
+              again.status_code == 409, f"HTTP {again.status_code}")
+        missing = _rq.get(f"{base}/api/review/does_not_exist", timeout=30)
+        check("未知 thread 返回 404", missing.status_code == 404,
+              f"HTTP {missing.status_code}")
+    except Exception as e:
+        check("物理校验 / 人工审核（HITL）", False, str(e))
+    finally:
+        shutdown_api_server()
 
     summary(t0)
 

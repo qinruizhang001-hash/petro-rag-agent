@@ -10,9 +10,12 @@
 """
 from __future__ import annotations
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 def calculate_co2_density(pressure_bar, temperature_celsius):
     """计算给定压力、温度下 CO2 密度的物理工具（简化状态方程）。"""
-    print(f"  [Tool 调用] 正在计算压力 {pressure_bar} bar, 温度 {temperature_celsius}℃ 下的CO2密度...")
+    log.info(f"  [Tool 调用] 正在计算压力 {pressure_bar} bar, 温度 {temperature_celsius}℃ 下的CO2密度...")
     density = 1.9 * pressure_bar / (temperature_celsius + 273.15)
     return f"{density:.2f} kg/m³"

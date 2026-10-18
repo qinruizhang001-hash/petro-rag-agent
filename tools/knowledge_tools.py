@@ -9,7 +9,6 @@ Core function:
   - search_and_save(query, max_results)
       → Tavily search → dedup → write ChromaDB + Notion → return summary
 """
-
 import os
 import hashlib
 from datetime import datetime
@@ -51,6 +50,10 @@ def _get_notion():
 import chromadb
 from chromadb.utils import embedding_functions
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 CCUS_CHROMA_PATH = os.getenv("CCUS_CHROMA_PATH", r"D:\python-learn\chroma_petro")
 CCUS_COLLECTION = os.getenv("CCUS_COLLECTION", "ccus_knowledge_v2")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
@@ -64,7 +67,7 @@ def _ensure_chroma():
     global _chroma_client, _chroma_collection, _embedding_fn
     if _chroma_collection is not None:
         return
-    print("[Knowledge Tools] 正在加载嵌入模型...")
+    log.info("[Knowledge Tools] 正在加载嵌入模型...")
     _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name=EMBEDDING_MODEL
     )
@@ -73,7 +76,7 @@ def _ensure_chroma():
         name=CCUS_COLLECTION,
         embedding_function=_embedding_fn
     )
-    print(f"[Knowledge Tools] ChromaDB 就绪 (collection={CCUS_COLLECTION})")
+    log.info(f"[Knowledge Tools] ChromaDB 就绪 (collection={CCUS_COLLECTION})")
 
 
 def is_tavily_configured() -> bool:
@@ -100,7 +103,7 @@ def search_and_save(query: str, max_results: int = 4) -> str:
     try:
         # 1. Search — add CCUS context to the query
         enhanced_query = f"{query} CCUS OR 'carbon capture' OR 'Bo Zhang' Alberta"
-        print(f"[Web Search] 正在搜索: {enhanced_query}")
+        log.info(f"[Web Search] 正在搜索: {enhanced_query}")
         resp = tavily.search(query=enhanced_query, max_results=max_results)
         results = resp.get("results", [])
 
@@ -172,7 +175,7 @@ def search_and_save(query: str, max_results: int = 4) -> str:
                         children=children
                     )
                 except Exception as e:
-                    print(f"[Web Search] Notion 写入失败（不影响主流程）: {e}")
+                    log.warning(f"[Web Search] Notion 写入失败（不影响主流程）: {e}")
 
             saved.append(f"【{title}】\n{content}\n来源: {source}")
 
@@ -180,7 +183,7 @@ def search_and_save(query: str, max_results: int = 4) -> str:
             msg = f"已保存 {len(saved)} 条新内容到本地知识库"
             if skipped:
                 msg += f"（跳过 {skipped} 条重复）"
-            print(f"[Web Search] {msg}")
+            log.info(f"[Web Search] {msg}")
             return "\n\n".join(saved)
         else:
             return "搜索完成，但没有新内容值得保存（可能已存在）。"

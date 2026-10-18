@@ -47,3 +47,8 @@ class AgentState(TypedDict):
     # ─── Token 经济学：上下文压缩 ───
     context_pruning: dict          # 压缩统计（前后字符数/状态/原因）
     cost_estimation: dict          # 本次任务的成本估算（人民币）
+    # ─── 物理一致性校验（规则引擎，不是模型打分）───
+    physics_check: dict            # {status, blocking, verdict, limits, violations, feedback}
+    # ─── 人类在环（HITL）───
+    human_decision: dict           # {approved, reviewer, comment, auto}
+    human_rejections: int          # 人工驳回次数，用于给"人一直驳回"设上限

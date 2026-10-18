@@ -19,6 +19,10 @@ from core.state import AgentState
 from file_memory import append_project_history
 from utils.tokens import record_llm_usage
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def save_file_memory(state: AgentState):
     """
@@ -29,15 +33,15 @@ def save_file_memory(state: AgentState):
       在里面写文件会把中间稿和最终稿都写进去，历史立刻被污染。
     - 单独节点挂在 check_quality 的 pass 分支后面，天然保证"每次任务只写一次"。
     """
-    print("\n[File Memory] 正在把本次评估写入 project_history.md...")
+    log.info("\n[File Memory] 正在把本次评估写入 project_history.md...")
 
     if state.get("history_saved"):
-        print("  -> 本次任务已记录过，跳过（幂等）")
+        log.info("  -> 本次任务已记录过，跳过（幂等）")
         return {"history_saved": True}
 
     report = state.get("final_report", "")
     if not report:
-        print("  -> 报告为空，跳过记录")
+        log.info("  -> 报告为空，跳过记录")
         return {"history_saved": True}
 
     # 用本地小模型做压缩 —— 这一步只是信息抽取，不需要云端智商
@@ -67,7 +71,7 @@ def save_file_memory(state: AgentState):
         usage_update = record_llm_usage(state, "history", response, model, tier)
     except Exception as e:
         # 云端/本地都失败时降级为规则拼接，保证历史不断档
-        print(f"  -> 结论抽取失败（{e}），改用规则拼接")
+        log.warning(f"  -> 结论抽取失败（{e}），改用规则拼接")
         entry = (
             f"**场景**: {state['user_input'][:80]}\n"
             f"**关键参数**: 见提取结果\n"
@@ -77,7 +81,7 @@ def save_file_memory(state: AgentState):
         usage_update = {}
 
     size = append_project_history(entry)
-    print(f"  -> 已追加到 project_history.md（当前 {size} 字符）")
+    log.info(f"  -> 已追加到 project_history.md（当前 {size} 字符）")
 
     return {
         "history_entry": entry,

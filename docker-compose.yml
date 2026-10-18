@@ -1,0 +1,84 @@
+# ─────────────────────────────────────────────────────────────
+# 一键拉起：后端 API（:8000）+ 前端 Streamlit（:8505）
+#
+#   docker compose up -d --build
+#   open http://localhost:8505
+#
+# 关键约束：
+# · Ollama **不在**这个 compose 里。它是宿主机上的服务，容器通过
+#   host.docker.internal 访问（Linux 需要 extra_hosts 里的 host-gateway）。
+#   把 Ollama 也塞进来意味着再拖一个几 GB 的镜像，而模型本来就在宿主机上。
+# · 两个服务共用同一个镜像，只是 command 不同 —— 环境完全一致，
+#   不会出现"前端能跑后端不能跑"。
+# · 模型与图谱走 volume，不进镜像。
+# ─────────────────────────────────────────────────────────────
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: petro-rag-agent:latest
+    container_name: ccus-api
+    command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      # 容器内的 127.0.0.1 是它自己，Ollama 在宿主机上
+      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+      LOCAL_API_KEY: ollama
+      APP_LOG_FILE: /app/logs/app.log
+      LOG_LEVEL: INFO
+      # 云端网关（可选）。留空则 report 阶段自动降级到本地模型，
+      # 并在 model_routing 里如实记录降级原因。
+      CLOUD_BASE_URL: ${CLOUD_BASE_URL:-https://api.deepseek.com/v1}
+      CLOUD_API_KEY: ${CLOUD_API_KEY:-}
+      CLOUD_MODEL: ${CLOUD_MODEL:-deepseek-chat}
+      # 逐阶段路由覆盖，例如 ROUTE_REPORT=cloud:kimi/kimi-k2
+      ROUTE_EXTRACT: ${ROUTE_EXTRACT:-local}
+      ROUTE_REPORT: ${ROUTE_REPORT:-cloud}
+      ROUTE_EVALUATE: ${ROUTE_EVALUATE:-local}
+    extra_hosts:
+      # Linux 上 host.docker.internal 不会自动存在，必须显式映射
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 只读挂载：2.3 GB 的 reranker，镜像里不该有第二份
+      - ./models:/app/models:ro
+      - ./lightrag_storage:/app/lightrag_storage
+      - ./chroma_petro:/app/chroma_petro
+      - ./charts:/app/charts
+      - ./logs:/app/logs
+      # 文件记忆（长期偏好 + 每次评估的历史）。project_history.md 已入库，
+      # 挂上来才能跨容器重建保留；checkpoint.db 首次不存在时 Docker 会
+      # 建成目录导致 sqlite 打不开，所以不挂 —— 它只是断点续跑用的缓存。
+      - ./project_history.md:/app/project_history.md
+      - ./user_profile.md:/app/user_profile.md:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    restart: unless-stopped
+
+  ui:
+    image: petro-rag-agent:latest
+    container_name: ccus-ui
+    command:
+      - streamlit
+      - run
+      - app.py
+      - --server.port=8505
+      - --server.address=0.0.0.0
+      - --server.headless=true
+    ports:
+      - "8505:8505"
+    environment:
+      # 容器网络里服务名就是主机名：api:8000，不是 127.0.0.1:8000
+      API_BASE_URL: http://api:8000
+      APP_LOG_FILE: /app/logs/app.log
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

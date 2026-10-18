@@ -28,7 +28,11 @@ from openai import OpenAI
 from model_router import DYNAMIC_STAGES, build_routing, resolve_route as _resolve_route
 from utils.tokens import count_tokens
 
+from utils.logging_setup import get_logger, llm_extra
+
 load_dotenv()
+
+log = get_logger(__name__)
 
 
 # ============================================================
@@ -166,14 +170,15 @@ def llm_chat(stage: str, messages: list, temperature: float, mode: str | None = 
     cli, model, tier, reason = get_llm(stage, mode)
 
     if reason and not _cloud_warned:
-        print(
-            f"  [Router] ⚠️ {stage} 原本要走云端，但{reason}，已降级为本地 {LOCAL_MODEL}。\n"
-            f"           配置方式：在 .env 中设置 CLOUD_API_KEY 与 CLOUD_BASE_URL。"
+        log.warning(
+            f"[Router] ⚠️ {stage} 原本要走云端，但{reason}，已降级为本地 {LOCAL_MODEL}。"
+            f"配置方式：在 .env 中设置 CLOUD_API_KEY 与 CLOUD_BASE_URL。",
+            extra=llm_extra(model, tier),
         )
         _cloud_warned = True
 
     label = f"{tier}:{model}" + (f"（降级：{reason}）" if reason else "")
-    print(f"  [Router] {stage} → {label}")
+    log.info(f"[Router] {stage} → {label}", extra=llm_extra(model, tier))
 
     return cli.chat.completions.create(
         model=model, messages=messages, temperature=temperature
@@ -214,7 +219,7 @@ def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None,
     """
     cli, model, tier, reason = get_llm(stage, mode)
     label = f"{tier}:{model}" + (f"（降级：{reason}）" if reason else "")
-    print(f"  [Router] {stage} → {label}（流式）")
+    log.info(f"[Router] {stage} → {label}（流式）", extra=llm_extra(model, tier))
 
     def _open(with_usage: bool):
         kwargs = dict(model=model, messages=messages, temperature=temperature,

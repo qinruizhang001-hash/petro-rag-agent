@@ -31,6 +31,10 @@ import threading
 from datetime import datetime
 from typing import Callable, Optional
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -42,7 +46,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
-        print(f"  [FileMemory] {name}={raw!r} 不是合法整数，使用默认值 {default}")
+        log.info(f"  [FileMemory] {name}={raw!r} 不是合法整数，使用默认值 {default}")
         return default
 
 
@@ -118,7 +122,7 @@ def _safe_read(path: str) -> str:
     except FileNotFoundError:
         return ""
     except Exception as e:  # 编码损坏等极端情况不应中断主流程
-        print(f"  [FileMemory] 读取 {os.path.basename(path)} 失败: {e}")
+        log.warning(f"  [FileMemory] 读取 {os.path.basename(path)} 失败: {e}")
         return ""
 
 
@@ -223,7 +227,7 @@ def compress_history_if_needed(
 
     if summarizer is None:
         # 没接大模型时不能静默跳过——否则"压缩了但没生效"会很难排查
-        print("  [FileMemory] 历史已超阈值，但未提供摘要器，跳过压缩")
+        log.info("  [FileMemory] 历史已超阈值，但未提供摘要器，跳过压缩")
         return {"status": "skipped", "reason": "no_summarizer",
                 "before_chars": before_chars, "after_chars": before_chars,
                 "dropped_entries": 0, "lessons": ""}
@@ -245,19 +249,19 @@ def compress_history_if_needed(
                     "dropped_entries": 0, "lessons": ""}
 
         old_text = "\n\n".join("## " + e for e in older)
-        print(f"  [FileMemory] 历史 {before_chars} 字 > {limit}，正在压缩 "
+        log.info(f"  [FileMemory] 历史 {before_chars} 字 > {limit}，正在压缩 "
               f"{len(older)} 条旧记录（保留最近 {keep} 条）...")
 
         try:
             lessons = (summarizer(old_text) or "").strip()
         except Exception as e:
-            print(f"  -> 压缩失败（{e}），保留原文件不做修改")
+            log.warning(f"  -> 压缩失败（{e}），保留原文件不做修改")
             return {"status": "failed", "reason": str(e),
                     "before_chars": before_chars, "after_chars": before_chars,
                     "dropped_entries": 0, "lessons": ""}
 
         if not lessons:
-            print("  -> 摘要器返回空内容，保留原文件不做修改")
+            log.info("  -> 摘要器返回空内容，保留原文件不做修改")
             return {"status": "failed", "reason": "empty_summary",
                     "before_chars": before_chars, "after_chars": before_chars,
                     "dropped_entries": 0, "lessons": ""}
@@ -274,7 +278,7 @@ def compress_history_if_needed(
                     "dropped_entries": 0, "lessons": ""}
 
         after_chars = len(new_text)
-        print(f"  -> 压缩完成：{before_chars} → {after_chars} 字，"
+        log.info(f"  -> 压缩完成：{before_chars} → {after_chars} 字，"
               f"已归档 {len(older)} 条旧记录")
         return {"status": "compressed", "reason": "",
                 "before_chars": before_chars, "after_chars": after_chars,
@@ -299,7 +303,7 @@ def _atomic_write(path: str, text: str) -> bool:
         os.replace(tmp_path, path)
         return True
     except Exception as e:
-        print(f"  [FileMemory] 原子写入失败: {e}")
+        log.warning(f"  [FileMemory] 原子写入失败: {e}")
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)

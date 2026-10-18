@@ -11,6 +11,9 @@ FastAPI 后端，把 LangGraph 多智能体工作流封装为 HTTP 接口。
 接口:
     POST /api/analyze       提交项目描述，返回 **SSE 流**（token 级实时推送）
     POST /api/analyze/sync  同一流程的非流式版本（脚本/调试用，一次返回 JSON）
+    POST /api/analyze/hitl  同上，但在人工闸门前**暂停**，等 /api/approve
+    GET  /api/review/{tid}  查询某条 thread 停在哪一步（进程重启也不丢）
+    POST /api/approve       人工审核决定：通过 → 落盘；驳回 → 带意见重写
     GET  /health            健康检查（秒回）
     GET  /charts/{file}     生成的地质图表静态文件
     GET  /docs              Swagger 交互文档
@@ -41,7 +44,7 @@ import os
 import time
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,10 +56,15 @@ import uvicorn
 from workflow import (
     app as agent_app,
     app_stream,
+    app_hitl,
     NODE_LABELS,
     compute_cost_estimation,
 )
 from chart_tools import CHART_DIR
+
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 api = FastAPI(
     title="CCUS 智能评估 API",
@@ -80,12 +88,69 @@ class ProjectRequest(BaseModel):
     user_input: str
 
 
+class ApprovalRequest(BaseModel):
+    thread_id: str
+    approved: bool
+    reviewer: str = ""
+    comment: str = ""
+
+
+# 人工驳回上限。为什么必须有：驳回会回到 report 重写，而重写要真金白银地
+# 调模型。没有上限时"人一直驳回、机器一直重写"就是一个无底洞，
+# 且几乎总是审核意见没说清楚导致的。到上限后 API 直接 409，
+# 强制审核人要么明确通过，要么放弃这条 thread 重新发起。
+_MAX_HUMAN_REJECTIONS = 2
+
+
+def _physics_of(values: dict) -> dict:
+    return values.get("physics_check") or {}
+
+
+def _human_review_of(values: dict) -> dict:
+    """把 state 里的人工决定整理成前端/调用方看得懂的字段。"""
+    decision = values.get("human_decision") or {}
+    return {
+        "required": True,
+        "approved": decision.get("approved"),
+        # auto=True 表示"这次没有人看过"—— 必须显式告诉调用方，
+        # 否则自动放行会被误读成"已人工确认"。
+        "auto": bool(decision.get("auto")),
+        "reviewer": decision.get("reviewer") or "",
+        "comment": decision.get("comment") or "",
+        "rejections": int(values.get("human_rejections") or 0),
+        "max_rejections": _MAX_HUMAN_REJECTIONS,
+    }
+
+
+def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
+    return {
+        "thread_id": thread_id,
+        "status": "awaiting_approval" if pending else "success",
+        "report": values.get("final_report", ""),
+        "extracted_params": values.get("extracted_params", ""),
+        "score": values.get("score"),
+        "model_routing": values.get("model_routing", {}),
+        "history_entry": values.get("history_entry", ""),
+        "chart": values.get("chart_info", {}),
+        # ─── 物理一致性校验（规则引擎）───
+        "physics_check": _physics_of(values),
+        # ─── 人类在环 ───
+        "human_review": _human_review_of(values),
+        # ─── Token 经济学 ───
+        "cost_estimation": compute_cost_estimation(values),
+        "complexity": values.get("complexity_info", {}),
+        "context_pruning": values.get("context_pruning", {}),
+    }
+
+
 # ─── 同步版本（保留：脚本、curl 调试、回归测试用）─────────
 def _run_agent(user_input: str, thread_id: str) -> dict:
     """
     同步执行完整工作流。
-    interrupt_before 已移除，一次 invoke 即可跑完整个流程
-    （反思循环由 check_quality 内部的 retry_count 上限控制，最多重写 2 次）。
+
+    这条路径**不暂停**：``app`` 编译时没有 ``interrupt_before``，
+    闸门节点会把"未经人工审核"写成 ``human_decision.auto = True`` 再放行。
+    需要人工确认请走 ``/api/analyze/hitl``。
     """
     initial_state = {"user_input": user_input}
     config = {"configurable": {"thread_id": thread_id}}
@@ -94,7 +159,7 @@ def _run_agent(user_input: str, thread_id: str) -> dict:
 
 @api.post("/api/analyze/sync")
 async def analyze_sync(request: ProjectRequest):
-    print(f"\n[API 收到请求 /sync]: {request.user_input}")
+    log.info(f"[API] 收到 /sync 请求：{request.user_input[:60]}")
     thread_id = f"api_{int(time.time())}"
     try:
         final_state = await asyncio.to_thread(_run_agent, request.user_input, thread_id)
@@ -106,12 +171,16 @@ async def analyze_sync(request: ProjectRequest):
             "model_routing": final_state.get("model_routing", {}),
             "history_entry": final_state.get("history_entry", ""),
             "chart": final_state.get("chart_info", {}),
+            # ─── 物理一致性校验 + 人类在环 ───
+            "physics_check": _physics_of(final_state),
+            "human_review": _human_review_of(final_state),
             # ─── Token 经济学 ───
             "cost_estimation": compute_cost_estimation(final_state),
             "complexity": final_state.get("complexity_info", {}),
             "context_pruning": final_state.get("context_pruning", {}),
         }
     except Exception as e:
+        log.exception("[API] /sync 执行失败")
         return {"status": "error", "message": str(e)}
 
 
@@ -223,6 +292,9 @@ async def _event_stream(user_input: str, thread_id: str):
                 "model_routing": node_outputs.get("model_routing", {}),
                 "chart": node_outputs.get("chart_info", {}),
                 "history_entry": node_outputs.get("history_entry", ""),
+                # ─── 物理一致性校验 + 人类在环 ───
+                "physics_check": _physics_of(node_outputs),
+                "human_review": _human_review_of(node_outputs),
                 # ─── Token 经济学 ───
                 "cost_estimation": compute_cost_estimation(node_outputs),
                 "complexity": node_outputs.get("complexity_info", {}),
@@ -238,7 +310,7 @@ async def _event_stream(user_input: str, thread_id: str):
 @api.post("/api/analyze")
 async def analyze_ccus_project(request: ProjectRequest):
     """SSE 流式评估。前端用 requests(stream=True) 或 EventSource 消费。"""
-    print(f"\n[API 收到请求 /stream]: {request.user_input}")
+    log.info(f"[API] 收到 /stream 请求：{request.user_input[:60]}")
     thread_id = f"api_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
     return StreamingResponse(
@@ -254,10 +326,149 @@ async def analyze_ccus_project(request: ProjectRequest):
     )
 
 
+# ══════════════════════════════════════════════════════════
+# 人类在环（HITL）
+# ══════════════════════════════════════════════════════════
+# 三个接口构成一次完整的人工审核往返：
+#
+#   POST /api/analyze/hitl  跑到人工闸门前停住，返回报告 + 物理校验结论
+#   GET  /api/review/{tid}  随时查这条 thread 停在哪一步（进程重启也不丢）
+#   POST /api/approve       写入人工决定并续跑（通过 → 落盘；驳回 → 重写）
+#
+# 状态存在 sqlite（SqliteSaver）里，所以"暂停 → 人工几小时后回来点确认"
+# 是可行的，不依赖任何内存态。
+
+def _config_of(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _snapshot(thread_id: str) -> dict:
+    snap = app_hitl.get_state(_config_of(thread_id))
+    values = dict(snap.values or {})
+    waiting = "hitl_gate" in (snap.next or ())
+    return {"values": values, "waiting": waiting}
+
+
+def _start_hitl(user_input: str, thread_id: str) -> dict:
+    """同步执行到闸门前（会阻塞几十秒，必须放进线程池）。"""
+    app_hitl.invoke({"user_input": user_input}, _config_of(thread_id))
+    return _snapshot(thread_id)
+
+
+def _resume(thread_id: str, approved: bool, reviewer: str, comment: str) -> dict:
+    """把人工决定写进 state 并续跑。"""
+    snap = _snapshot(thread_id)
+    if not snap["values"]:
+        raise KeyError(f"未找到 thread_id={thread_id}")
+    if not snap["waiting"]:
+        raise ValueError(f"thread_id={thread_id} 当前不在等待审核状态")
+
+    rejections = int(snap["values"].get("human_rejections") or 0)
+    if not approved and rejections >= _MAX_HUMAN_REJECTIONS:
+        raise OverflowError(
+            f"已达到人工驳回上限（{_MAX_HUMAN_REJECTIONS} 次）。"
+            f"请直接通过，或放弃该 thread 后重新发起评估。"
+        )
+
+    update = {
+        "human_decision": {
+            "approved": bool(approved),
+            "reviewer": reviewer or "unknown",
+            "comment": comment or "",
+            "auto": False,
+        }
+    }
+    if not approved:
+        update["human_rejections"] = rejections + 1
+        # 驳回必须给出可执行的修改方向，否则下一版只是换一种说法
+        update["feedback"] = (
+            f"【人工审核驳回 · 第 {rejections + 1} 次】"
+            f"{comment or '未填写具体意见，请按原有评审意见修订。'}"
+        )
+
+    app_hitl.update_state(_config_of(thread_id), update)
+    app_hitl.invoke(None, _config_of(thread_id))
+    return _snapshot(thread_id)
+
+
+@api.post("/api/analyze/hitl")
+async def analyze_with_human_review(request: ProjectRequest):
+    """
+    跑到人工闸门前停下，返回待审报告。
+
+    响应 ``status == "awaiting_approval"``，调用方拿 ``thread_id``
+    去 ``POST /api/approve`` 才会真正落盘。
+    """
+    thread_id = f"hitl_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    log.info(f"[API] 收到 /hitl 请求（{thread_id}）：{request.user_input[:60]}")
+    try:
+        snap = await asyncio.to_thread(_start_hitl, request.user_input, thread_id)
+    except Exception as e:
+        log.exception("[API] HITL 执行失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    log.info(f"[HITL] {thread_id} 已停在人工闸门，等待 /api/approve")
+    return _review_payload(snap["values"], thread_id, snap["waiting"])
+
+
+@api.get("/api/review/{thread_id}")
+async def review_status(thread_id: str):
+    """查询某条 thread 的当前状态（是否还在等人工确认）。"""
+    snap = await asyncio.to_thread(_snapshot, thread_id)
+    if not snap["values"]:
+        raise HTTPException(status_code=404, detail=f"未找到 thread_id={thread_id}")
+    return _review_payload(snap["values"], thread_id, snap["waiting"])
+
+
+@api.post("/api/approve")
+async def approve(request: ApprovalRequest):
+    """
+    人工审核决定：``approved=true`` 落盘结束；``false`` 带意见打回重写。
+
+    驳回后如果又跑到闸门前，响应会**再次**是 ``awaiting_approval``，
+    并带上新的报告与 ``human_review.rejections`` 计数。
+    """
+    log.info(
+        f"[API] 收到 /approve（{request.thread_id}）："
+        f"{'通过' if request.approved else '驳回'} / {request.reviewer or '-'}"
+    )
+    try:
+        snap = await asyncio.to_thread(
+            _resume, request.thread_id, request.approved,
+            request.reviewer, request.comment,
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except OverflowError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        log.exception("[API] /approve 执行失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    payload = _review_payload(snap["values"], request.thread_id, snap["waiting"])
+    # 驳回后若评审仍未达标，图会自己再跑一轮并再次停下 —— 如实反映
+    if snap["waiting"]:
+        payload["status"] = "awaiting_approval"
+        payload["note"] = "报告已按审核意见重写，请再次确认"
+    return payload
+
+
 @api.get("/health")
 async def health():
-    return {"status": "ok", "service": "CCUS 智能评估 API", "streaming": True}
+    return {
+        "status": "ok",
+        "service": "CCUS 智能评估 API",
+        "streaming": True,
+        "human_in_the_loop": True,
+    }
 
 
 if __name__ == "__main__":
-    uvicorn.run(api, host="127.0.0.1", port=8000)
+    # Docker 里必须监听 0.0.0.0，本地默认仍是回环地址（不主动暴露到局域网）
+    uvicorn.run(
+        api,
+        host=os.getenv("API_HOST", "127.0.0.1"),
+        port=int(os.getenv("API_PORT", "8000")),
+    )

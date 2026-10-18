@@ -1,0 +1,26 @@
+# 镜像里不需要的东西。少拷 2.3 GB 模型，构建快一个数量级。
+.git
+.gitignore
+.github
+models/
+lightrag_storage/
+chroma_petro/
+charts/
+logs/
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.md
+!README.md
+docs/
+tests/
+test_*.py
+checkpoint.db
+*.db-wal
+*.db-shm
+俄语.pdf
+russian_docs/

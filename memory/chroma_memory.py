@@ -7,13 +7,16 @@ Separate from the CCUS knowledge base (chroma_petro).
 The embedding model is lazy-loaded on first use to avoid
 crashing at import time if HuggingFace Hub is unreachable.
 """
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import chromadb
 from chromadb.utils import embedding_functions
+
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 try:
     from .config import CHROMA_PATH, CHROMA_COLLECTION, EMBEDDING_MODEL
@@ -32,7 +35,7 @@ def _ensure_initialized():
     if _collection is not None:
         return
 
-    print(f"[Memory/ChromaDB] 正在加载嵌入模型 {EMBEDDING_MODEL}...")
+    log.info(f"[Memory/ChromaDB] 正在加载嵌入模型 {EMBEDDING_MODEL}...")
     _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name=EMBEDDING_MODEL
     )
@@ -41,7 +44,7 @@ def _ensure_initialized():
         name=CHROMA_COLLECTION,
         embedding_function=_embedding_fn
     )
-    print(f"[Memory/ChromaDB] 初始化完成 (collection={CHROMA_COLLECTION})")
+    log.info(f"[Memory/ChromaDB] 初始化完成 (collection={CHROMA_COLLECTION})")
 
 
 def add(text: str, metadata: dict | None = None, custom_id: str | None = None) -> str:
@@ -53,7 +56,7 @@ def add(text: str, metadata: dict | None = None, custom_id: str | None = None) -
         metadatas=[metadata or {}],
         ids=[mem_id]
     )
-    print(f"[Memory/ChromaDB] Saved (id={mem_id})")
+    log.info(f"[Memory/ChromaDB] Saved (id={mem_id})")
     return mem_id
 
 

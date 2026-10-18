@@ -12,23 +12,36 @@ from __future__ import annotations
 
 from core.state import AgentState
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def check_quality(state: AgentState):
-    print(f"\n[System] 检查报告质量，当前得分：{state['score']}")
+    log.info(f"\n[System] 检查报告质量，当前得分：{state['score']}")
     retry_count = state.get("retry_count", 0)
     # 如果分数 >= 8 或者 重试次数 >= 2，强制结束循环（防止无限重写）
     if state["score"] >= 8 or retry_count >= 2:
-        print("[System] ✅ 报告达标，流程结束。")
+        # 两条出口必须分开记日志：重试耗尽时的放行**不是**"达标"。
+        # 把 3 分写成"报告达标"会让日志失去可信度，事后排查时无法区分
+        # "这份报告真的过了"和"我们放弃了"。
+        if state["score"] >= 8:
+            log.info("[System] ✅ 报告达标，流程结束。")
+        else:
+            log.warning(
+                f"[System] ⚠️ 重写次数已用尽（{retry_count}/2），"
+                f"当前仅 {state['score']:g} 分，**强制放行**——结论质量未达阈值。"
+            )
         if state.get("personal_context"):
-            print("[System] 📝 本次评估参考了个人长期记忆")
+            log.info("[System] 📝 本次评估参考了个人长期记忆")
         if state.get("file_memory_context"):
-            print("[System] 📝 本次评估参考了文件记忆（user_profile.md + project_history.md）")
+            log.info("[System] 📝 本次评估参考了文件记忆（user_profile.md + project_history.md）")
         routing = state.get("model_routing") or {}
         if routing:
-            print(f"[System] 🔀 模型路由：{routing}")
+            log.info(f"[System] 🔀 模型路由：{routing}")
         return "pass"
     else:
-        print(f"[System] ⚠️ 报告未达标（重试 {retry_count}/2），打回重写！")
+        log.info(f"[System] ⚠️ 报告未达标（重试 {retry_count}/2），打回重写！")
         return "rewrite"
 
 

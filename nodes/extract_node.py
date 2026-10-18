@@ -16,9 +16,13 @@ from core.state import AgentState
 from model_router import classify_complexity
 from utils.tokens import record_llm_usage
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def extract_params(state: AgentState):
-    print("\n[Agent 1] 正在提取 CCUS 项目关键参数...")
+    log.info("\n[Agent 1] 正在提取 CCUS 项目关键参数...")
 
     # ─── 动态路由判定（入口）─────────────────────────────
     # 这是整个流程里第一次能看到 user_input 长度的位置，所以复杂度判定放这里。
@@ -26,7 +30,7 @@ def extract_params(state: AgentState):
     # retrieve_knowledge 拿到 rerank 分数后会做单向升级。
     complexity = classify_complexity(state["user_input"])
     mode = complexity["mode"]
-    print(f"  [Router] {complexity['label']} {complexity['reason']}")
+    log.info(f"  [Router] {complexity['label']} {complexity['reason']}")
 
     prompt = f"你是一个CCUS专家。请从以下描述中提取评估碳封存风险所需的关键参数：\n{state['user_input']}"
     _, model, tier, _ = get_llm("extract", mode)

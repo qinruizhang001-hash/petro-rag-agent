@@ -27,6 +27,10 @@ from lightrag.utils import EmbeddingFunc
 # 片段构建逻辑抽到纯函数模块，便于离线单元测试（CI 无需 Ollama）
 from fragment_builder import build_fragments, extract_data
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 WORKING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lightrag_storage")
 OLLAMA_HOST = "http://localhost:11434"
 LLM_MODEL = "qwen2.5"
@@ -124,11 +128,11 @@ def _get_bridge() -> _LightRAGBridge:
     if _bridge is None:
         with _bridge_lock:
             if _bridge is None:
-                print("[LightRAG] 首次初始化，加载知识图谱存储与后台 event loop...")
+                log.info("[LightRAG] 首次初始化，加载知识图谱存储与后台 event loop...")
                 b = _LightRAGBridge()
                 b._start()
                 _bridge = b
-                print("[LightRAG] 初始化完成。")
+                log.info("[LightRAG] 初始化完成。")
     return _bridge
 
 
@@ -143,7 +147,7 @@ def retrieve_documents(query: str, mode: str = "hybrid") -> list[str]:
         bridge = _get_bridge()
         result = bridge.query_data(query, mode=mode)
     except Exception as e:
-        print(f"  [LightRAG] 检索异常: {e}")
+        log.warning(f"  [LightRAG] 检索异常: {e}")
         return []
 
     return build_fragments(extract_data(result))
@@ -155,5 +159,5 @@ def query_graph_answer(query: str, mode: str = "hybrid") -> str:
         bridge = _get_bridge()
         return bridge.query(query, mode=mode)
     except Exception as e:
-        print(f"  [LightRAG] 查询异常: {e}")
+        log.warning(f"  [LightRAG] 查询异常: {e}")
         return ""

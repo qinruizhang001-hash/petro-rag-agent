@@ -16,6 +16,10 @@ from core.state import AgentState
 from tools.knowledge_tools import is_tavily_configured, search_and_save
 from utils.tokens import count_tokens, merge_token_usage
 
+from utils.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def should_search(state: AgentState):
     """
@@ -26,15 +30,15 @@ def should_search(state: AgentState):
 
     # 如果 Tavily 没配置，直接跳过
     if not is_tavily_configured():
-        print("[Web Router] Tavily 未配置，跳过联网搜索")
+        log.info("[Web Router] Tavily 未配置，跳过联网搜索")
         return "report"
 
     # 简单规则：结果太短或包含"未找到"就触发搜索
     if len(local) < 150 or "未找到" in local or "无相关记录" in local or "没有相关" in local:
-        print("[Web Router] 本地知识不足，触发联网搜索")
+        log.info("[Web Router] 本地知识不足，触发联网搜索")
         return "web_search"
     else:
-        print("[Web Router] 本地知识充足，直接生成报告")
+        log.info("[Web Router] 本地知识充足，直接生成报告")
         return "report"
 
 
@@ -43,7 +47,7 @@ def web_search_save(state: AgentState):
     执行联网搜索，把有价值的结果写入本地 ChromaDB + Notion。
     返回搜索到的内容摘要，供报告生成使用。
     """
-    print("\n[Web Search] 本地知识不足，正在联网搜索并自动沉淀...")
+    log.info("\n[Web Search] 本地知识不足，正在联网搜索并自动沉淀...")
 
     # 用用户原始问题 + 提取的参数构造搜索 query
     query = state.get("extracted_params", state["user_input"])[:200]
@@ -51,7 +55,7 @@ def web_search_save(state: AgentState):
     result = search_and_save(query, max_results=4)
 
     web_tokens = count_tokens(result)
-    print(f"  -> 联网搜索完成，内容约 {web_tokens} tokens")
+    log.info(f"  -> 联网搜索完成，内容约 {web_tokens} tokens")
 
     return {
         "web_content": result,

@@ -43,6 +43,45 @@ jobs:
       - name: Verify requirements.txt exists and is non-empty
         run: test -s requirements.txt
 
+      - name: Guard against print() in the runtime path
+        run: |
+          set -e
+          # 中文注释：print 没有级别、不落盘、没有模块归属，线上出问题既不能按
+          # 级别过滤也不能事后回溯。运行链路（节点 / 后端 / 核心库）一律走
+          # utils.logging_setup。命令行工具（check_gateway 等）的输出本身就是
+          # 产品，保留 print，故不在此列。
+          hits=$(grep -rn 'print(' --include='*.py' \
+                   nodes/ core/ utils/ tools/ memory/ \
+                   api_server.py workflow.py file_memory.py lightrag_retriever.py \
+                 | grep -v 'utils/logging_setup.py' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::print() found in the runtime path; use log.info/warning instead"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No print() in the runtime path."
+
+      - name: Verify container deployment files
+        run: |
+          set -e
+          # 中文注释：一键部署是"生产级"的硬门槛，删掉/改坏必须当场发现，
+          # 而不是等用户 docker compose up 时才报错。
+          test -s Dockerfile || { echo "::error::Dockerfile missing"; exit 1; }
+          test -s docker-compose.yml || { echo "::error::docker-compose.yml missing"; exit 1; }
+          grep -q '^FROM python:3.10-slim' Dockerfile \
+            || { echo "::error::Dockerfile must be based on python:3.10-slim"; exit 1; }
+          grep -q 'EXPOSE 8000 8505' Dockerfile \
+            || { echo "::error::Dockerfile must expose 8000 and 8505"; exit 1; }
+          grep -q 'api_server:api' Dockerfile \
+            || { echo "::error::Dockerfile must start api_server"; exit 1; }
+          for svc in 'api:' 'ui:'; do
+            grep -q "^  $svc" docker-compose.yml \
+              || { echo "::error::docker-compose.yml lost service $svc"; exit 1; }
+          done
+          grep -q 'streamlit' docker-compose.yml \
+            || { echo "::error::docker-compose.yml must start the Streamlit frontend"; exit 1; }
+          echo "Container deployment files OK."
+
       - name: Guard the package boundary (no logic back-flow into the entry shim)
         run: |
           set -e
@@ -90,8 +129,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 路由解析 /
-      # 上下文压缩 / 成本核算），故意**不装** requirements.txt，
-      # 保证核心逻辑不受三方包版本漂移影响。
+      # 上下文压缩 / 成本核算 / 物理规则 / 日志配置），故意**不装**
+      # requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       - name: Run offline unit tests
         run: |
@@ -100,7 +139,9 @@ jobs:
             tests.test_file_memory \
             tests.test_model_router \
             tests.test_context_pruner \
-            tests.test_cost_model
+            tests.test_cost_model \
+            tests.test_physics_rules \
+            tests.test_logging_setup
 
   unit-charts:
     name: Unit tests · chart tool
@@ -147,7 +188,13 @@ jobs:
         run: |
           set -e
           # 中文注释：前端只允许通过 HTTP 调后端，禁止重新引入领域逻辑。
-          grep -q 'http://127.0.0.1:8000/api/analyze' app.py \
+          # 后端地址必须可配置（本地 127.0.0.1:8000 / Docker 里 api:8000），
+          # 所以这里断言的是"默认回环地址 + 端点路径"两件事，而不是某个写死的 URL。
+          grep -q 'http://127.0.0.1:8000' app.py \
+            || { echo "::error::app.py lost its default backend address"; exit 1; }
+          grep -q 'API_BASE_URL' app.py \
+            || { echo "::error::app.py must read API_BASE_URL (needed by Docker Compose)"; exit 1; }
+          grep -q '/api/analyze' app.py \
             || { echo "::error::app.py no longer targets the backend API"; exit 1; }
           grep -q '/api/analyze' api_server.py \
             || { echo "::error::api_server.py lost the /api/analyze route"; exit 1; }
@@ -162,6 +209,9 @@ jobs:
             || { echo "::error::app.py must render cost_estimation from the backend"; exit 1; }
           grep -q 'st.caption' app.py \
             || { echo "::error::app.py lost the cost caption"; exit 1; }
+          # 中文注释：物理校验的阻断结论必须能被用户看见，不能被吞在详情里。
+          grep -q 'physics_check' app.py \
+            || { echo "::error::app.py must surface physics_check"; exit 1; }
           # 中文注释：后端必须从 workflow 取图，不能回退到 multi_agent_ccus 兼容入口
           # （否则哪天入口 shim 被删，后端会在运行时才炸）。
           grep -q 'from workflow import' api_server.py \
@@ -169,4 +219,11 @@ jobs:
           if grep -qE '^from multi_agent_ccus import' api_server.py; then
             echo "::error::api_server.py should not depend on the compatibility shim"; exit 1
           fi
+          # 中文注释：HITL 三个接口缺一不可，否则"人工确认"会退化成"全自动放行"。
+          for route in '/api/analyze/hitl' '/api/approve' '/api/review/'; do
+            grep -q "$route" api_server.py \
+              || { echo "::error::api_server.py lost the HITL route $route"; exit 1; }
+          done
+          grep -q 'interrupt_before' workflow.py \
+            || { echo "::error::workflow.py lost the HITL interrupt"; exit 1; }
           echo "Contract OK: frontend is decoupled from domain logic."

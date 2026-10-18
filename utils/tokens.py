@@ -26,6 +26,10 @@ except Exception:
 from core.reranker import reranker  # noqa: E402
 from core.state import AgentState  # noqa: E402
 
+from utils.logging_setup import get_logger, llm_extra
+
+log = get_logger(__name__)
+
 
 def count_tokens(text: str) -> int:
     """统计文本 Token。优先 tiktoken(cl100k_base)，否则用 reranker tokenizer。"""
@@ -87,10 +91,13 @@ def record_usage_payload(
     prompt_tokens = int(prompt_tokens or 0)
     completion_tokens = int(completion_tokens or 0)
     total_tokens = prompt_tokens + completion_tokens
-    print(
-        f"  -> Token 消耗 [{stage}]: "
-        f"prompt={prompt_tokens}, completion={completion_tokens}, "
-        f"total={total_tokens}" + ("（估算）" if estimated else "")
+    # 这条日志是"花了多少 token、走的哪个模型"的唯一权威记录：
+    # 字段化（extra）而不是拼进正文，才能被 grep / 聚合。
+    log.info(
+        f"Token 消耗 [{stage}]: prompt={prompt_tokens}, "
+        f"completion={completion_tokens}, total={total_tokens}"
+        + ("（估算）" if estimated else ""),
+        extra=llm_extra(model, tier, total_tokens),
     )
 
     payload = {

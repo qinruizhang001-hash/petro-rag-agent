@@ -15,12 +15,16 @@ SSE 里除了文字还有 node / chart / done / error 四类事件，
 必须自己分流，否则 JSON 会直接被当正文吐到屏幕上。
 """
 import json
+import os
 
 import requests
 import streamlit as st
 
-API_URL = "http://127.0.0.1:8000/api/analyze"
-HEALTH_URL = "http://127.0.0.1:8000/health"
+# 后端地址必须可配置：本地是 127.0.0.1:8000，Docker Compose 里是 http://api:8000。
+# 写死会在容器里指向 Streamlit 自己，表现为"后端连不上"，但后端其实活得好好的。
+API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+API_URL = f"{API_BASE}/api/analyze"
+HEALTH_URL = f"{API_BASE}/health"
 
 st.set_page_config(page_title="CCUS 多智能体风险评估系统", layout="wide")
 st.title("🏭 CCUS 多智能体风险评估系统")
@@ -145,6 +149,28 @@ if st.button("启动评估", type="primary"):
         if done:
             st.success(f"✅ 评估完成（{done.get('elapsed_s', '-')} 秒）")
 
+            # ─── 物理一致性校验（规则引擎，一票否决）───
+            # 放在最显眼的位置：如果重写次数用尽仍有物理矛盾，这份报告
+            # 不能被当作工程依据，必须让用户一眼看到。
+            physics = done.get("physics_check") or {}
+            if physics.get("blocking"):
+                st.error(
+                    "⚠️ 物理一致性校验未通过：报告与地层压力约束矛盾，"
+                    "已自动重写仍未消除。请勿直接采用该结论。\n\n"
+                    + str(physics.get("summary") or "")
+                )
+            for v in physics.get("violations") or []:
+                if v.get("severity") == "warning":
+                    st.warning(f"物理校验提示：{v.get('message')}")
+
+            # ─── 人工审核状态 ───
+            review = done.get("human_review") or {}
+            if review.get("auto"):
+                st.caption(
+                    "🔓 本次为全自动模式，结论未经人工确认。"
+                    "需要人工把关请调用 `POST /api/analyze/hitl` + `POST /api/approve`。"
+                )
+
             # ─── 成本仪表盘 ───
             # caption 由后端算好（cost_estimation.caption）：成本与"节省"必须
             # 来自同一次计算，前端各算一遍很容易出现量级错配。
@@ -209,6 +235,18 @@ if st.button("启动评估", type="primary"):
                         f"{pruning.get('before_chars')} → {pruning.get('after_chars')} 字"
                         f"（省 {pruning.get('saved_chars')} 字）"
                         + (f"\n{pruning['reason']}" if pruning.get("reason") else ""),
+                        language="text",
+                    )
+
+                if physics:
+                    st.write("**物理一致性校验（规则引擎）：**")
+                    st.code(
+                        f"{physics.get('status')} · {physics.get('verdict')}\n"
+                        f"{physics.get('summary')}\n"
+                        + "\n".join(
+                            f"[{c.get('ok')}] {c.get('code')}: {c.get('detail')}"
+                            for c in physics.get("checks") or []
+                        ),
                         language="text",
                     )
 
