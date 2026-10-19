@@ -15,7 +15,7 @@
   <img alt="Ollama" src="https://img.shields.io/badge/LLM-Ollama%20Qwen2.5-000000">
   <img alt="Docker" src="https://img.shields.io/badge/Deploy-Docker%20Compose-2496ED?logo=docker&logoColor=white">
   <img alt="Nginx" src="https://img.shields.io/badge/Gateway-nginx%20%2B%20SSE-009639?logo=nginx&logoColor=white">
-  <img alt="Gunicorn" src="https://img.shields.io/badge/Serving-gunicorn%20%C3%97%204-499848">
+  <img alt="Gunicorn" src="https://img.shields.io/badge/Serving-gunicorn%20%C3%97%202-499848">
 </p>
 
 <p>
@@ -29,10 +29,11 @@
 ## System topology
 
 <!-- 中文注释：这张图回答的是"东西跑在哪、谁能连谁"，不是业务数据流（业务流在下面的 Architecture 一节）。
-     要点：只有 nginx 一个容器对外；8000/8501/11434 全部退到回环地址；
+     要点：只有 nginx 一个容器对外；8000/8501 退到回环地址；
+     Ollama 不在 Docker 里，跑在宿主机上（内存 + GPU 两个原因）；
      容器之间用服务名互访，写 localhost 会连到容器自己。 -->
 
-Five services, **one public port**. Everything else lives on the Docker network and is reachable only by service name — `localhost` inside a container means *that container*, which is the single most common way this stack gets misconfigured.
+Four containers, **one public port**. Everything else lives on the Docker network and is reachable only by service name — `localhost` inside a container means *that container*, which is the single most common way this stack gets misconfigured.
 
 ```mermaid
 flowchart TB
@@ -40,10 +41,10 @@ flowchart TB
 
     NG["nginx :80<br/>host 8080<br/>the only public port"]
 
-    BE["FastAPI :8000<br/>gunicorn · 4 UvicornWorkers<br/>Bearer token on /api/*"]
+    BE["FastAPI :8000<br/>gunicorn · 2 workers<br/>Bearer token on /api/*"]
     FE["Streamlit :8501<br/>instrument panel<br/>server-side fetch + token"]
 
-    OL["Ollama :11434<br/>qwen2.5 · nomic-embed-text"]
+    OL["Ollama :11434<br/>runs on the host,<br/>not in Docker<br/>qwen2.5 · embeddings"]
     CH[("ChromaDB<br/>ccus_knowledge_v3<br/>1982 vectors")]
     GR[("LightRAG graph<br/>389 entities · 400 relations")]
     RR["bge-reranker-v2-m3<br/>2.2 GB per worker"]
@@ -71,10 +72,11 @@ flowchart TB
 | `nginx` | **8080 → 80** | Single entry point. `/api/*` → backend, `/*` → frontend |
 | `frontend` | 127.0.0.1:8501 | Streamlit console; calls the backend server-side, never from the browser |
 | `backend` | 127.0.0.1:8000 | FastAPI under gunicorn; `/docs` is the only reason this port is open at all |
-| `ollama` | 127.0.0.1:11434 | `qwen2.5` generates, `nomic-embed-text` embeds |
-| `ollama-pull` | — | Runs once, pulls both models, exits 0 |
+| `ollama` | **not in the stack** | Runs on the host and is reached at `host.docker.internal:11434` — see below |
 
-The bottom row is **not five more containers** — `docker compose ps` shows five services, and ChromaDB, the LightRAG graph, the reranker and the SQLite checkpoints all live *inside the backend process*. That is a deliberate choice rather than a shortcut: a 20 ms embedded vector lookup does not deserve a network hop, and a 2.2 GB cross-encoder that every request touches does not belong behind an HTTP boundary. What it costs is memory — four workers means four private copies — and the deployment notes state that bill rather than hiding it.
+**Why Ollama is not a container here.** It was, until the memory arithmetic was done. A 7B model is ~4 GB resident, and the backend already pays 2.2 GB of private reranker per worker; on a 16 GB laptop that is the whole budget. Worse, a containerised Ollama gets no GPU — Docker Desktop does not pass the RTX through without extra setup — so `qwen2.5` would fall back to CPU and the geology branch would go from ~70 s to several minutes. The host copy is already on CUDA with the models downloaded, so the stack borrows it. The cost is that a fresh machine needs Ollama installed first; `docker-compose.yml` documents how to put it back in the stack if that trade stops being the right one.
+
+The bottom row is **not four more containers** — `docker compose ps` shows three, and ChromaDB, the LightRAG graph, the reranker and the SQLite checkpoints all live *inside the backend process*. That is a deliberate choice rather than a shortcut: a 20 ms embedded vector lookup does not deserve a network hop, and a 2.2 GB cross-encoder that every request touches does not belong behind an HTTP boundary. What it costs is memory — every worker holds its own copy — and the deployment notes state that bill rather than hiding it.
 
 Per-stage routing means one request touches both sides of the diagram: retrieval and scoring never leave the machine, while the prose a human will read is the only thing that goes to a paid model.
 
@@ -102,7 +104,7 @@ location /api/ {
 
 Two more that fail just as quietly, on the frontend side: the WebSocket `Upgrade` / `Connection` pair (without it Streamlit sits on *"Please wait..."* forever) and `Host $http_host` rather than `$host` — `$host` drops the `:8080`, Streamlit's XSRF check compares `Origin` against `Host`, and the page answers `Invalid origin`.
 
-The payoff is structural, not cosmetic: the browser sees **one origin**, so CORS stops being a thing to configure and cannot be configured wrong. 8000 / 8501 / 11434 are bound to loopback and exist only for debugging — `curl 127.0.0.1:8000/health` when you cannot tell whether the frontend died or nginx forwarded wrong.
+The payoff is structural, not cosmetic: the browser sees **one origin**, so CORS stops being a thing to configure and cannot be configured wrong. 8000 and 8501 are bound to loopback and exist only for debugging — `curl 127.0.0.1:8000/health` when you cannot tell whether the frontend died or nginx forwarded wrong.
 
 ### 2. 93 % off the bill, and the report does not get worse
 
@@ -143,7 +145,7 @@ The assertions that earn their place are the ones written against a *specific* w
 
 ### 中文
 
-**前提**：Docker Desktop。另外 `./models/bge-reranker-v2-m3`（2.2 GB）**不在 git 里**，缺了后端根本起不来 —— 它不是降级，是 import 时崩。下载命令见 [Deployment](#deployment-docker)。
+**前提**（三个，缺一个起不来）：Docker Desktop；宿主机上的 **Ollama** 且已 `ollama pull qwen2.5 nomic-embed-text`，并监听 `0.0.0.0:11434`（`setx OLLAMA_HOST 0.0.0.0:11434` 后重启 Ollama）；`./models/bge-reranker-v2-m3`（2.2 GB）**不在 git 里**，缺了后端根本起不来 —— 它不是降级，是 import 时崩。细节见 [Deployment](#deployment-docker)。
 
 ```bash
 git clone https://github.com/qinruizhang001-hash/petro-rag-agent.git
@@ -176,7 +178,7 @@ curl -s http://localhost:8080/api/health | python -m json.tool
 
 ### English
 
-**Prerequisite:** Docker Desktop, and `./models/bge-reranker-v2-m3` (2.2 GB) — **not in git**, and the backend cannot start without it (`core/reranker.py` loads it at import time, so it dies before serving). Download command in [Deployment](#deployment-docker).
+**Prerequisite** (three, all required): Docker Desktop; **Ollama on the host** with `qwen2.5` and `nomic-embed-text` pulled, listening on `0.0.0.0:11434` (`setx OLLAMA_HOST 0.0.0.0:11434`, then restart it); and `./models/bge-reranker-v2-m3` (2.2 GB), **not in git** — the backend cannot start without it (`core/reranker.py` loads it at import time, so it dies before serving). Details in [Deployment](#deployment-docker).
 
 ```bash
 git clone https://github.com/qinruizhang001-hash/petro-rag-agent.git
@@ -323,7 +325,7 @@ Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/
 ```mermaid
 flowchart TD
     UI["Browser<br/>:8080"] -->|"one origin"| NG["nginx<br/>/api/* · /*"]
-    NG -->|"SSE stream"| API["FastAPI Backend<br/>gunicorn · 4 workers"]
+    NG -->|"SSE stream"| API["FastAPI Backend<br/>gunicorn · 2 workers"]
     NG -->|"WebSocket"| ST["Streamlit Console"]
     ST -->|"Bearer token"| API
     API --> LG["LangGraph Multi-Agent Orchestrator"]
@@ -588,13 +590,13 @@ Missing fields render as `-` rather than raising: most log lines have no model o
 
 ## Deployment (Docker)
 
-<!-- 中文注释：生产级容器化。整个栈五个容器：nginx（唯一对外入口 :8080）、
-     frontend（Streamlit:8501）、backend（FastAPI:8000，gunicorn 4 worker）、
-     ollama（推理）、ollama-pull（一次性拉模型）。
-     这一节的重点不是"能起来"，而是四件在本地跑不出来、只有进容器才暴露的事：
+<!-- 中文注释：生产级容器化。整个栈四个容器：nginx（唯一对外入口 :8080）、
+     frontend（Streamlit:8501）、backend（FastAPI:8000，gunicorn 2 worker）。
+     Ollama 刻意不在栈里，复用宿主机那一份 —— 原因是内存和 GPU，见下。
+     这一节的重点不是"能起来"，而是几件在本地跑不出来、只有进容器才暴露的事：
      1) 服务名就是主机名 —— 写 localhost 会连到容器自己；
-     2) chromadb 的默认路径是 Windows 绝对路径；
-     3) ollama 官方镜像不会自动拉模型，少了那一步会报 Connection error；
+     2) host.docker.internal 指向宿主的非回环地址，Ollama 必须绑 0.0.0.0；
+     3) chromadb 的默认路径是 Windows 绝对路径；
      4) nginx 少了 proxy_buffering off / Upgrade 头，流式与 WebSocket 都会坏。
      另外要如实说明：2.2 GB 的 reranker 与图谱/向量库都不在 git 里。 -->
 
@@ -605,13 +607,28 @@ docker compose up -d --build     # 首次构建约 5-10 分钟（装 torch 与�
 # 浏览器打开  http://localhost:8080
 docker compose logs -f nginx     # 看网关在转发什么
 docker compose logs -f backend   # 看后端在干什么
-docker compose down              # 停掉（模型 volume 保留）
+docker compose down              # 停掉
 ```
 
-**只开一个口**：外部用户访问 `http://localhost:8080`。8000 / 8501 / 11434 都只绑在
-回环地址上，是给调试用的，不对外。
+**只开一个口**：外部用户访问 `http://localhost:8080`。8000 / 8501 只绑在回环地址上，是给调试用的，不对外。
 
-前提是 `./models/bge-reranker-v2-m3` 存在 —— 它不在 git 里，原因见下一节。
+两个前提，缺一个都起不来：
+
+1. `./models/bge-reranker-v2-m3` 存在 —— 它不在 git 里，原因见下一节。
+2. **宿主机上有一份 Ollama，并且拉好了模型**（`ollama list` 里要有 `qwen2.5` 和
+   `nomic-embed-text`），且它监听在 `0.0.0.0:11434` 而不是 `127.0.0.1:11434`：
+
+```bash
+# Windows：设置用户级环境变量后重启 Ollama
+setx OLLAMA_HOST 0.0.0.0:11434
+```
+
+> 绑 `127.0.0.1` 的话容器连不上，而报错只是 `Connection refused` —— 看起来像
+> "Ollama 没启动"，会往错方向查。`host.docker.internal` 指向的是宿主的**非回环**
+> 地址，这是 Docker 网络的基本事实，不是配置问题。
+>
+> 代价是 11434 对局域网可见。在宿舍/家庭网络里通常可以接受；在公共 Wi-Fi 上
+> 要么加一条只放行 WSL 网段的防火墙规则，要么改回容器内 Ollama（见下）。
 
 ### What `docker compose up -d` actually starts
 
@@ -627,24 +644,40 @@ docker compose down              # 停掉（模型 volume 保留）
        ▼                                  ▼
 ┌──────────────────────┐      ┌────────────────────────────────┐
 │ backend  gunicorn    │      │ frontend  Streamlit 监控台      │
-│  4 × UvicornWorker   │      │  API_BASE_URL=http://backend:8000│
-│  OLLAMA_BASE_URL=…   │      │  服务端代发请求，带 Bearer token │
+│  2 × UvicornWorker   │      │  API_BASE_URL=http://backend:8000│
+│  WEB_CONCURRENCY=2   │      │  服务端代发请求，带 Bearer token │
 └──────────┬───────────┘      └────────────────────────────────┘
+           │ host.docker.internal:11434
            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ ollama   qwen2.5 + nomic-embed-text（ollama_models volume）  │
-└─────────────────────────────────────────────────────────────┘
-
-ollama-pull ← one-shot job: pulls both models, then exits
+╔═════════════════════════════════════════════════════════════╗
+║ 宿主机（不在 Docker 里）                                      ║
+║ Ollama  qwen2.5 + nomic-embed-text，走 CUDA                  ║
+╚═════════════════════════════════════════════════════════════╝
 ```
 
 | Service | Image | Host port | Role |
 |---|---|---|---|
 | `nginx` | `nginx:alpine` | **8080 → 80** | Single entry point. `/api/*` → backend, `/*` → frontend |
 | `frontend` | built from `Dockerfile` | 127.0.0.1:8501 | `streamlit run app.py --server.port=8501` |
-| `backend` | same image | 127.0.0.1:8000 | `gunicorn api_server:api --config gunicorn.conf.py` (4 workers) — `/docs` |
-| `ollama` | `ollama/ollama` | 127.0.0.1:11434 | `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
-| `ollama-pull` | `ollama/ollama` | — | Runs once, pulls the two models, exits 0 |
+| `backend` | same image | 127.0.0.1:8000 | `gunicorn api_server:api --config gunicorn.conf.py` (2 workers) — `/docs` |
+| `ollama` | **host process** | — | Reached at `host.docker.internal:11434`; `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
+
+### Why Ollama is not in the stack
+
+It was, and the arithmetic is what removed it:
+
+| | Containerised Ollama | Host Ollama |
+|---|---|---|
+| Memory | +4 GB resident, on top of 2 × 2.2 GB reranker | 0 — already running |
+| GPU | none by default; 7B falls back to CPU, geology branch goes from ~70 s to minutes | CUDA, already warm |
+| Disk | re-downloads ~5 GB into a named volume | models already on disk |
+| Port | wants 11434, which the host copy already holds | — |
+| Cost | fully self-contained: `up` is the only prerequisite | a fresh machine needs Ollama installed first |
+
+On a 16 GB laptop the first row alone decides it. Putting it back is a supported
+path, not a rewrite: restore the `ollama` + `ollama-pull` services in
+`docker-compose.yml`, point `OLLAMA_BASE_URL` at `http://ollama:11434/v1`, drop
+`extra_hosts`, and set `WEB_CONCURRENCY: 1` — then budget for CPU-only inference.
 
 ### One origin, and why that is the whole point
 
@@ -700,11 +733,11 @@ Two things about this configuration are easy to get wrong in opposite directions
 
 **`timeout` must be raised.** gunicorn's default is 30 s. One assessment takes 90–150 s, so the default kills the worker mid-report and leaves a single `worker timeout` line in the log.
 
-**4 workers is not free.** `core/reranker.py` loads a 2.2 GB model at import time, so each worker carries its own copy — roughly 10–12 GB for four, on top of Ollama's ~5 GB. The machine needs about 24 GB. `gunicorn.conf.py` prints the arithmetic at startup and warns when it does not fit; `WEB_CONCURRENCY=2` halves it.
+**Worker count is a memory decision, not a throughput dial.** `core/reranker.py` loads a 2.2 GB model at import time, so each worker carries its own private copy — four of them is 10–12 GB before Ollama gets a byte. `gunicorn.conf.py` prints that arithmetic from `/proc/meminfo` at startup and warns when it does not fit. This repo ships **`WEB_CONCURRENCY=2`** (≈4.4 GB) because the reference machine has 16 GB; four was written, measured against the machine, and rejected. Raise it only after redoing the sum.
 
 `preload_app` is deliberately **off**, even though it would share the model copy-on-write and save ~8 GB. `lightrag_retriever` starts a background thread that runs LightRAG's event loop at import time, and threads do not survive `fork` — the children would inherit a "ready" flag for a loop that is not running, and retrieval would hang forever. Preload buys memory and sells correctness.
 
-**What four workers do and do not fix.** They stop one slow assessment from blocking a second request. They do not make inference faster — every worker queues at the same Ollama, whose concurrency is `OLLAMA_NUM_PARALLEL` (set to 2 in the compose file, so the two fan-out branches actually run side by side). They also do not remove shared-state contention: HITL threads are checkpointed in `checkpoint.db`, and four processes writing to one SQLite file can contend. That path works, but if you exercise human-in-the-loop heavily, `WEB_CONCURRENCY=1` is the honest setting rather than four workers fighting over a lock.
+**What two workers do and do not fix.** They stop one slow assessment from blocking a second request. They do not make inference faster — every worker queues at the same Ollama, and the host Ollama runs with `OLLAMA_NUM_PARALLEL=1` because an 8 GB laptop GPU cannot hold two resident copies of a 7B model. So the two fan-out branches are genuinely concurrent *in the graph* but serialize *at the model*: the wall-clock saving shows up only when the branches are not both waiting on inference. They also do not remove shared-state contention — HITL threads are checkpointed in `checkpoint.db`, and multiple processes writing one SQLite file can contend, so `WEB_CONCURRENCY=1` is the honest setting if you exercise the human gate heavily.
 
 ### Health: real dependencies, not "the process is alive"
 
@@ -762,7 +795,7 @@ Every hop is a service name, and the ones that matter are pinned in `docker-comp
 | `nginx` | `backend` | `upstream backend { server backend:8000; }` | `127.0.0.1:8000` inside the nginx container is nginx itself |
 | `nginx` | `frontend` | `upstream frontend { server frontend:8501; }` | Same |
 | `frontend` | `backend` | `API_BASE_URL: http://backend:8000` | Inside the frontend container, `127.0.0.1:8000` is the frontend itself. The page would show "backend not connected" while both containers report healthy |
-| `backend` | `ollama` | `OLLAMA_BASE_URL: http://ollama:11434/v1` | Same reason; the symptom is `Connection error` from the OpenAI client |
+| `backend` | `ollama` | `OLLAMA_BASE_URL: http://host.docker.internal:11434/v1` | Ollama is a *host* process here, so `localhost` inside the backend container points at the backend itself. `host.docker.internal` resolves to the host's non-loopback address — which is why Ollama must bind `0.0.0.0`, not `127.0.0.1` |
 | `backend` | ChromaDB | `CCUS_CHROMA_PATH: /app/chroma_petro` | The code's default is `D:\python-learn\chroma_petro`. On Linux that becomes a directory literally named `D:\python-learn\chroma_petro` — no error, just a permanently empty collection |
 
 `lightrag_retriever.py` used to hardcode `http://localhost:11434`, which is the same bug in a place the health check would not have caught: `/health` probes `OLLAMA_BASE_URL` (green) while retrieval talks to a nonexistent Ollama inside the backend container (broken). It now derives its host from `OLLAMA_BASE_URL`, stripping the `/v1` suffix because LightRAG appends `/api/embed` itself.
@@ -790,25 +823,29 @@ Without a key the system still runs: `geology` / `wellbore` / `report` default t
 
 ### GPU
 
-CPU-only by default. Ollama on CPU runs a 7B model roughly an order of magnitude slower — the geology branch measured ~70 s on GPU can take several minutes.
+Not a stack concern here — the only component that wants a GPU is Ollama, and it is
+a host process, so it uses CUDA natively with no passthrough, no
+`nvidia-container-toolkit`, and no `--gpus` flag. That is part of why it was moved
+out of the stack.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
-```
-
-On Windows this needs Docker Desktop's WSL2 backend plus a working NVIDIA driver on the host side. Verify passthrough before blaming the stack:
+Worth knowing if you ever put it back: a containerised Ollama needs Docker
+Desktop's WSL2 backend, a working NVIDIA driver on the *Windows* side (do not
+install a Linux driver inside WSL), and a working container toolkit. Verify the
+last one before blaming the stack:
 
 ```bash
 docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 ```
 
-If that prints a GPU table, the override will work; `could not select device driver` means the container toolkit is missing.
+A GPU table means it works; `could not select device driver` means the toolkit is
+missing. Without it the 7B model runs on CPU, roughly an order of magnitude
+slower — the geology branch measured ~70 s on GPU takes several minutes.
 
 ### What persists
 
 | Mount | Type | Contents |
 |---|---|---|
-| `ollama_models` | named volume | ~5 GB of model weights; survives `down`, only `down -v` removes it |
+| `~/.ollama` (host) | outside Docker | ~5 GB of model weights, managed by the host Ollama — the stack never touches it |
 | `./models` | bind, read-only | the reranker; the container must never write here |
 | `./lightrag_storage` | bind | the knowledge graph |
 | `./chroma_petro` | bind | the vector store |
@@ -840,12 +877,11 @@ cp project_history.md user_profile.md state/
 | `Invalid origin` in the browser console | nginx sent `Host $host` (no port) | use `Host $http_host` |
 | `HTTP 401` when starting an assessment | frontend and backend tokens differ | both read `API_TOKEN` from `.env.docker`; edit one file, then `docker compose up -d` |
 | `/health` says `degraded` with `chroma` failing | `chroma_petro/` missing or the collection is empty | check `CCUS_COLLECTION`; the probe prints the collections it did find |
-| `Connection error` on the first assessment | models not pulled | `docker compose logs ollama-pull`; or `docker compose exec ollama ollama list` |
+| `Connection error` on the first assessment | the backend cannot reach the host Ollama | three causes, in order of likelihood: Ollama is not running (`curl 127.0.0.1:11434/api/tags` on the host); it is bound to `127.0.0.1` instead of `0.0.0.0` (set `OLLAMA_HOST=0.0.0.0:11434` and restart it); or the model name does not match (`ollama list` vs `LOCAL_MODEL` in `.env.docker`) |
 | Worker killed mid-assessment | gunicorn `timeout` below the real runtime | it is 900 s in `gunicorn.conf.py`; do not lower it |
-| Container OOM-killed under load | 4 workers × 2.2 GB reranker | set `WEB_CONCURRENCY=2`; check the startup warning in `docker compose logs backend` |
-| Every assessment takes minutes | CPU inference | use the GPU override |
+| Backend restarts / `Killed` under load | too many workers, each holding a private 2.2 GB reranker | keep `WEB_CONCURRENCY=2`; the startup line in `docker compose logs backend` prints the arithmetic against `/proc/meminfo` |
+| Every assessment takes minutes | the host Ollama is on CPU, not CUDA | check `ollama ps` on the host shows the model in VRAM; a 4 GB `size_vram` means GPU, a low number means CPU |
 | Report has no citations | `lightrag_storage/` empty | build the graph from the corpus on the host |
-| `docker compose up` says `ollama-pull exited with code 1` | pull failed (no network / wrong tag) | `docker compose run --rm ollama-pull` to see the error |
 
 ### Why one image for two services
 
@@ -1672,8 +1708,7 @@ petro-rag-agent/
 ├── app.py                    # Streamlit frontend (pure HTTP client, API_BASE_URL-aware)
 ├── api_server.py             # FastAPI: SSE stream + sync + HITL (hitl/review/approve)
 ├── Dockerfile                # python:3.10-slim, exposes 8000 (API) + 8501 (UI)
-├── docker-compose.yml        # nginx + ollama + ollama-pull + backend + frontend
-├── docker-compose.gpu.yml    # optional override: NVIDIA passthrough for ollama
+├── docker-compose.yml        # nginx + backend + frontend (Ollama stays on the host)
 ├── nginx.conf                # single entry point: /api/* → backend, /* → frontend
 ├── gunicorn.conf.py          # 4 × UvicornWorker, timeout 900, memory preflight
 ├── .env.docker               # compose env_file: token + tuning + optional cloud block
@@ -1815,7 +1850,13 @@ docker compose up -d --build
 # Everything → http://localhost:8080   (nginx routes / and /api)
 ```
 
-This one brings up **Ollama too**, so nothing has to be installed on the host beyond Docker itself. Models, graph storage and the reranker are mounted, not baked into the image; `ollama-pull` fetches `qwen2.5` and `nomic-embed-text` on first start. `nginx` is the only container with a public port — 8000 and 8501 are bound to loopback for debugging. See [Deployment](#deployment-docker) for the prerequisites (one of them is a 2.2 GB download that is not in git), the token, and the GPU override.
+This containerises the application, **not** the model. Ollama keeps running on the
+host (see [why](#deployment-docker)) — so `ollama pull qwen2.5 nomic-embed-text`
+has to have happened there, and Ollama must listen on `0.0.0.0:11434`. Models,
+graph storage and the reranker are mounted, not baked into the image. `nginx` is
+the only container with a public port; 8000 and 8501 are bound to loopback for
+debugging. Prerequisites (one of them a 2.2 GB download that is not in git) and
+the token are in [Deployment](#deployment-docker).
 
 ---
 

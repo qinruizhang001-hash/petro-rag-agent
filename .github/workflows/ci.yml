@@ -122,7 +122,6 @@ jobs:
           # 而不是等用户 docker compose up 时才报错。
           test -s Dockerfile || { echo "::error::Dockerfile missing"; exit 1; }
           test -s docker-compose.yml || { echo "::error::docker-compose.yml missing"; exit 1; }
-          test -s docker-compose.gpu.yml || { echo "::error::docker-compose.gpu.yml missing"; exit 1; }
           test -s .env.docker || { echo "::error::.env.docker missing (compose env_file)"; exit 1; }
           grep -q '^FROM python:3.10-slim' Dockerfile \
             || { echo "::error::Dockerfile must be based on python:3.10-slim"; exit 1; }
@@ -130,10 +129,17 @@ jobs:
             || { echo "::error::Dockerfile must expose 8000 (API) and 8501 (UI)"; exit 1; }
           grep -q 'api_server:api' Dockerfile \
             || { echo "::error::Dockerfile must start api_server (the ASGI object is named api)"; exit 1; }
-          for svc in 'backend:' 'frontend:' 'ollama:'; do
+          for svc in 'backend:' 'frontend:' 'nginx:'; do
             grep -q "^  $svc" docker-compose.yml \
               || { echo "::error::docker-compose.yml lost service $svc"; exit 1; }
           done
+          # 中文注释：Ollama 刻意**不在**栈里。这台机器 15.5 GB 内存，2×2.2 GB 的
+          # reranker 已经吃掉 4.4 GB；再起一个常驻 Ollama 会挤到换页，而容器里的
+          # Ollama 拿不到 GPU，7B 模型退回 CPU 后一次评估从 70 秒变成几分钟。
+          # 所以它跑在宿主机上，后端经 host.docker.internal 访问。
+          if grep -qE '^  ollama:' docker-compose.yml; then
+            echo "::error::do not add a second Ollama to the stack — see the compose header (16 GB host, no GPU passthrough)"; exit 1
+          fi
           grep -q 'streamlit' docker-compose.yml \
             || { echo "::error::docker-compose.yml must start the Streamlit frontend"; exit 1; }
           # 中文注释：容器网络契约。服务名就是主机名 —— 前端写 localhost:8000
@@ -141,8 +147,10 @@ jobs:
           # 这个错误在本地跑不出来，只有进容器才暴露，所以必须静态拦住。
           grep -q 'API_BASE_URL: http://backend:8000' docker-compose.yml \
             || { echo "::error::frontend must reach the API at http://backend:8000"; exit 1; }
-          grep -q 'OLLAMA_BASE_URL: http://ollama:11434/v1' docker-compose.yml \
-            || { echo "::error::backend must reach Ollama at http://ollama:11434/v1"; exit 1; }
+          grep -q 'OLLAMA_BASE_URL: http://host.docker.internal:11434/v1' docker-compose.yml \
+            || { echo "::error::backend must reach the host Ollama at http://host.docker.internal:11434/v1"; exit 1; }
+          grep -q 'host.docker.internal:host-gateway' docker-compose.yml \
+            || { echo "::error::backend needs extra_hosts so host.docker.internal also resolves on Linux"; exit 1; }
           if grep -qE 'API_BASE_URL: *http://(127\.0\.0\.1|localhost)' docker-compose.yml; then
             echo "::error::frontend API_BASE_URL must use the service name, not loopback"; exit 1
           fi
@@ -150,10 +158,11 @@ jobs:
           # 在 Linux 容器里不覆盖会建出一个名字带反斜杠的目录 —— 不报错，只是永远查不到东西。
           grep -q 'CCUS_CHROMA_PATH: /app/chroma_petro' docker-compose.yml \
             || { echo "::error::CCUS_CHROMA_PATH must be overridden for the container filesystem"; exit 1; }
-          # 中文注释：ollama 官方镜像不会自动拉模型。少了这个一次性 job，
-          # up 之后第一次评估会在参数提取阶段报 Connection error，指不到根因。
-          grep -q 'ollama-pull' docker-compose.yml \
-            || { echo "::error::compose must keep the one-shot model pull job"; exit 1; }
+          # 中文注释：worker 数是内存算出来的，不是拍脑袋。每个 worker 私有一份
+          # 2.2 GB 的 reranker；4 个是 24 GB 机器的账，这台 15.5 GB 只能给 2。
+          # 改大之前先看 gunicorn.conf.py 顶部那段 /proc/meminfo 算账。
+          grep -q 'WEB_CONCURRENCY: 2' docker-compose.yml \
+            || { echo "::error::WEB_CONCURRENCY must stay at 2 on a 16 GB host (each worker loads its own 2.2 GB reranker)"; exit 1; }
           # 中文注释：memory/ 是本仓库的 Python 包（memory_manager.py 等）。
           # 容器里的文件记忆必须挂在别的目录名上 —— 排除或挂掉 memory/ 会让
           # 镜像里的代码直接消失，而报错会指向 ImportError，与 Docker 无关。

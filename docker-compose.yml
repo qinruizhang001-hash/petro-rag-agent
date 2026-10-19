@@ -4,24 +4,36 @@
 #   docker compose up -d --build
 #   open http://localhost:8080
 #
-# 五个容器，但只有一个对外：
+# 四个容器，但只有一个对外：
 #
 #   nginx       统一入口 :8080（容器内 80）—— 唯一暴露给外部用户的端口
 #   frontend    Streamlit :8501，只绑回环，经 nginx 访问
-#   backend     FastAPI  :8000，只绑回环，经 nginx 访问；gunicorn 4 worker
-#   ollama      本地推理 :11434，只绑回环（调试用）
-#   ollama-pull 一次性 job：把模型拉进 ollama 的 volume，拉完即退出
+#   backend     FastAPI  :8000，只绑回环，经 nginx 访问；gunicorn 2 worker
+#
+# Ollama 不在这里 —— 复用宿主机那一份。两个原因，都不是偏好：
+#   1) 内存。这台机器 15.5 GB，2×2.2 GB 的 reranker 已经吃掉 4.4 GB，
+#      再塞一个常驻的 Ollama（qwen2.5 约 4 GB）会挤到换页。
+#   2) GPU。容器里的 Ollama 拿不到 RTX 5060（没有直通），7B 模型退回 CPU，
+#      地质分支从 70 秒变成几分钟。宿主机那份已经在用 CUDA，模型也下好了。
+#
+# 代价：换机器要先装 Ollama 并 `ollama pull qwen2.5 nomic-embed-text`。
+# 想恢复完全自包含，把「容器内 Ollama」注释段恢复，并把 WEB_CONCURRENCY 降到 1。
 #
 # 端口为什么是 8080 而不是 80：
 #   80 需要 root/管理员权限，Windows 上还常被 IIS 或其它服务占用。
 #   要换成 80 只改 nginx 的 ports 一行（"80:80"），其余不动。
 #
 # 网络契约（整个文件里最重要的几行）：
-#   nginx    → http://backend:8000       /api/* 走这里
-#   nginx    → http://frontend:8501      其余全部走这里
-#   frontend → http://backend:8000       Streamlit 服务端代发请求
-#   backend  → http://ollama:11434/v1    localhost 在容器里指的是容器自己
-#   宿主机   → localhost:8080            浏览器唯一需要知道的地址
+#   nginx    → http://backend:8000                 /api/* 走这里
+#   nginx    → http://frontend:8501                其余全部走这里
+#   frontend → http://backend:8000                 Streamlit 服务端代发请求
+#   backend  → http://host.docker.internal:11434/v1  宿主机的 Ollama
+#   宿主机   → localhost:8080                      浏览器唯一需要知道的地址
+#
+# 关于 host.docker.internal：它是 Docker Desktop 提供的宿主别名，指向宿主机
+# 的**非回环**地址。所以 Ollama 必须以 OLLAMA_HOST=0.0.0.0:11434 启动 ——
+# 绑在 127.0.0.1 上容器就连不上，而症状只是 Connection refused，看起来
+# 像"Ollama 根本没启动"，很容易查错方向。
 #
 # 模型与图谱不进镜像，靠 volume 挂载；体积与原因见 Dockerfile 顶部注释。
 # ─────────────────────────────────────────────────────────────
@@ -29,62 +41,7 @@ name: ccus
 
 services:
   # ───────────────────────────────────────────────────────────
-  # Ollama：本地推理
-  # ───────────────────────────────────────────────────────────
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ccus-ollama
-    ports:
-      # 只绑回环：给调试用（curl 一下 /api/tags），不对外。要对外删掉这行。
-      - "127.0.0.1:11434:11434"
-    volumes:
-      # 模型权重（qwen2.5 约 4.7 GB + nomic-embed-text 约 274 MB）住在这里。
-      # 命名 volume 而不是 bind mount：Windows/macOS 上 bind mount 一个几 GB
-      # 的模型目录，首次写入会慢到以为卡死。
-      - ollama_models:/root/.ollama
-    environment:
-      # 默认 5 分钟空闲就卸载模型，下一次请求要重新加载（7B 冷启动 10-30 s）。
-      # 演示场景下保持常驻更划算。
-      OLLAMA_KEEP_ALIVE: 30m
-      # 并行请求数。默认 1 时，fan-out 的两个分支会在 Ollama 里排队，
-      # "并行"只剩图结构上的并行。调成 2 让两路真正同时推理 ——
-      # 代价是 KV cache 翻倍，内存紧张就调回 1。
-      OLLAMA_NUM_PARALLEL: 2
-    healthcheck:
-      # 官方镜像里没有 curl/wget，用 ollama 自己的 CLI 探活
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-    restart: unless-stopped
-
-  # ───────────────────────────────────────────────────────────
-  # 一次性任务：确保两个模型都在
-  # ───────────────────────────────────────────────────────────
-  ollama-pull:
-    image: ollama/ollama:latest
-    container_name: ccus-ollama-pull
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      # CLI 默认连 127.0.0.1:11434，在容器里那是它自己
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      # 注意：这里不能写 shell 变量。compose 在把 YAML 交给 shell 之前会先做一次
-      # 变量插值，脚本里以美元符开头的名字会被替换成空串，命令静默变形。
-      # 真要保留字面量美元符，必须写两遍。这里索性展开成两行，不给自己留坑。
-      - |
-        set -e
-        ollama list | grep -q '^qwen2.5' || ollama pull qwen2.5
-        ollama list | grep -q '^nomic-embed-text' || ollama pull nomic-embed-text
-        echo "[pull] 模型就绪"
-    restart: "no"
-
-  # ───────────────────────────────────────────────────────────
-  # 后端：FastAPI + LangGraph 多智能体（gunicorn 4 worker）
+  # 后端：FastAPI + LangGraph 多智能体（gunicorn）
   # ───────────────────────────────────────────────────────────
   backend:
     build:
@@ -93,8 +50,7 @@ services:
     image: petro-rag-agent:latest
     container_name: ccus-backend
     # gunicorn 而不是 uvicorn：需要 master 进程管理（worker 崩溃自动拉起、
-    # 优雅重启）。worker 数、超时、worker_class 都在 gunicorn.conf.py 里，
-    # 那里也写了"为什么 4 个 worker 需要 24 GB 内存"。
+    # 优雅重启）。worker 数、超时、worker_class 都在 gunicorn.conf.py 里。
     command: ["gunicorn", "api_server:api", "--config", "gunicorn.conf.py"]
     ports:
       # 只绑回环：/docs 和 curl 调试用。外部用户一律走 nginx。
@@ -105,7 +61,10 @@ services:
       # 容器网络契约，钉死在这里而不是放在 .env.docker：
       # 用户改调参可以随便改那个文件，但把服务名改成 localhost 会让整个栈失联，
       # 这类值不值得开放给"顺手改一下"。
-      OLLAMA_BASE_URL: http://ollama:11434/v1
+      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+      # worker 数。默认 4 是给 24 GB 机器的账，这台 15.5 GB 只能给 2。
+      # 4 个 worker 各自加载一份 2.2 GB 的 reranker，是私有内存，不共享。
+      WEB_CONCURRENCY: 2
       # 代码里的默认值是 D:\python-learn\chroma_petro（Windows 绝对路径），
       # 在 Linux 容器里不覆盖它，chromadb 会建一个名字里带反斜杠的目录。
       CCUS_CHROMA_PATH: /app/chroma_petro
@@ -113,12 +72,10 @@ services:
       # 单文件 bind mount 不能做原子替换。
       PROJECT_HISTORY_PATH: /app/state/project_history.md
       USER_PROFILE_PATH: /app/state/user_profile.md
-    depends_on:
-      ollama:
-        condition: service_healthy
-      # 模型没拉完就不启动后端：否则第一次请求才炸，且错误指向 Ollama 而非这里
-      ollama-pull:
-        condition: service_completed_successfully
+    # Docker Desktop 自带 host.docker.internal；显式写一遍是为了在 Linux 上
+    # 跑同一份 compose 时不至于解析失败（那边需要 host-gateway 映射）。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # 2.2 GB 的 reranker，只读挂载 —— 镜像里不该有第二份
       - ./models:/app/models:ro
@@ -143,7 +100,7 @@ services:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
-      # 4 个 worker 各自加载 2.2 GB 模型，冷启动比单进程更久
+      # 2 个 worker 各自加载 2.2 GB 模型，冷启动仍比单进程久
       start_period: 120s
       retries: 3
     restart: unless-stopped
@@ -217,7 +174,7 @@ services:
       retries: 3
     restart: unless-stopped
 
-volumes:
-  # 模型权重放在命名 volume 里：跨 `docker compose down` 保留，
-  # 只有 `down -v` 才会删（删了就要重新拉 5 GB）。
-  ollama_models:
+# 没有顶层 volumes：Ollama 的模型权重现在住宿主机的 ~/.ollama，
+# 由宿主机那份 Ollama 管理，不归这个栈管。
+# 其余持久化数据都走 bind mount（见 backend 的 volumes），
+# 因为它们在仓库里、需要能直接打开看。
