@@ -81,4 +81,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 # 注意是 api_server:api，不是 api_server:app ——
 # FastAPI 实例在 api_server.py 里叫 `api`（`app` 这个名字留给 multi_agent_ccus
 # 那个兼容入口，uvicorn 指向它会拿到 LangGraph 图而不是 ASGI 应用）。
-CMD ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8000"]
+#
+# 生产入口走 gunicorn：它提供 master 进程（worker 崩溃自动拉起、优雅重启），
+# 而 `uvicorn --workers N` 只是起 N 个互不管理的进程。worker 数、超时、
+# worker_class 全在 gunicorn.conf.py 里。
+# 直接 `docker run` 这个镜像（不经 compose）也是生产配置。
+CMD ["gunicorn", "api_server:api", "--config", "gunicorn.conf.py"]

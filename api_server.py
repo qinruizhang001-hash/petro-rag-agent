@@ -5,8 +5,10 @@ FastAPI 后端，把 LangGraph 多智能体工作流封装为 HTTP 接口。
 
 启动方式:
     python api_server.py
-    # 或
+    # 或（开发）
     uvicorn api_server:api --host 127.0.0.1 --port 8000
+    # 或（生产，容器里）
+    gunicorn api_server:api --config gunicorn.conf.py
 
 接口:
     POST /api/analyze       提交项目描述，返回 **SSE 流**（token 级实时推送）
@@ -14,9 +16,16 @@ FastAPI 后端，把 LangGraph 多智能体工作流封装为 HTTP 接口。
     POST /api/analyze/hitl  同上，但在人工闸门前**暂停**，等 /api/approve
     GET  /api/review/{tid}  查询某条 thread 停在哪一步（进程重启也不丢）
     POST /api/approve       人工审核决定：通过 → 落盘；驳回 → 带意见重写
-    GET  /health            健康检查（秒回）
+    GET  /health            健康检查（依赖真实连通性，不加载模型）
     GET  /charts/{file}     生成的地质图表静态文件
     GET  /docs              Swagger 交互文档
+
+鉴权:
+    ``/api/*`` 全部要求 ``Authorization: Bearer <API_TOKEN>``。
+    ``/health``、``/docs``、``/charts`` 不鉴权 —— 前者要给编排系统探活，
+    后两者不含业务数据。
+    未设置 ``API_TOKEN`` 时鉴权**关闭**（本地开发便利），并在启动日志里明确警告；
+    容器里由 .env.docker 注入，因此线上一定是开着的。
 
 SSE 事件格式（每行 `data: {json}`，空行分隔）:
     {"type":"node",  "node":"extract", "label":"提取 CCUS 关键参数", "status":"start"}
@@ -41,12 +50,17 @@ SSE 事件格式（每行 `data: {json}`，空行分隔）:
 import asyncio
 import json
 import os
+import secrets
+import sqlite3
+import sys
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException
+import requests
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
@@ -61,6 +75,7 @@ from workflow import (
     compute_cost_estimation,
 )
 from chart_tools import CHART_DIR
+from core.config import LOCAL_API_KEY, LOCAL_BASE_URL, LOCAL_MODEL
 
 from utils.logging_setup import get_logger
 
@@ -82,6 +97,63 @@ api.add_middleware(
 # 图表静态目录：让浏览器能直接看历史图片（也方便 curl 检查）
 os.makedirs(CHART_DIR, exist_ok=True)
 api.mount("/charts", StaticFiles(directory=CHART_DIR), name="charts")
+
+
+# ══════════════════════════════════════════════════════════
+# 鉴权：Bearer Token
+# ══════════════════════════════════════════════════════════
+#
+# 用 FastAPI 的依赖注入而不是中间件，有两个实际好处：
+#   1. 挂在 APIRouter 上就自动覆盖该路由组下所有端点，新增接口不会漏；
+#   2. 会出现在 /docs 的 Authorize 按钮里，调试时不用手写 header。
+#
+# 为什么用 secrets.compare_digest 而不是 ==：
+# 字符串比较是短路的，比较时间会随"前多少个字符相同"变化。理论上可以据此
+# 逐字符猜出 token。这类攻击在实践中很难，但正确的写法并不比错的贵。
+
+API_TOKEN = (os.getenv("API_TOKEN") or "").strip()
+
+_bearer = HTTPBearer(auto_error=False, description="在 .env.docker 里配置的 API_TOKEN")
+
+
+def require_token(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> None:
+    """校验 `Authorization: Bearer <API_TOKEN>`。
+
+    API_TOKEN 未配置时放行（本地开发），但下面会打警告 —— 见紧邻的模块级判断。
+    """
+    if not API_TOKEN:
+        return
+
+    # 401 而不是 403：403 的含义是"身份已知但无权访问"，这里根本没认证成功。
+    # 缺 token 与 token 错误返回同一个状态码，避免告诉攻击者"格式对了但值不对"。
+    if creds is None or creds.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="缺少 Bearer token：请求头需要 Authorization: Bearer <API_TOKEN>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not secrets.compare_digest(creds.credentials, API_TOKEN):
+        raise HTTPException(
+            status_code=401,
+            detail="Bearer token 无效",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# 所有 /api/* 走这个 router；/health 与 /charts 仍挂在 api 上，不鉴权。
+# /health 必须匿名可访问：Docker 健康检查、K8s probe、nginx upstream 检查
+# 都不会带业务 token。
+router = APIRouter(dependencies=[Depends(require_token)])
+
+if not API_TOKEN:
+    # 放在模块级而不是 __main__ 里：gunicorn / uvicorn 都是 import 这个模块，
+    # 不会走 __main__ 分支 —— 写在里面等于永远不报警。
+    log.warning(
+        "[API] ⚠️ 未设置 API_TOKEN，鉴权已关闭。"
+        "本地开发可以接受；对外暴露前务必在 .env / .env.docker 里配置。"
+    )
 
 
 class ProjectRequest(BaseModel):
@@ -158,7 +230,7 @@ def _run_agent(user_input: str, thread_id: str) -> dict:
     return agent_app.invoke(initial_state, config)
 
 
-@api.post("/api/analyze/sync")
+@router.post("/api/analyze/sync")
 async def analyze_sync(request: ProjectRequest):
     log.info(f"[API] 收到 /sync 请求：{request.user_input[:60]}")
     thread_id = f"api_{int(time.time())}"
@@ -322,7 +394,7 @@ async def _event_stream(user_input: str, thread_id: str):
             task.cancel()
 
 
-@api.post("/api/analyze")
+@router.post("/api/analyze")
 async def analyze_ccus_project(request: ProjectRequest):
     """SSE 流式评估。前端用 requests(stream=True) 或 EventSource 消费。"""
     log.info(f"[API] 收到 /stream 请求：{request.user_input[:60]}")
@@ -406,7 +478,7 @@ def _resume(thread_id: str, approved: bool, reviewer: str, comment: str) -> dict
     return _snapshot(thread_id)
 
 
-@api.post("/api/analyze/hitl")
+@router.post("/api/analyze/hitl")
 async def analyze_with_human_review(request: ProjectRequest):
     """
     跑到人工闸门前停下，返回待审报告。
@@ -426,7 +498,7 @@ async def analyze_with_human_review(request: ProjectRequest):
     return _review_payload(snap["values"], thread_id, snap["waiting"])
 
 
-@api.get("/api/review/{thread_id}")
+@router.get("/api/review/{thread_id}")
 async def review_status(thread_id: str):
     """查询某条 thread 的当前状态（是否还在等人工确认）。"""
     snap = await asyncio.to_thread(_snapshot, thread_id)
@@ -435,7 +507,7 @@ async def review_status(thread_id: str):
     return _review_payload(snap["values"], thread_id, snap["waiting"])
 
 
-@api.post("/api/approve")
+@router.post("/api/approve")
 async def approve(request: ApprovalRequest):
     """
     人工审核决定：``approved=true`` 落盘结束；``false`` 带意见打回重写。
@@ -470,14 +542,136 @@ async def approve(request: ApprovalRequest):
     return payload
 
 
+# ══════════════════════════════════════════════════════════
+# 健康检查：报告**真实**连通性，而不是"进程还活着"
+# ══════════════════════════════════════════════════════════
+#
+# 三条硬约束：
+#   1. 不加载任何模型。健康检查每 30 秒跑一次，一次加载 2.2 GB 的重排模型
+#      会让容器永远在 OOM 边缘。
+#   2. 每个探针都带超时。Ollama 挂掉时 requests 默认会等很久，而 Docker 的
+#      健康检查 timeout 只有几秒 —— 超时会让容器被判死，可实际是依赖死了。
+#   3. 永远返回 200。依赖挂了要能**被看见**，而不是让编排系统重启后端 ——
+#      重启一个健康的进程不会把 Ollama 救活，只会把前端一起拖下水
+#      （frontend 用 service_healthy 等 backend）。降级写在 body 里。
+
+PROBE_TIMEOUT = 2.5          # 单个依赖的探测超时（秒）
+_chroma_client = None        # 缓存，避免每 30 秒重建一次 PersistentClient
+
+
+def _timed(fn):
+    """跑一个探针并把异常收敛成结构化结果 —— 健康检查自己绝不能抛。"""
+    t0 = time.perf_counter()
+    try:
+        detail = fn()
+        return {"ok": True, "detail": detail, "latency_ms": int((time.perf_counter() - t0) * 1000)}
+    except Exception as e:  # noqa: BLE001 — 任何异常都只应体现为"不健康"
+        return {
+            "ok": False,
+            "detail": f"{type(e).__name__}: {e}"[:200],
+            "latency_ms": int((time.perf_counter() - t0) * 1000),
+        }
+
+
+def _probe_ollama() -> str:
+    """打 OpenAI 兼容端点 /models —— 比 /api/tags 更贴近真实调用路径。"""
+    url = f"{LOCAL_BASE_URL.rstrip('/')}/models"
+    r = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {LOCAL_API_KEY}"},
+        timeout=PROBE_TIMEOUT,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code} from {url}")
+    ids = [m.get("id", "") for m in (r.json().get("data") or [])]
+    # 只比名字前缀：Ollama 会把 qwen2.5 归一化成 qwen2.5:latest
+    want = LOCAL_MODEL.split(":")[0]
+    if not any(i.split(":")[0] == want for i in ids):
+        raise RuntimeError(f"模型 {LOCAL_MODEL} 不在 Ollama 里（现有 {len(ids)} 个）")
+    return f"{LOCAL_MODEL} 可用（共 {len(ids)} 个模型）"
+
+
+def _probe_chroma() -> str:
+    r"""列集合即可，不取数据、不建嵌入函数（那会加载 sentence-transformers）。
+
+    路径与集合名**必须**从 tools.knowledge_tools 取，不能在这里重新拼一遍。
+    那个模块的默认值是 ``D:\python-learn\chroma_petro``，而这里若写成
+    ``os.getenv(...) or "chroma_petro"``，探针就会去检查仓库里那个**空壳**
+    目录（3 个集合、0 条数据），报出来的"健康"和系统实际查的库不是同一个 ——
+    这种探针比没有更危险。
+    """
+    global _chroma_client
+    import chromadb
+
+    from tools.knowledge_tools import CCUS_CHROMA_PATH, CCUS_COLLECTION
+
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(path=CCUS_CHROMA_PATH)
+    cols = _chroma_client.list_collections()
+    names = [getattr(c, "name", str(c)) for c in cols]
+    if CCUS_COLLECTION not in names:
+        raise RuntimeError(f"集合 {CCUS_COLLECTION} 不存在（现有 {names[:5]}）")
+    n = _chroma_client.get_collection(CCUS_COLLECTION).count()
+    if n == 0:
+        raise RuntimeError(f"集合 {CCUS_COLLECTION} 是空的（0 条向量）")
+    return f"{CCUS_COLLECTION} 就绪（{n} 条向量）"
+
+
+def _probe_sqlite() -> str:
+    """checkpoint 库：HITL 暂停/续跑全靠它，路径与 workflow.py 保持一致。"""
+    con = sqlite3.connect("checkpoint.db", timeout=PROBE_TIMEOUT)
+    try:
+        n = con.execute("SELECT count(*) FROM checkpoints").fetchone()[0]
+    except sqlite3.OperationalError:
+        n = 0  # 表还没建：全新环境，不算故障
+    finally:
+        con.close()
+    return f"checkpoint.db 可写（{n} 条断点）"
+
+
+def _probe_reranker() -> str:
+    """重排模型是否已在进程内 —— 4 个 worker 里每个都要各自加载一份。"""
+    mod = sys.modules.get("core.reranker")
+    if mod is None or not hasattr(mod, "reranker"):
+        raise RuntimeError("未加载（首次请求时会加载）")
+    return "已加载"
+
+
 @api.get("/health")
 async def health():
+    """依赖真实连通性。200 恒定，降级写在 body 的 status 字段里。
+
+    不鉴权：Docker 健康检查、K8s probe、nginx upstream 检查都不会带 token。
+    """
+    # 探针是同步阻塞的（requests / sqlite / chromadb）。放进线程池执行，
+    # 否则一次 Ollama 超时就会把这个 worker 的事件循环卡住 1.5 秒 ——
+    # 而 SSE 流正跑在同一个循环上，表现为报告流"卡一下"。
+    checks = await asyncio.to_thread(_collect_checks)
+    healthy = all(c["ok"] for c in checks.values())
     return {
-        "status": "ok",
+        "status": "ok" if healthy else "degraded",
         "service": "CCUS 智能评估 API",
         "streaming": True,
         "human_in_the_loop": True,
+        # 鉴权状态要让调用方一眼看见：配了 token 却没带 header 的客户端
+        # 会拿到 401，而这里能直接解释原因。
+        "auth": "enabled" if API_TOKEN else "disabled",
+        "checks": checks,
     }
+
+
+def _collect_checks() -> dict:
+    return {
+        "ollama": _timed(_probe_ollama),
+        "chroma": _timed(_probe_chroma),
+        "sqlite": _timed(_probe_sqlite),
+        "reranker": _timed(_probe_reranker),
+    }
+
+
+# 路由注册必须放在所有 @router.* 之后 —— include_router 是"复制此刻已注册的路由"，
+# 写在前面会得到一个空 router，且不会报错。
+api.include_router(router)
 
 
 if __name__ == "__main__":

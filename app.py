@@ -66,6 +66,14 @@ API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 API_URL = f"{API_BASE}/api/analyze"
 HEALTH_URL = f"{API_BASE}/health"
 
+# 后端要求 Authorization: Bearer <API_TOKEN>。/api/* 全部要带，/health 不用。
+#
+# 这个 token 只活在前端进程里，**不会**下发到浏览器：浏览器只跟 Streamlit 的
+# Python 进程打交道，由它代发请求。所以把前端藏在 nginx 后面时，token 不必
+# 暴露给终端用户 —— 这是"反向代理 + 服务端渲染"顺带拿到的安全属性。
+API_TOKEN = (os.getenv("API_TOKEN") or "").strip()
+AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
+
 st.set_page_config(
     page_title="CCUS 评估监控台",
     page_icon="🏭",
@@ -150,7 +158,9 @@ st.markdown(_CSS, unsafe_allow_html=True)
 def backend_alive(timeout: float = 0.6) -> bool:
     """缓存 5 秒：每次拖滑块都发一次请求会把左侧交互拖慢。"""
     try:
-        return requests.get(HEALTH_URL, timeout=timeout).status_code == 200
+        # /health 目前不鉴权，但仍带上 header：将来若把健康检查也收紧，
+        # 这里不会突然变成"后端离线"的假警报。
+        return requests.get(HEALTH_URL, timeout=timeout, headers=AUTH_HEADERS).status_code == 200
     except Exception:
         return False
 
@@ -167,8 +177,21 @@ def iter_sse(user_input: str, connect_timeout=10, read_timeout=600):
         json={"user_input": user_input},
         stream=True,
         timeout=(connect_timeout, read_timeout),
-        headers={"Accept": "text/event-stream"},
+        headers={"Accept": "text/event-stream", **AUTH_HEADERS},
     ) as resp:
+        if resp.status_code in (401, 403):
+            # 鉴权失败是最常见的部署事故：前后端 token 不一致，或者只改了一边
+            # 没重建容器。默认报错"HTTP 401"会让人去翻后端日志，其实问题在前端
+            # 环境变量里，所以这里直接把原因写出来。
+            yield {
+                "type": "error",
+                "message": (
+                    f"后端鉴权失败（HTTP {resp.status_code}）。"
+                    "请检查前端与后端的 API_TOKEN 是否一致："
+                    "前端读环境变量 API_TOKEN，后端读同一个名字，改完需要重启容器。"
+                ),
+            }
+            return
         if resp.status_code != 200:
             yield {"type": "error", "message": f"后端返回 HTTP {resp.status_code}"}
             return

@@ -43,7 +43,10 @@ log = get_logger(__name__)
 #   - 报告生成           → 长文本、强逻辑、专业措辞 → 云端大模型质量差距最明显
 # 把钱只花在真正影响产出质量的那一步。
 
-LOCAL_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+# 127.0.0.1 而不是 localhost：Windows 上 localhost 先解析到 ::1，而 Ollama 只
+# 监听 IPv4，于是每次连接都要等 IPv6 失败再回退 —— 实测每次调用多 2 秒。
+# 一次评估有十几到几十次模型调用，这个差别是几十秒级的。
+LOCAL_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
 LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5")
 

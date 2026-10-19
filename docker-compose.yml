@@ -2,24 +2,26 @@
 # 一键拉起整个 CCUS 系统
 #
 #   docker compose up -d --build
-#   open http://localhost:8501
+#   open http://localhost:8080
 #
-# 四个服务，但只有三个是"服务"：
+# 五个容器，但只有一个对外：
 #
-#   ollama       官方镜像，本地大模型推理（qwen2.5 生成 + nomic-embed-text 嵌入）
-#   ollama-pull  一次性任务：把模型拉进 ollama 的 volume，拉完即退出
-#   backend      FastAPI，:8000
-#   frontend     Streamlit，:8501
+#   nginx       统一入口 :8080（容器内 80）—— 唯一暴露给外部用户的端口
+#   frontend    Streamlit :8501，只绑回环，经 nginx 访问
+#   backend     FastAPI  :8000，只绑回环，经 nginx 访问；gunicorn 4 worker
+#   ollama      本地推理 :11434，只绑回环（调试用）
+#   ollama-pull 一次性 job：把模型拉进 ollama 的 volume，拉完即退出
 #
-# ollama-pull 单独存在的理由：官方 ollama 镜像**不会**自动拉模型，
-# 没有它，`docker compose up -d` 之后第一次点"启动评估"会在参数提取阶段
-# 报 "Connection error"（模型不存在），而错误信息完全指不到这里。
-# 它是一次性 job，不是常驻服务，restart: "no"。
+# 端口为什么是 8080 而不是 80：
+#   80 需要 root/管理员权限，Windows 上还常被 IIS 或其它服务占用。
+#   要换成 80 只改 nginx 的 ports 一行（"80:80"），其余不动。
 #
-# 网络契约（整个文件里最重要的三行）：
-#   frontend → http://backend:8000      容器网络里服务名就是主机名
-#   backend  → http://ollama:11434/v1   localhost 在容器里指的是容器自己
-#   宿主机   → localhost:8501 / :8000 / :11434
+# 网络契约（整个文件里最重要的几行）：
+#   nginx    → http://backend:8000       /api/* 走这里
+#   nginx    → http://frontend:8501      其余全部走这里
+#   frontend → http://backend:8000       Streamlit 服务端代发请求
+#   backend  → http://ollama:11434/v1    localhost 在容器里指的是容器自己
+#   宿主机   → localhost:8080            浏览器唯一需要知道的地址
 #
 # 模型与图谱不进镜像，靠 volume 挂载；体积与原因见 Dockerfile 顶部注释。
 # ─────────────────────────────────────────────────────────────
@@ -33,8 +35,8 @@ services:
     image: ollama/ollama:latest
     container_name: ccus-ollama
     ports:
-      # 暴露到宿主机，方便用 curl 或本地脚本直接调；不需要可以删掉这一行
-      - "11434:11434"
+      # 只绑回环：给调试用（curl 一下 /api/tags），不对外。要对外删掉这行。
+      - "127.0.0.1:11434:11434"
     volumes:
       # 模型权重（qwen2.5 约 4.7 GB + nomic-embed-text 约 274 MB）住在这里。
       # 命名 volume 而不是 bind mount：Windows/macOS 上 bind mount 一个几 GB
@@ -44,6 +46,10 @@ services:
       # 默认 5 分钟空闲就卸载模型，下一次请求要重新加载（7B 冷启动 10-30 s）。
       # 演示场景下保持常驻更划算。
       OLLAMA_KEEP_ALIVE: 30m
+      # 并行请求数。默认 1 时，fan-out 的两个分支会在 Ollama 里排队，
+      # "并行"只剩图结构上的并行。调成 2 让两路真正同时推理 ——
+      # 代价是 KV cache 翻倍，内存紧张就调回 1。
+      OLLAMA_NUM_PARALLEL: 2
     healthcheck:
       # 官方镜像里没有 curl/wget，用 ollama 自己的 CLI 探活
       test: ["CMD", "ollama", "list"]
@@ -78,7 +84,7 @@ services:
     restart: "no"
 
   # ───────────────────────────────────────────────────────────
-  # 后端：FastAPI + LangGraph 多智能体
+  # 后端：FastAPI + LangGraph 多智能体（gunicorn 4 worker）
   # ───────────────────────────────────────────────────────────
   backend:
     build:
@@ -86,9 +92,13 @@ services:
       dockerfile: Dockerfile
     image: petro-rag-agent:latest
     container_name: ccus-backend
-    command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8000"]
+    # gunicorn 而不是 uvicorn：需要 master 进程管理（worker 崩溃自动拉起、
+    # 优雅重启）。worker 数、超时、worker_class 都在 gunicorn.conf.py 里，
+    # 那里也写了"为什么 4 个 worker 需要 24 GB 内存"。
+    command: ["gunicorn", "api_server:api", "--config", "gunicorn.conf.py"]
     ports:
-      - "8000:8000"
+      # 只绑回环：/docs 和 curl 调试用。外部用户一律走 nginx。
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env.docker
     environment:
@@ -127,11 +137,14 @@ services:
       # 目录名刻意不叫 memory/：那是本仓库的 Python 包，挂上去等于把代码挂掉。
       - ./state:/app/state
     healthcheck:
+      # /health 会真的去 ping Ollama / 列 Chroma 集合 / 读 checkpoint.db，
+      # 所以 timeout 从 5s 放到 10s：依赖挂掉时探针要能跑完并**报告**降级，
+      # 而不是被超时判死。它永远返回 200，降级写在 body 里。
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
-      timeout: 5s
-      # reranker 在 import 阶段加载（2.2 GB），冷启动要 20-60 s
-      start_period: 90s
+      timeout: 10s
+      # 4 个 worker 各自加载 2.2 GB 模型，冷启动比单进程更久
+      start_period: 120s
       retries: 3
     restart: unless-stopped
 
@@ -152,7 +165,13 @@ services:
       - --server.address=0.0.0.0
       - --server.headless=true
     ports:
-      - "8501:8501"
+      # 只绑回环：经 nginx 才是正常入口。留着是为了直连排查
+      # （比如确认到底是前端挂了还是 nginx 转发错了）。
+      - "127.0.0.1:8501:8501"
+    # 前端也要读 API_TOKEN，且必须和后端**同一个值**。
+    # 两边读同一个 env_file 是唯一能保证"不会只改一边"的做法。
+    env_file:
+      - .env.docker
     environment:
       # 唯一一行真正决定"前端能不能连上后端"的配置。
       # 写成 127.0.0.1:8000 会连到前端容器自己 —— 这是 Docker 里最常见的一类错误，
@@ -168,6 +187,33 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # ───────────────────────────────────────────────────────────
+  # Nginx：统一入口
+  # ───────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ccus-nginx
+    ports:
+      # 唯一对外的端口。改成 "80:80" 就能用 http://localhost 访问。
+      - "8080:80"
+    volumes:
+      # 只读挂载：配置是代码，容器里不该改
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      # 两个上游都得健康再起网关，否则 nginx 启动时解析不到 upstream 主机名
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      # nginx:alpine 没有 curl，用 busybox 自带的 wget
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
       retries: 3
     restart: unless-stopped
 

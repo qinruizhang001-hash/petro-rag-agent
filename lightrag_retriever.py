@@ -36,7 +36,29 @@ from utils.logging_setup import get_logger
 log = get_logger(__name__)
 
 WORKING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lightrag_storage")
-OLLAMA_HOST = "http://localhost:11434"
+
+
+def _ollama_host() -> str:
+    """Ollama 的原生 API 根地址（**不含** /v1）。
+
+    两个坑，写死一个值都会踩：
+
+    1. 写死 localhost 在容器里指向**后端容器自己** —— 检索会连到不存在的
+       Ollama，而 /health 探的是 OLLAMA_BASE_URL，探针是绿的、检索是坏的。
+       所以必须从同一个 OLLAMA_BASE_URL 推导。
+    2. localhost 在 Windows 上先解析到 ::1，而 Ollama 只监听 IPv4：每次连接
+       要等 IPv6 失败再回退，实测每次调用多花 ~2 秒。用 127.0.0.1 直连。
+
+    LightRAG 的 ollama 辅助函数自己会拼 /api/embed、/api/generate，
+    所以这里要把 OpenAI 兼容路径的 /v1 去掉。
+    """
+    base = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434/v1").rstrip("/")
+    if base.endswith("/v1"):
+        base = base[: -len("/v1")]
+    return base
+
+
+OLLAMA_HOST = _ollama_host()
 LLM_MODEL = "qwen2.5"
 EMBED_MODEL = "nomic-embed-text"
 

@@ -69,7 +69,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **154 end-to-end assertions pass** through the real HTTP path, alongside 442 offline unit tests (412 of which run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **171 end-to-end assertions pass** through the real HTTP path, alongside 442 offline unit tests (412 of which run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -138,7 +138,10 @@ Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/
 
 ```mermaid
 flowchart TD
-    UI["Streamlit UI<br/>:8501"] -->|"POST /api/analyze<br/>SSE stream"| API["FastAPI Backend<br/>:8000"]
+    UI["Browser<br/>:8080"] -->|"one origin"| NG["nginx<br/>/api/* · /*"]
+    NG -->|"SSE stream"| API["FastAPI Backend<br/>gunicorn · 4 workers"]
+    NG -->|"WebSocket"| ST["Streamlit Console"]
+    ST -->|"Bearer token"| API
     API --> LG["LangGraph Multi-Agent Orchestrator"]
 
     LG --> MR["Memory Router<br/>(personal-context gate)"]
@@ -401,52 +404,145 @@ Missing fields render as `-` rather than raising: most log lines have no model o
 
 ## Deployment (Docker)
 
-<!-- 中文注释：一键容器化。整个栈四个容器：ollama（推理）、ollama-pull（一次性拉模型）、
-     backend（FastAPI:8000）、frontend（Streamlit:8501）。
-     这一节的重点不是"能起来"，而是三件在本地跑不出来、只有进容器才暴露的事：
+<!-- 中文注释：生产级容器化。整个栈五个容器：nginx（唯一对外入口 :8080）、
+     frontend（Streamlit:8501）、backend（FastAPI:8000，gunicorn 4 worker）、
+     ollama（推理）、ollama-pull（一次性拉模型）。
+     这一节的重点不是"能起来"，而是四件在本地跑不出来、只有进容器才暴露的事：
      1) 服务名就是主机名 —— 写 localhost 会连到容器自己；
      2) chromadb 的默认路径是 Windows 绝对路径；
-     3) ollama 官方镜像不会自动拉模型，少了那一步会报 Connection error。
+     3) ollama 官方镜像不会自动拉模型，少了那一步会报 Connection error；
+     4) nginx 少了 proxy_buffering off / Upgrade 头，流式与 WebSocket 都会坏。
      另外要如实说明：2.2 GB 的 reranker 与图谱/向量库都不在 git 里。 -->
 
 ### 中文速查
 
 ```bash
 docker compose up -d --build     # 首次构建约 5-10 分钟（装 torch 与依赖）
-# 浏览器打开  http://localhost:8501
+# 浏览器打开  http://localhost:8080
+docker compose logs -f nginx     # 看网关在转发什么
 docker compose logs -f backend   # 看后端在干什么
 docker compose down              # 停掉（模型 volume 保留）
 ```
+
+**只开一个口**：外部用户访问 `http://localhost:8080`。8000 / 8501 / 11434 都只绑在
+回环地址上，是给调试用的，不对外。
 
 前提是 `./models/bge-reranker-v2-m3` 存在 —— 它不在 git 里，原因见下一节。
 
 ### What `docker compose up -d` actually starts
 
 ```
-                    ┌──────────────────────────────────────────┐
-  localhost:8501    │ frontend   Streamlit 监控台               │
-  ─────────────────▶│   API_BASE_URL=http://backend:8000        │
-                    └───────────────┬──────────────────────────┘
-                                    │ service DNS
-                    ┌───────────────▼──────────────────────────┐
-  localhost:8000    │ backend    FastAPI + LangGraph            │
-  ─────────────────▶│   OLLAMA_BASE_URL=http://ollama:11434/v1  │
-                    └───────────────┬──────────────────────────┘
-                                    │ service DNS
-                    ┌───────────────▼──────────────────────────┐
-  localhost:11434   │ ollama     qwen2.5 + nomic-embed-text     │
-  ─────────────────▶│   models in the ollama_models volume      │
-                    └──────────────────────────────────────────┘
+  browser
+     │  http://localhost:8080        ← 唯一对外的地址
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ nginx  :80 (host 8080)                                       │
+│   /api/*  ──▶ backend:8000     proxy_buffering off  (SSE)    │
+│   /*      ──▶ frontend:8501    Upgrade/Connection   (WS)     │
+└──────┬──────────────────────────────────┬───────────────────┘
+       ▼                                  ▼
+┌──────────────────────┐      ┌────────────────────────────────┐
+│ backend  gunicorn    │      │ frontend  Streamlit 监控台      │
+│  4 × UvicornWorker   │      │  API_BASE_URL=http://backend:8000│
+│  OLLAMA_BASE_URL=…   │      │  服务端代发请求，带 Bearer token │
+└──────────┬───────────┘      └────────────────────────────────┘
+           ▼
+┌─────────────────────────────────────────────────────────────┐
+│ ollama   qwen2.5 + nomic-embed-text（ollama_models volume）  │
+└─────────────────────────────────────────────────────────────┘
 
-  ollama-pull  ← one-shot job: pulls both models, then exits
+ollama-pull ← one-shot job: pulls both models, then exits
 ```
 
 | Service | Image | Host port | Role |
 |---|---|---|---|
-| `ollama` | `ollama/ollama` | 11434 | Local inference: `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
+| `nginx` | `nginx:alpine` | **8080 → 80** | Single entry point. `/api/*` → backend, `/*` → frontend |
+| `frontend` | built from `Dockerfile` | 127.0.0.1:8501 | `streamlit run app.py --server.port=8501` |
+| `backend` | same image | 127.0.0.1:8000 | `gunicorn api_server:api --config gunicorn.conf.py` (4 workers) — `/docs` |
+| `ollama` | `ollama/ollama` | 127.0.0.1:11434 | `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
 | `ollama-pull` | `ollama/ollama` | — | Runs once, pulls the two models, exits 0 |
-| `backend` | built from `Dockerfile` | 8000 | `uvicorn api_server:api` — API docs at `/docs` |
-| `frontend` | same image | 8501 | `streamlit run app.py --server.port=8501` |
+
+### One origin, and why that is the whole point
+
+Routing both paths through one port is not just tidiness — it deletes a category of bug. The browser only ever sees `http://localhost:8080`, so a request from the Streamlit page to `/api/...` is **same-origin**. There is no preflight, no `Access-Control-Allow-Origin`, and no "works locally, fails behind the proxy" class of CORS incident. The `CORSMiddleware` is still registered for direct-to-backend use, but on the normal path it never runs.
+
+Two nginx settings are load-bearing rather than tuning:
+
+| Setting | Without it |
+|---|---|
+| `proxy_buffering off` on `/api/` | nginx accumulates the SSE body and flushes it at the end. The report still arrives, complete and correct — but after 90 seconds in one lump. Streaming silently becomes non-streaming |
+| `proxy_set_header Upgrade` + `Connection $connection_upgrade` on `/` | The page loads, then hangs on "Please wait...". Streamlit's frontend talks to its own server over a WebSocket, and a plain HTTP proxy does not carry it |
+
+`Host` is forwarded as `$http_host`, not `$host`. `$host` drops the `:8080`, and Streamlit's XSRF check compares the `Origin` header against `Host` — the mismatch surfaces as `Invalid origin` in the browser console.
+
+`proxy_pass http://backend;` deliberately has **no trailing slash**. With one (`http://backend/`), nginx strips `/api` before forwarding, and every request 404s.
+
+### Authentication
+
+`/api/*` requires `Authorization: Bearer <API_TOKEN>`; `/health`, `/docs` and `/charts` do not.
+
+```bash
+# no token -> 401
+curl -i http://localhost:8080/api/review/x
+
+# with token -> reaches the endpoint
+curl -i -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/api/review/x
+```
+
+Three decisions worth stating:
+
+- **`Depends`, not middleware.** The token check is an `APIRouter(dependencies=[Depends(require_token)])`, so every route added to that router is protected by construction, and `/docs` grows an *Authorize* button for free.
+- **`secrets.compare_digest`, not `==`.** String comparison short-circuits, so its duration leaks how many leading characters matched. The attack is impractical, but the correct version costs nothing.
+- **The token never reaches the browser.** The page does not call `/api/` itself — the Streamlit process does, server-side. So putting the console behind nginx means end users never hold the token. That is a free property of server-rendered frontends, and it is worth not breaking by "just calling the API from JavaScript".
+
+Frontend and backend read `API_TOKEN` from the **same** `env_file`, which is the only reliable way to prevent "changed one side, rebuilt nothing" 401s. If they ever diverge the console says so explicitly instead of showing a bare `HTTP 401`.
+
+An empty `API_TOKEN` disables auth (local development) and logs a warning at import — not in `__main__`, because gunicorn imports the module and never runs that branch.
+
+### Process model: gunicorn, and the memory bill it comes with
+
+```python
+# gunicorn.conf.py
+workers = 4                                  # WEB_CONCURRENCY
+worker_class = "uvicorn_worker.UvicornWorker"
+timeout = 900
+```
+
+`uvicorn --workers 4` would start four processes and manage none of them; gunicorn's arbiter restarts crashed workers and supports graceful reloads. That is the difference being bought here.
+
+The worker class is `uvicorn_worker.UvicornWorker`, not `uvicorn.workers.UvicornWorker`. The latter still works in uvicorn 0.54 but emits a `DeprecationWarning` and is slated for removal — pinning to it means the container fails to import on some future minor bump.
+
+Two things about this configuration are easy to get wrong in opposite directions:
+
+**`timeout` must be raised.** gunicorn's default is 30 s. One assessment takes 90–150 s, so the default kills the worker mid-report and leaves a single `worker timeout` line in the log.
+
+**4 workers is not free.** `core/reranker.py` loads a 2.2 GB model at import time, so each worker carries its own copy — roughly 10–12 GB for four, on top of Ollama's ~5 GB. The machine needs about 24 GB. `gunicorn.conf.py` prints the arithmetic at startup and warns when it does not fit; `WEB_CONCURRENCY=2` halves it.
+
+`preload_app` is deliberately **off**, even though it would share the model copy-on-write and save ~8 GB. `lightrag_retriever` starts a background thread that runs LightRAG's event loop at import time, and threads do not survive `fork` — the children would inherit a "ready" flag for a loop that is not running, and retrieval would hang forever. Preload buys memory and sells correctness.
+
+**What four workers do and do not fix.** They stop one slow assessment from blocking a second request. They do not make inference faster — every worker queues at the same Ollama, whose concurrency is `OLLAMA_NUM_PARALLEL` (set to 2 in the compose file, so the two fan-out branches actually run side by side). They also do not remove shared-state contention: HITL threads are checkpointed in `checkpoint.db`, and four processes writing to one SQLite file can contend. That path works, but if you exercise human-in-the-loop heavily, `WEB_CONCURRENCY=1` is the honest setting rather than four workers fighting over a lock.
+
+### Health: real dependencies, not "the process is alive"
+
+`GET /health` returns 200 whenever the process can answer, and reports each dependency separately:
+
+```json
+{
+  "status": "ok",
+  "auth": "enabled",
+  "checks": {
+    "ollama":   {"ok": true,  "detail": "qwen2.5 可用（共 3 个模型）", "latency_ms": 45},
+    "chroma":   {"ok": true,  "detail": "ccus_knowledge_v3 就绪（1982 条向量）", "latency_ms": 203},
+    "sqlite":   {"ok": true,  "detail": "checkpoint.db 可写（722 条断点）", "latency_ms": 50},
+    "reranker": {"ok": true,  "detail": "已加载", "latency_ms": 0}
+  }
+}
+```
+
+- **It never returns 503.** A dead Ollama does not become healthier by restarting the backend; it just drags the frontend down with it, since `frontend` waits on `backend: service_healthy`. Degradation is reported in the body where a human or a dashboard can read it.
+- **It loads no models.** Every probe is cheap: an HTTP call, a collection count, a `SELECT`, a `sys.modules` lookup.
+- **It runs off the event loop** (`asyncio.to_thread`). A 2-second Ollama timeout on the loop would stall an SSE stream in the same worker — the report would visibly hitch every 30 seconds.
+- **It uses the app's own constants.** The Chroma probe imports `CCUS_CHROMA_PATH` / `CCUS_COLLECTION` from `tools.knowledge_tools` rather than re-deriving them. That is not pedantry: the first version re-derived the path and cheerfully reported "healthy" against an empty shell directory while the real store sat elsewhere. A health check that disagrees with the code it is checking is worse than none.
 
 ### Two things are not in git, and one of them is a hard requirement
 
@@ -456,7 +552,7 @@ This is the part a fresh clone trips over, so it is stated plainly rather than b
 |---|---|---|---|
 | `models/bge-reranker-v2-m3` | 2.2 GB | **no** | **Backend cannot start.** `core/reranker.py` loads it at import time, so `uvicorn` dies before serving. The frontend then never starts either (it waits for `backend` to be healthy) |
 | `lightrag_storage/` | 8 MB | no | Starts fine; retrieval has no index, so reports lose their evidence grounding |
-| `chroma_petro/` | 184 KB | no | Starts fine; the wellbore branch finds no chunks |
+| `chroma_petro/` | 31 MB | no | Starts fine, but the wellbore branch finds nothing — and `/health` will say so (`集合 ccus_knowledge_v3 不存在`) |
 
 The first row is deliberate design, not an oversight: a 2.2 GB weight file in a git repo is worse than a documented download step, and `docker compose up` failing loudly beats the alternative — an `OSError` at the first request pointing at the wrong layer.
 
@@ -474,16 +570,20 @@ The graph and the vector store are **derived data**, produced by the ingestion s
 
 ### The network contract
 
-Three values decide whether the stack works, and all three are pinned in `docker-compose.yml` under `environment:` rather than in the env file — because getting one wrong makes the stack unreachable in a way that looks like a code bug:
+Every hop is a service name, and the ones that matter are pinned in `docker-compose.yml` under `environment:` rather than in the env file — because getting one wrong makes the stack unreachable in a way that looks like a code bug:
 
 | From | To | Value | Why not `localhost` |
 |---|---|---|---|
+| browser | `nginx` | `localhost:8080` | The only address an end user needs |
+| `nginx` | `backend` | `upstream backend { server backend:8000; }` | `127.0.0.1:8000` inside the nginx container is nginx itself |
+| `nginx` | `frontend` | `upstream frontend { server frontend:8501; }` | Same |
 | `frontend` | `backend` | `API_BASE_URL: http://backend:8000` | Inside the frontend container, `127.0.0.1:8000` is the frontend itself. The page would show "backend not connected" while both containers report healthy |
 | `backend` | `ollama` | `OLLAMA_BASE_URL: http://ollama:11434/v1` | Same reason; the symptom is `Connection error` from the OpenAI client |
 | `backend` | ChromaDB | `CCUS_CHROMA_PATH: /app/chroma_petro` | The code's default is `D:\python-learn\chroma_petro`. On Linux that becomes a directory literally named `D:\python-learn\chroma_petro` — no error, just a permanently empty collection |
-| browser | `frontend` | `localhost:8501` | Only the browser runs on the host |
 
-CI asserts all three (`Frontend/backend contract` job), including a check that `API_BASE_URL` never points at loopback.
+`lightrag_retriever.py` used to hardcode `http://localhost:11434`, which is the same bug in a place the health check would not have caught: `/health` probes `OLLAMA_BASE_URL` (green) while retrieval talks to a nonexistent Ollama inside the backend container (broken). It now derives its host from `OLLAMA_BASE_URL`, stripping the `/v1` suffix because LightRAG appends `/api/embed` itself.
+
+CI asserts the pinned values, including a check that `API_BASE_URL` never points at loopback and that only nginx publishes a non-loopback port.
 
 ### Where configuration lives
 
@@ -548,9 +648,17 @@ cp project_history.md user_profile.md state/
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `localhost:8501` refuses connection | `frontend` never started because `backend` is unhealthy | `docker compose logs backend` — most likely the reranker is missing |
+| `localhost:8080` refuses connection | `nginx` never started because an upstream is unhealthy | `docker compose ps` — look for a service that is `unhealthy`, then read its logs |
+| `localhost:8080` works but `:8501` does not | by design: only nginx is public | use 8080, or `docker compose port frontend 8501` for the loopback mapping |
 | Page loads, banner says backend unreachable | `API_BASE_URL` points at loopback | it must be `http://backend:8000` |
+| Report appears all at once after a long wait | nginx buffered the SSE stream | `proxy_buffering off;` missing on `location /api/` |
+| Page stuck on "Please wait..." | WebSocket not upgraded | `Upgrade` / `Connection $connection_upgrade` missing on `location /` |
+| `Invalid origin` in the browser console | nginx sent `Host $host` (no port) | use `Host $http_host` |
+| `HTTP 401` when starting an assessment | frontend and backend tokens differ | both read `API_TOKEN` from `.env.docker`; edit one file, then `docker compose up -d` |
+| `/health` says `degraded` with `chroma` failing | `chroma_petro/` missing or the collection is empty | check `CCUS_COLLECTION`; the probe prints the collections it did find |
 | `Connection error` on the first assessment | models not pulled | `docker compose logs ollama-pull`; or `docker compose exec ollama ollama list` |
+| Worker killed mid-assessment | gunicorn `timeout` below the real runtime | it is 900 s in `gunicorn.conf.py`; do not lower it |
+| Container OOM-killed under load | 4 workers × 2.2 GB reranker | set `WEB_CONCURRENCY=2`; check the startup warning in `docker compose logs backend` |
 | Every assessment takes minutes | CPU inference | use the GPU override |
 | Report has no citations | `lightrag_storage/` empty | build the graph from the corpus on the host |
 | `docker compose up` says `ollama-pull exited with code 1` | pull failed (no network / wrong tag) | `docker compose run --rm ollama-pull` to see the error |
@@ -1332,7 +1440,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **442 offline unit tests**, and a **154-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **442 offline unit tests**, and a **171-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1380,9 +1488,11 @@ petro-rag-agent/
 ├── app.py                    # Streamlit frontend (pure HTTP client, API_BASE_URL-aware)
 ├── api_server.py             # FastAPI: SSE stream + sync + HITL (hitl/review/approve)
 ├── Dockerfile                # python:3.10-slim, exposes 8000 (API) + 8501 (UI)
-├── docker-compose.yml        # ollama + ollama-pull + backend + frontend
+├── docker-compose.yml        # nginx + ollama + ollama-pull + backend + frontend
 ├── docker-compose.gpu.yml    # optional override: NVIDIA passthrough for ollama
-├── .env.docker               # compose env_file: tuning + optional cloud block (no secrets)
+├── nginx.conf                # single entry point: /api/* → backend, /* → frontend
+├── gunicorn.conf.py          # 4 × UvicornWorker, timeout 900, memory preflight
+├── .env.docker               # compose env_file: token + tuning + optional cloud block
 ├── multi_agent_ccus.py       # Entry shim only: `from workflow import app`
 ├── workflow.py               # Graph: add_node / add_edge / conditional / 3 compile targets
 ├── core/
@@ -1442,7 +1552,7 @@ petro-rag-agent/
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
 ├── models/                   # PINN weights (*.pt, ~18 KB each) + loss curves (*.png)
-├── test_graph_rag_e2e.py     # End-to-end regression suite (154 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (171 assertions)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -1518,11 +1628,10 @@ Open `http://127.0.0.1:8501`, paste a project description, and click **启动评
 
 ```bash
 docker compose up -d --build
-# Frontend → http://localhost:8501
-# API docs → http://localhost:8000/docs
+# Everything → http://localhost:8080   (nginx routes / and /api)
 ```
 
-This one brings up **Ollama too**, so nothing has to be installed on the host beyond Docker itself. Models, graph storage and the reranker are mounted, not baked into the image; `ollama-pull` fetches `qwen2.5` and `nomic-embed-text` on first start. See [Deployment](#deployment-docker) for the prerequisites (one of them is a 2.2 GB download that is not in git) and for the GPU override.
+This one brings up **Ollama too**, so nothing has to be installed on the host beyond Docker itself. Models, graph storage and the reranker are mounted, not baked into the image; `ollama-pull` fetches `qwen2.5` and `nomic-embed-text` on first start. `nginx` is the only container with a public port — 8000 and 8501 are bound to loopback for debugging. See [Deployment](#deployment-docker) for the prerequisites (one of them is a 2.2 GB download that is not in git), the token, and the GPU override.
 
 ---
 
@@ -1702,9 +1811,10 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 154 PASS / 0 FAIL   (613 s / 650 s across two runs —
-                                   six workflow runs, each fanning out into two retrieval branches;
-                                   the ~40 s spread is rerank-candidate variance, see the latency note above)
+Test summary: 171 PASS / 0 FAIL   (667 s — several workflow runs in one suite,
+                                   each fanning out into two retrieval branches;
+                                   the spread across runs is rerank-candidate variance,
+                                   see the latency note above)
 ```
 
 Step 4-C is the newest: it asserts that a finished assessment actually leaves an experience behind, that the record carries `score` and retrieval quality, and that the report body is **not** in it (a full report per record would fill the reflection context with one case's specifics). It also asserts the store lives in a temp directory — the suite sets `EVOLVE_HOME` there, because 20 test assessments would otherwise trigger a real reflection and teach the system from test questions. Reflection itself needs 20 records and is covered by `evolution_engine.py --simulate` instead.
@@ -1714,6 +1824,13 @@ Step 5-B exists for a different reason: **every other question in the suite lack
 ```bash
 python -c "import time, test_graph_rag_e2e as t; t.step_pinn(); t.summary(time.time())"
 ```
+
+Step 7-B was added with the production hardening, and it exists because authentication is the one feature whose failure mode is **silent success**. A token check that is wired to nothing still returns 200 to every caller, and the deployment looks fine right up until it isn't. So the suite asserts both directions: `/api/*` must answer 401 for a missing token, a wrong token and a non-Bearer scheme, and must reach the router (404 on a nonexistent thread, not 401) for the right one. The 404 is the point — asserting 200 there would only prove the endpoint exists, while 404 proves the request got *past* the dependency.
+
+It also pins the two decisions that are easy to undo by accident:
+
+- **`/health` stays 200 when dependencies fail**, and reports them in the body. If it returned 503, Compose would restart a backend that is working perfectly well while Ollama is down, and the frontend (which waits on `backend: service_healthy`) would go with it. The suite asserts the 200 and reads `checks.ollama` / `checks.chroma` / `checks.sqlite` for the truth — measured, not assumed: **15 ms / 2 ms / 4 ms** warm, against `ccus_knowledge_v3` with **1982 vectors** and a checkpoint DB with **747 rows**.
+- **The token is a runtime switch, not a startup flag.** `require_token` reads `api_server.API_TOKEN` on every call, so the suite flips it on, runs the five negative cases, flips it back, and confirms the endpoint is open again. The alternative — restarting the server with `API_TOKEN` set — would need a second copy of the 3.95 GB reranker, which this machine cannot hold (see the memory note in `ensure_api_server`).
 
 This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 10 successful upstream calls during the suite (3 workflows × 2 branches + 3 syntheses, plus the SSE one) — 4 of them streamed. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
 
@@ -1737,7 +1854,7 @@ Two scripts rather than one, because "the tool is broken" and "the transport is 
 | Workflow | Trigger | Scope |
 |---|---|---|
 | `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, **MCP-wire guard**, container-file guard, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 154-assertion pipeline on a self-hosted runner with Ollama |
+| `e2e.yml` | manual (`workflow_dispatch`) | full 171-assertion pipeline on a self-hosted runner with Ollama |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 

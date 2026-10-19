@@ -41,8 +41,10 @@ def check(name: str, cond: bool, detail: str = ""):
 
 
 def ollama_get(path: str, payload: dict = None):
+    # 127.0.0.1 而不是 localhost：Windows 上 localhost 先解析到 ::1，而 Ollama
+    # 只监听 IPv4，每次请求要多等约 2 秒的 IPv6 失败回退。
     req = urllib.request.Request(
-        f"http://localhost:11434{path}",
+        f"http://127.0.0.1:11434{path}",
         data=json.dumps(payload).encode() if payload else None,
         headers={"Content-Type": "application/json"},
     )
@@ -908,6 +910,84 @@ def main():
               '"cost_estimation": compute_cost_estimation(node_outputs)' in api_src)
     except Exception as e:
         check("成本仪表盘", False, str(e))
+
+    # ─── Step 7-B: Bearer 鉴权 + 真实健康检查 ──────────
+    print("\n[Step 7-B] Bearer Token 鉴权 + 健康检查探针")
+    try:
+        import requests as _rq
+
+        import api_server as _api_mod
+
+        base = "http://127.0.0.1:8000"
+
+        # ── A. 健康检查报告的是依赖，不是"进程还活着" ──
+        h = _rq.get(f"{base}/health", timeout=30)
+        check("health 返回 200（依赖挂了也不该 503）", h.status_code == 200,
+              f"HTTP {h.status_code}")
+        hbody = h.json()
+        hchecks = hbody.get("checks") or {}
+        check("health 覆盖 ollama / chroma / sqlite",
+              {"ollama", "chroma", "sqlite"} <= set(hchecks))
+        for dep in ("ollama", "chroma", "sqlite"):
+            c = hchecks.get(dep) or {}
+            check(f"health.{dep} 真实连通", bool(c.get("ok")),
+                  str(c.get("detail"))[:70])
+            check(f"health.{dep} 带实测耗时",
+                  isinstance(c.get("latency_ms"), int), f"{c.get('latency_ms')} ms")
+        # 本地 .env 没配 token → 鉴权关闭，且必须如实上报，不能假装已保护
+        check("未配置 token 时 health 上报 auth=disabled",
+              hbody.get("auth") == "disabled", str(hbody.get("auth")))
+
+        # ── B. 打开鉴权：改模块级全局，无需重启服务 ──
+        # require_token 每次调用都读 api_server.API_TOKEN，所以改属性等于
+        # 运行期切配置。比"另起一个带 token 的进程"省一份 3.95 GB 的 reranker。
+        _api_mod.API_TOKEN = "e2e-secret-token"
+        try:
+            h2 = _rq.get(f"{base}/health", timeout=30)
+            check("开启鉴权后 health 仍免 token（探针不带业务凭证）",
+                  h2.status_code == 200 and h2.json().get("auth") == "enabled",
+                  f"HTTP {h2.status_code} auth={h2.json().get('auth')}")
+
+            no_tok = _rq.get(f"{base}/api/review/e2e-probe", timeout=30)
+            check("无 token 访问 /api/* 返回 401", no_tok.status_code == 401,
+                  f"HTTP {no_tok.status_code}")
+            check("401 带 WWW-Authenticate: Bearer",
+                  "bearer" in (no_tok.headers.get("WWW-Authenticate") or "").lower(),
+                  str(no_tok.headers.get("WWW-Authenticate")))
+
+            wrong = _rq.get(f"{base}/api/review/e2e-probe",
+                            headers={"Authorization": "Bearer wrong-token"}, timeout=30)
+            check("错误 token 返回 401", wrong.status_code == 401,
+                  f"HTTP {wrong.status_code}")
+
+            basic = _rq.get(f"{base}/api/review/e2e-probe",
+                            headers={"Authorization": "Basic dXNlcjpwYXNz"}, timeout=30)
+            check("非 Bearer 方案返回 401", basic.status_code == 401,
+                  f"HTTP {basic.status_code}")
+
+            good_tok = _rq.get(f"{base}/api/review/e2e-probe",
+                               headers={"Authorization": "Bearer e2e-secret-token"},
+                               timeout=30)
+            # 放行的证据不是 200，而是 404 —— 这个 thread 本来就不存在。
+            # 只有 404 才同时证明"鉴权没拦"且"确实进了路由"。
+            check("正确 token 放行（进到路由 → 404 而非 401）",
+                  good_tok.status_code == 404, f"HTTP {good_tok.status_code}")
+
+            spec = _rq.get(f"{base}/openapi.json", timeout=30)
+            schemes = (spec.json().get("components") or {}).get("securitySchemes") or {}
+            check("OpenAPI 声明 Bearer 方案（/docs 的 Authorize 按钮依赖它）",
+                  spec.status_code == 200
+                  and any("/api/analyze" in p for p in (spec.json().get("paths") or {}))
+                  and bool(schemes),
+                  f"HTTP {spec.status_code} schemes={list(schemes)}")
+        finally:
+            _api_mod.API_TOKEN = ""
+
+        after = _rq.get(f"{base}/api/review/e2e-probe", timeout=30)
+        check("撤掉 token 后恢复放行（配置是唯一开关）",
+              after.status_code == 404, f"HTTP {after.status_code}")
+    except Exception as e:
+        check("Bearer 鉴权 / 健康检查", False, f"{type(e).__name__}: {e}")
 
     # ─── Step 8: 物理一致性校验 + 人工审核（HITL）───────
     print("\n[Step 8] 物理一致性校验 + 人工审核（HITL）")

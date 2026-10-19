@@ -170,6 +170,47 @@ jobs:
           fi
           grep -q 'PROJECT_HISTORY_PATH: /app/state/' docker-compose.yml \
             || { echo "::error::file memory must point at the mounted ./state directory"; exit 1; }
+          # 中文注释：统一入口。外部只该看到一个端口，nginx 负责 /api/ 与 / 的分流。
+          grep -q '^  nginx:' docker-compose.yml \
+            || { echo "::error::docker-compose.yml lost the nginx gateway"; exit 1; }
+          test -s nginx.conf || { echo "::error::nginx.conf missing"; exit 1; }
+          grep -q 'proxy_pass http://backend;' nginx.conf \
+            || { echo "::error::nginx must route /api/ to the backend upstream"; exit 1; }
+          grep -q 'proxy_pass http://frontend;' nginx.conf \
+            || { echo "::error::nginx must route / to the frontend upstream"; exit 1; }
+          # 中文注释：SSE 与 WebSocket 是两处"不写就坏"的配置。
+          # 少了 proxy_buffering off，流式报告会攒到最后一次性吐出；
+          # 少了 Upgrade/Connection，Streamlit 页面永远停在 Please wait。
+          grep -q 'proxy_buffering off;' nginx.conf \
+            || { echo "::error::nginx must disable proxy_buffering for SSE"; exit 1; }
+          grep -q 'proxy_set_header Upgrade' nginx.conf \
+            || { echo "::error::nginx must forward Upgrade for Streamlit websockets"; exit 1; }
+          # 中文注释：proxy_pass 带 URI 后缀会把 /api 前缀吃掉，后端路由是 /api/...
+          if grep -qE 'proxy_pass http://backend/;' nginx.conf; then
+            echo "::error::proxy_pass must not carry a URI suffix (it would strip /api)"; exit 1
+          fi
+          # 中文注释：生产进程模型。gunicorn 的 master 会拉起崩溃的 worker，
+          # 而 uvicorn --workers 只是起 N 个互不管理的进程。
+          grep -q 'gunicorn' docker-compose.yml \
+            || { echo "::error::backend must run under gunicorn"; exit 1; }
+          grep -q 'api_server:api' docker-compose.yml \
+            || { echo "::error::backend command must point at api_server:api"; exit 1; }
+          test -s gunicorn.conf.py || { echo "::error::gunicorn.conf.py missing"; exit 1; }
+          grep -q 'uvicorn_worker.UvicornWorker' gunicorn.conf.py \
+            || { echo "::error::gunicorn.conf.py must use the maintained uvicorn-worker class"; exit 1; }
+          # 中文注释：gunicorn 默认 timeout=30s，而一次评估要 90-150s。
+          # 不显式调大，worker 会在报告生成到一半时被杀掉。
+          grep -qE '^timeout = (9[0-9]{2}|[1-9][0-9]{3,})' gunicorn.conf.py \
+            || { echo "::error::gunicorn timeout must exceed the longest assessment (>=900s)"; exit 1; }
+          # 中文注释：鉴权。前后端必须读同一个 token 来源，否则线上就是 401。
+          grep -q 'API_TOKEN' .env.docker \
+            || { echo "::error::.env.docker must define API_TOKEN"; exit 1; }
+          grep -q 'require_token' api_server.py \
+            || { echo "::error::api_server.py lost the bearer-token dependency"; exit 1; }
+          grep -q 'AUTH_HEADERS' app.py \
+            || { echo "::error::app.py must send the bearer token to the backend"; exit 1; }
+          grep -q 'env_file' docker-compose.yml \
+            || { echo "::error::frontend and backend must share one env_file for API_TOKEN"; exit 1; }
           echo "Container deployment files OK."
 
       - name: Guard the package boundary (no logic back-flow into the entry shim)

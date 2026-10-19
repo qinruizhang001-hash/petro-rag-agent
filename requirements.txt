@@ -24,6 +24,16 @@ fastapi>=0.110.0
 uvicorn>=0.29.0
 requests>=2.31.0
 
+# ─── Production process manager ───────
+# gunicorn 提供 master 进程：worker 挂了会被拉起、支持优雅重启、信号处理正确。
+# `uvicorn --workers N` 只是起 N 个进程，没有这层管理。
+#
+# uvicorn-worker 而不是 uvicorn.workers：后者在 uvicorn 0.54 里已经
+# DeprecationWarning，官方拆成了独立包。写旧路径会在某次 uvicorn 升级后
+# 变成启动即 ImportError。
+gunicorn>=21.2.0
+uvicorn-worker>=0.2.0
+
 # ─── Frontend ─────────────────────────
 # 下限卡在 1.49：监控台用的是 width="stretch"，这个参数在 1.49 才引入；
 # 更早的版本只认 use_container_width，而那个参数在 2025-12-31 后会被移除
