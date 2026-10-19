@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────
+# CCUS 系统 — 云服务器自动部署
+#
+# 触发条件：main 分支有代码推送
+# 行为：通过 SSH 连接到云服务器，执行 deploy.sh 完成拉取、构建、重启。
+#
+# 使用前必须在仓库 Settings → Secrets and variables → Actions 里配置：
+#   SSH_HOST          云服务器公网 IP 或域名
+#   SSH_USERNAME      登录用户名（如 ubuntu / root）
+#   SSH_PRIVATE_KEY   私钥全文（-----BEGIN OPENSSH PRIVATE KEY----- ...）
+#   SSH_PORT          （可选，默认 22）
+#
+# 安全建议：
+#   1. 不要用 root 账户直接登录。创建一个 docker 组的普通用户，只给最小权限。
+#   2. 私钥必须带 passphrase，但 CI 无法交互输入 passphrase。
+#      折中：在服务器上单独给 CI 配一个只读部署密钥（restrict,command="..."）。
+#   3. 在服务器 /etc/ssh/sshd_config 里限制：只允许密钥登录、禁止密码登录、
+#      禁止 root 登录。fail2ban 也建议装上。
+# ─────────────────────────────────────────────────────────────
+name: Deploy to Cloud Server
+
+on:
+  push:
+    branches: [main]
+
+  # 允许手动触发（GitHub 网页上点 "Run workflow"）
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 可选：如果 deploy.sh 在仓库里，可以把它 scp 到服务器。
+      # 但更好的做法是让服务器上的 deploy.sh 自己 git pull ——
+      # 这样服务器端逻辑（备份策略、健康检查阈值）可以独立演进，
+      # 不必每次改 deploy.sh 都发一次版。
+      #
+      # 这里只做一件事：SSH 过去，执行服务器上已有的 deploy.sh。
+      # 首次部署前，需要手动把 deploy.sh 放到服务器上（见 README 部署章节）。
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          # 超时给 10 分钟：构建镜像 + 加载 reranker 模型可能需要 3-5 分钟
+          command_timeout: 10m
+          # 把部署日志打出来，方便在 GitHub Actions 页面上直接看
+          script: |
+            set -euo pipefail
+            DEPLOY_DIR="${DEPLOY_DIR:-/opt/petro-rag-agent}"
+            LOG="/var/log/ccus-deploy.log"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] GitHub Actions 触发部署 (commit ${{ github.sha }})" | sudo tee -a "$LOG"
+            cd "$DEPLOY_DIR"
+            bash deploy.sh
