@@ -14,13 +14,197 @@
   <img alt="Streamlit" src="https://img.shields.io/badge/Frontend-Streamlit-FF4B4B?logo=streamlit&logoColor=white">
   <img alt="Ollama" src="https://img.shields.io/badge/LLM-Ollama%20Qwen2.5-000000">
   <img alt="Docker" src="https://img.shields.io/badge/Deploy-Docker%20Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Nginx" src="https://img.shields.io/badge/Gateway-nginx%20%2B%20SSE-009639?logo=nginx&logoColor=white">
+  <img alt="Gunicorn" src="https://img.shields.io/badge/Serving-gunicorn%20%C3%97%204-499848">
 </p>
 
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/unit%20tests-350%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-442%20unit%20%C2%B7%20171%20e2e-brightgreen">
 </p>
+
+---
+
+## System topology
+
+<!-- 中文注释：这张图回答的是"东西跑在哪、谁能连谁"，不是业务数据流（业务流在下面的 Architecture 一节）。
+     要点：只有 nginx 一个容器对外；8000/8501/11434 全部退到回环地址；
+     容器之间用服务名互访，写 localhost 会连到容器自己。 -->
+
+Five services, **one public port**. Everything else lives on the Docker network and is reachable only by service name — `localhost` inside a container means *that container*, which is the single most common way this stack gets misconfigured.
+
+```mermaid
+flowchart TB
+    B(["Browser<br/>http://localhost:8080"])
+
+    NG["nginx :80<br/>host 8080<br/>the only public port"]
+
+    BE["FastAPI :8000<br/>gunicorn · 4 UvicornWorkers<br/>Bearer token on /api/*"]
+    FE["Streamlit :8501<br/>instrument panel<br/>server-side fetch + token"]
+
+    OL["Ollama :11434<br/>qwen2.5 · nomic-embed-text"]
+    CH[("ChromaDB<br/>ccus_knowledge_v3<br/>1982 vectors")]
+    GR[("LightRAG graph<br/>389 entities · 400 relations")]
+    RR["bge-reranker-v2-m3<br/>2.2 GB per worker"]
+    SQ[("SQLite<br/>checkpoints · HITL")]
+
+    B -->|"one origin"| NG
+    NG -->|"/* + WebSocket"| FE
+    NG -->|"/api/* · SSE, unbuffered"| BE
+    BE --> OL
+    BE --> CH
+    BE --> GR
+    BE --> RR
+    BE --> SQ
+
+    classDef edgeStyle fill:#fdf0d5,stroke:#b7791f,stroke-width:1px
+    classDef appStyle fill:#e8f1fb,stroke:#2c6fbb,stroke-width:1px
+    classDef dataStyle fill:#eef6ee,stroke:#4a7c59,stroke-width:1px
+    class NG edgeStyle
+    class FE,BE appStyle
+    class OL,CH,GR,RR,SQ dataStyle
+```
+
+| Service | Host port | Role |
+|---|---|---|
+| `nginx` | **8080 → 80** | Single entry point. `/api/*` → backend, `/*` → frontend |
+| `frontend` | 127.0.0.1:8501 | Streamlit console; calls the backend server-side, never from the browser |
+| `backend` | 127.0.0.1:8000 | FastAPI under gunicorn; `/docs` is the only reason this port is open at all |
+| `ollama` | 127.0.0.1:11434 | `qwen2.5` generates, `nomic-embed-text` embeds |
+| `ollama-pull` | — | Runs once, pulls both models, exits 0 |
+
+The bottom row is **not five more containers** — `docker compose ps` shows five services, and ChromaDB, the LightRAG graph, the reranker and the SQLite checkpoints all live *inside the backend process*. That is a deliberate choice rather than a shortcut: a 20 ms embedded vector lookup does not deserve a network hop, and a 2.2 GB cross-encoder that every request touches does not belong behind an HTTP boundary. What it costs is memory — four workers means four private copies — and the deployment notes state that bill rather than hiding it.
+
+Per-stage routing means one request touches both sides of the diagram: retrieval and scoring never leave the machine, while the prose a human will read is the only thing that goes to a paid model.
+
+---
+
+## Three core highlights
+
+| | Highlight | The number |
+|---|---|---|
+| 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
+| 2 | **Dynamic model routing** | **¥0.00287** per assessment, **93 %** below all-cloud |
+| 3 | **171 end-to-end assertions** through the real HTTP path | 171 PASS / 0 FAIL, 667 s, plus 442 unit tests |
+
+### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
+
+A streaming endpoint behind a default nginx config is a silent downgrade: the response is still *correct*, it just arrives after 90 seconds in one lump. Nothing errors, nothing logs, and the only symptom is that the UI feels broken.
+
+```nginx
+location /api/ {
+    proxy_pass http://backend;      # no trailing slash — it would eat the /api prefix
+    proxy_buffering off;            # without this, the stream is flushed at the end
+    proxy_read_timeout 900s;        # nginx defaults to 60 s; one assessment takes 90–150 s
+}
+```
+
+Two more that fail just as quietly, on the frontend side: the WebSocket `Upgrade` / `Connection` pair (without it Streamlit sits on *"Please wait..."* forever) and `Host $http_host` rather than `$host` — `$host` drops the `:8080`, Streamlit's XSRF check compares `Origin` against `Host`, and the page answers `Invalid origin`.
+
+The payoff is structural, not cosmetic: the browser sees **one origin**, so CORS stops being a thing to configure and cannot be configured wrong. 8000 / 8501 / 11434 are bound to loopback and exist only for debugging — `curl 127.0.0.1:8000/health` when you cannot tell whether the frontend died or nginx forwarded wrong.
+
+### 2. 93 % off the bill, and the report does not get worse
+
+Routing is per stage, not per system (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`). The escalation rule is deliberately conservative: **short input *and* the knowledge base actually matched** — measured relevance `0.9947 ≥ 0.05`, not a keyword guess. Extraction, retrieval, reranking, physics validation and scoring never leave the machine; only the prose that a human will read goes to a paid model.
+
+A full assessment, measured end to end:
+
+| | All-cloud baseline | This system |
+|---|---|---|
+| Tokens | 15.4k | 15.4k |
+| Cost | ≈¥0.041 | **¥0.00287** |
+| Saved | — | **93 %** |
+
+Three honest caveats, because a cost table that flatters itself is worthless:
+
+- **Local inference is not free.** ~60 tok/s at 250 W is ≈¥0.7 per million output tokens — the same order of magnitude as the paid numbers above. Pricing it at zero would make "saved" look better than it is, so the dashboard prices electricity.
+- **The baseline is a stated counterfactual** (`saved_cny = all tokens at list price − actual`), not "your last bill". The API response carries `baseline_note` saying exactly this.
+- **Degradation is recorded, never silent.** With no cloud key the report stage falls back to the local model and writes the reason into `model_routing`, so "we thought it was on the cloud" is auditable instead of invisible.
+
+Parallelism is the other half of the latency story: the geology branch (139.94 s) and the wellbore branch (21.77 s) run in the same superstep, so wall-clock is 139.94 s instead of the 161.71 s serial sum — **1.16×** for free, because the graph is a fan-out and not a queue.
+
+### 3. 171 assertions through the real HTTP path — including the ones that prove nothing is fake
+
+The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
+
+**171 PASS / 0 FAIL in 667 s**, alongside **442 offline unit tests** (412 of them run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
+
+The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
+
+- **Auth returns 404, not 401, for a valid token on a missing thread.** Asserting 200 would only prove the route exists; 404 proves the request got *past* the dependency. A token check wired to nothing still returns 200 to everyone.
+- **A well-written report that contradicts physics is scored 0 and sent back** — with a numeric correction (`≤ 227 bar`, `≥ 1 649 m`), not a vague complaint.
+- **The PINN tool returns 109.951 bar against an analytic 110.000.** "The model planned the call" and "the number reached the report" are pinned as two separate assertions, because both have failed independently.
+- **`/health` probes are real**: Ollama 15–27 ms, Chroma 1–2 ms, SQLite 4 ms — against `ccus_knowledge_v3` with `1982 vectors` and a checkpoint DB with `779 rows`. A probe that re-derives its own paths once reported "healthy" against an empty directory; the current one imports the app's own constants.
+
+---
+
+## Quick start
+
+### 中文
+
+**前提**：Docker Desktop。另外 `./models/bge-reranker-v2-m3`（2.2 GB）**不在 git 里**，缺了后端根本起不来 —— 它不是降级，是 import 时崩。下载命令见 [Deployment](#deployment-docker)。
+
+```bash
+git clone https://github.com/qinruizhang001-hash/petro-rag-agent.git
+cd petro-rag-agent
+
+# ① 改配置（就一个文件：.env.docker）
+#    API_TOKEN      换成随机串：openssl rand -hex 24
+#    CLOUD_API_KEY  可选，填了报告阶段走云端，不填自动降级到本地并记录原因
+
+# ② 起栈（首次构建 5-10 分钟，装 torch 与依赖）
+docker compose up -d --build
+
+# ③ 打开浏览器
+#    http://localhost:8080
+```
+
+两个 key 别搞混：
+
+| 变量 | 管什么 | 不填会怎样 |
+|---|---|---|
+| `API_TOKEN` | **本系统** `/api/*` 的 Bearer 口令，前后端读同一个值 | 鉴权关闭，后端启动日志打警告（本地开发可以，对外别这样） |
+| `CLOUD_API_KEY` | **模型厂商**的 key（DeepSeek / OpenAI 等，OpenAI 兼容即可） | 报告阶段降级到本地 `qwen2.5`，`model_routing` 里写明原因 |
+
+起来之后先验一下依赖，这一步不需要 token：
+
+```bash
+curl -s http://localhost:8080/api/health | python -m json.tool
+# status: ok / degraded —— ollama、chroma、sqlite 各自带实测耗时
+```
+
+### English
+
+**Prerequisite:** Docker Desktop, and `./models/bge-reranker-v2-m3` (2.2 GB) — **not in git**, and the backend cannot start without it (`core/reranker.py` loads it at import time, so it dies before serving). Download command in [Deployment](#deployment-docker).
+
+```bash
+git clone https://github.com/qinruizhang001-hash/petro-rag-agent.git
+cd petro-rag-agent
+
+# 1) Configure — one file, .env.docker
+#    API_TOKEN      -> replace with a random string: openssl rand -hex 24
+#    CLOUD_API_KEY  -> optional; without it the report stage degrades to local
+#                      and records the reason in model_routing
+
+# 2) Bring the stack up (first build takes 5-10 min: torch + deps)
+docker compose up -d --build
+
+# 3) Open http://localhost:8080
+```
+
+Two different keys, easy to confuse:
+
+- **`API_TOKEN`** — the bearer token *this system* requires on `/api/*`. Backend and frontend read the same value from the same `env_file`, so it cannot be changed on one side only. Empty = auth off, with a warning at startup.
+- **`CLOUD_API_KEY`** — the *model provider's* key (DeepSeek / OpenAI / any OpenAI-compatible endpoint). Empty is a supported configuration, not a failure.
+
+Verify the dependencies before touching the UI — this endpoint needs no token:
+
+```bash
+curl -s http://localhost:8080/api/health | python -m json.tool
+```
+
+`status: ok` means all four probes passed; `degraded` names the one that did not, with its measured latency. Full deployment notes, the network contract, and an eight-row troubleshooting table: [Deployment](#deployment-docker).
 
 ---
 
@@ -1829,7 +2013,7 @@ Step 7-B was added with the production hardening, and it exists because authenti
 
 It also pins the two decisions that are easy to undo by accident:
 
-- **`/health` stays 200 when dependencies fail**, and reports them in the body. If it returned 503, Compose would restart a backend that is working perfectly well while Ollama is down, and the frontend (which waits on `backend: service_healthy`) would go with it. The suite asserts the 200 and reads `checks.ollama` / `checks.chroma` / `checks.sqlite` for the truth — measured, not assumed: **15 ms / 2 ms / 4 ms** warm, against `ccus_knowledge_v3` with **1982 vectors** and a checkpoint DB with **747 rows**.
+- **`/health` stays 200 when dependencies fail**, and reports them in the body. If it returned 503, Compose would restart a backend that is working perfectly well while Ollama is down, and the frontend (which waits on `backend: service_healthy`) would go with it. The suite asserts the 200 and reads `checks.ollama` / `checks.chroma` / `checks.sqlite` for the truth — measured, not assumed: **15–27 ms / 1–2 ms / 4 ms** across two runs, against `ccus_knowledge_v3` with **1982 vectors** and a checkpoint DB with **779 rows**.
 - **The token is a runtime switch, not a startup flag.** `require_token` reads `api_server.API_TOKEN` on every call, so the suite flips it on, runs the five negative cases, flips it back, and confirms the endpoint is open again. The alternative — restarting the server with `API_TOKEN` set — would need a second copy of the 3.95 GB reranker, which this machine cannot hold (see the memory note in `ensure_api_server`).
 
 This run went **through the gateway**, not around it: `.env` was untouched (`CLOUD_BASE_URL=http://127.0.0.1:3425/v1`, `ROUTE_REPORT=cloud:ollama/qwen2.5:latest`), `gateway.py` was listening on 3425, and its log recorded 10 successful upstream calls during the suite (3 workflows × 2 branches + 3 syntheses, plus the SSE one) — 4 of them streamed. So the hop that `check_gateway.py` probes is the same hop the end-to-end run exercises; there is no separate "gateway-only" test that could pass while the app fails.
