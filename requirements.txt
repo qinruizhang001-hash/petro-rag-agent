@@ -25,7 +25,14 @@ uvicorn>=0.29.0
 requests>=2.31.0
 
 # ─── Frontend ─────────────────────────
-streamlit>=1.30.0
+# 下限卡在 1.49：监控台用的是 width="stretch"，这个参数在 1.49 才引入；
+# 更早的版本只认 use_container_width，而那个参数在 2025-12-31 后会被移除
+# （本机 1.65 已经在打废弃警告）。写死旧写法等于埋一颗定时炸弹。
+streamlit>=1.49.0
+# 实时曲线用 plotly 在浏览器里画，不用 matplotlib：
+# 前端必须能"参数一改立刻重画"，而 matplotlib 只能出静态图。
+# CI 的 frontend-contract 会拦住 app.py 里的 matplotlib 导入。
+plotly>=5.18.0
 
 # ─── Personal Memory Module (optional) ───
 chromadb>=0.5.0

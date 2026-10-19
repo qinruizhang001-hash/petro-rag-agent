@@ -69,7 +69,8 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **154 end-to-end assertions pass** through the real HTTP path, alongside 397 offline unit tests (367 of which run in CI).
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **154 end-to-end assertions pass** through the real HTTP path, alongside 442 offline unit tests (412 of which run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
+- **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
 
@@ -97,15 +98,17 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 ## Screenshots
 
-<!-- 中文注释：真实运行截图（非设计稿）——输入界面、250bar/80℃ 断层场景的评估报告、LightRAG 构建的知识图谱。 -->
+<!-- 中文注释：真实运行截图（非设计稿）——监控台形态的评估界面、本次运行的数据看板、LightRAG 构建的知识图谱。 -->
 
-**Input** — a free-text CCUS project description:
+**Console — report tab.** Left rail: the project description, three numeric parameters, and the live pipeline state with per-stage durations from the server. Right: the formation-pressure-vs-depth curve for 2 000 m / 250 bar, with the safe-window band, both threshold lines marked at reservoir depth, and the work point labelled **安全** (+53 bar of margin). Below the chart, the streamed report renders inside the first tab:
 
-![Streamlit input UI](docs/ui-home.png)
+![CCUS assessment console](docs/ui-console.png)
 
-**Output** — the streamed risk report plus a generated formation-pressure chart (250 bar injected at 2 500 m). The chart's verdict here is *hard to inject*, not *fracture risk*: at 2 500 m the formation pressure is 253 bar, slightly above the 250 bar injection pressure:
+**Console — dashboard tab.** The same run's economics: wall-clock **1.9 min**, **15.4k** tokens, **¥0.00287**, **93 %** saved against an all-cloud run. The timing bars show why the fan-out exists — the geology branch's 71 s and the wellbore branch's 14 s overlap, so wall-clock (1.2 min) is shorter than the serial sum (1.4 min), a **1.20×** speedup. Below, token spend per stage, split input/output, with every cost row re-derivable from the price table:
 
-![Generated risk report with chart](docs/ui-stream.png)
+![Run dashboard](docs/ui-dashboard.png)
+
+**Before the refactor** — the same system, laid out as a chat window: one textarea, one red button, one column of prose, and the formation-pressure chart as a static PNG somewhere below the fold. Kept at `docs/legacy/ui-chatbot-input.png` and `docs/legacy/ui-chatbot-stream.png` because "it used to look like ChatGPT" is the claim the [console section](#console-ui--an-instrument-panel-not-a-chat-window) is answering.
 
 **Knowledge graph** — 389 entities / 400 relations extracted by LightRAG from 22 CCUS papers, sitting in **84 connected components with 244 nodes (63 %) in the main one**. The drawn subgraph is that largest component, which is exactly the causal chain the retriever reasons over (`CO2 plume → caprock → fault → wellbore integrity → monitoring`). Its hubs are domain concepts, not metadata: `Digital Twin` (26 edges), `CO2` (25), `CO2 Plume` (25), `Permeability` (23), `Reservoir` (18), `Caprock` (9). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
 
@@ -506,6 +509,160 @@ injection     4000   1.584e+03 → 5.389e-01        109.951      110.000
 Wiring follows the same rule as the other tools: the model is *asked* to plan `predict_pressure`, and if it doesn't, the code calls it anyway. The trigger is a pure regex extractor (`utils/pinn_query.py`) that reads `x` and `t` out of the user's sentence — deliberately **not** out of `extracted_params`, because extraction rewrites "50 m from the well" into "reservoir depth 2 500 m" and the space-time coordinates survive only in the original wording. The extractor has 14 tests in CI; the model's own behaviour tests need torch and therefore run locally, like the E2E suite.
 
 One boundary is deliberate: only Chinese phrasing is recognised (`距离井口 50 米，注入 10 天`). English word order (`50 meters from the well after 10 days`) is not matched, because supporting it means also matching bare `10 days` fragments that appear all over retrieved literature — and a false trigger is worse than no trigger, since it writes a pressure value into the report that nobody asked for.
+
+---
+
+## Console UI — an instrument panel, not a chat window
+
+<!-- 中文注释：前端重构。原来是一个"输入框 + 输出框"的 ChatGPT 形状；
+     现在左边是参数与流水线状态，右边是曲线与双标签页（报告 / 数据看板）。
+     核心不是"好看"，而是"同一份物理只能有一份实现"和"耗时只能由服务端计时"。
+     三个真 bug 都是截图发现的，不是单测发现的 —— 这也是这一节存在的原因。 -->
+
+A chat window has one shape: text in, text out, scrolled upward forever. That shape is wrong here, because the user is not conversing — they are **setting parameters and reading instruments**. The run has a fixed set of stages, a wall-clock cost, a token cost, and a physical verdict that exists whether or not the prose mentions it. So the frontend is laid out as a console.
+
+```
+┌─────────────────────┬──────────────────────────────────────────────┐
+│ 任务参数            │  地层压力 — 深度 实时曲线                     │
+│  [project description]│  ╱╱ safe window band                        │
+│  储层埋深  2000 m   │  ── P_h    ─ ─ P_frac   │ P_inj   ● work point│
+│  注入压力  250 bar  │        (threshold lines at reservoir depth)  │
+│  地层温度  80 ℃     │                                              │
+│  工况      注入  ▾  │  最近一次评估使用：埋深 2000 m · 注入压力 250 bar│
+│  [ 启动评估 ]       ├──────────────────────────────────────────────┤
+│                     │  评估报告 │ 数据看板   ← st.tabs              │
+│ 流水线状态          │                                              │
+│ ● 记忆路由      1ms │  (streamed report / run dashboard)           │
+│ ○ 记忆检索     跳过 │                                              │
+│ ● 参数提取  11.87s  │                                              │
+│ ● 地质分支  71.29s  │                                              │
+│ ● 井筒分支  13.97s  │                                              │
+│ ● 汇总结稿  21.83s  │                                              │
+│ ● 质量评审   4.21s  │                                              │
+│ ● 历史落盘   2.90s  │                                              │
+│ ┌─────────────────┐ │                                              │
+│ │ P_h 202 bar     │ │                                              │
+│ │ P_frac 303 bar  │ │                                              │
+│ │ 裕度 +53 bar    │ │                                              │
+│ └─────────────────┘ │                                              │
+└─────────────────────┴──────────────────────────────────────────────┘
+```
+
+`st.columns([1, 2.35], gap="large")` — the ratio is not aesthetic. The left rail holds fixed-width numeric inputs and a ten-row status list; the right side has to fit a curve whose x-axis spans 0–450 bar with annotations on both ends. Anything narrower than ~2.2 and the two threshold labels collide.
+
+### The physics has exactly one implementation
+
+The browser has to draw the same three curves as the back-end PNG: hydrostatic `P_h`, fracture `P_frac`, and the safe-window band between them. The obvious implementation is to copy five lines of arithmetic into `app.py`.
+
+That is a trap, and CI already forbade the alternative: `app.py` is not allowed to import `matplotlib`, `langgraph`, `chromadb`, `lightrag`, `ollama`, or `sentence_transformers` — the frontend is a pure HTTP client. The formulas lived in `chart_tools.py`, which imports matplotlib. So the only two options were *duplicate the physics* or *move it*.
+
+It moved. `pressure_model.py` is zero-dependency and now owns `hydrostatic_bar`, `fracture_bar`, `admissible_depth_range`, `clamp_inputs`, and `verdict_of`; `chart_tools.py` re-exports them so old import paths keep working. `tests/test_chart_tools.py` asserts the re-export by **object identity**:
+
+```python
+self.assertIs(hydrostatic_bar, pressure_model.hydrostatic_bar)   # not assertEqual
+```
+
+`assertEqual` would pass on two independent copies that happen to agree today. `assertIs` cannot: a second implementation is a different function object, so drift becomes impossible rather than merely unlikely.
+
+One consequence is worth naming, because it cost a debugging round. `_map` had to accept **any** iterable rather than `list`/`tuple`, because `chart_tools` passes it `np.linspace(...)` results while the frontend may not import numpy:
+
+```python
+def _map(x, f):
+    if isinstance(x, (str, bytes)):
+        return f(x)
+    if hasattr(x, "__iter__"):
+        return [f(v) for v in x]
+    return f(x)
+```
+
+The original version fell through to `float(np.ndarray)` and raised `TypeError: only 0-dimensional arrays can be converted to Python scalars` — ten of fourteen chart tests failed at once.
+
+### The curve: threshold lines are only meaningful at one depth
+
+The figure plots depth on a **reversed** y-axis (increasing downward, as on a well log) against pressure on x, and draws four things:
+
+| Element | Meaning |
+|---|---|
+| shaded band between `P_h(d)` and `P_frac(d)` | the admissible injection window at each depth |
+| solid blue `P_h` | formation (hydrostatic) pressure |
+| dashed orange `P_frac` | fracture pressure, `1.5 × P_h` |
+| solid red vertical `P_inj` | injection pressure — **one constant**, not a curve |
+| dotted verticals at `P_frac(d_res)` / `P_h(d_res)` | the two thresholds *at reservoir depth* |
+| ● work point | `(P_inj, d_res)`, coloured by verdict |
+
+The dotted lines are the point of the whole chart, and they are easy to draw wrong. Injection pressure is a single value while fracture pressure rises with depth, so "does the red line cross the orange curve?" has an answer at every depth and only one of them matters. Nothing is being injected at 800 m. The verdict is computed at the reservoir depth only:
+
+| Condition at `d_res` | Verdict | Colour |
+|---|---|---|
+| `P_inj > P_frac(d_res)` | above fracture pressure → caprock fracturing | red |
+| `P_inj < P_h(d_res)` | below formation pressure → hard to inject | amber |
+| otherwise | inside the safe window | green |
+
+Which is why 250 bar at 2 500 m is flagged amber, not green: `P_h(2500) ≈ 253 bar`. The chart shows a work point sitting *just* below the blue line, and the label says 低于静水压力. A reader who expected "250 bar is a lot" gets corrected by geometry instead of by a paragraph.
+
+### Timing must come from the server
+
+The dashboard shows per-node duration as a horizontal bar chart, plus wall-clock, serial-sum, and speedup. The tempting implementation is to timestamp in the browser: record when the `node` event arrives, subtract.
+
+That measures the wrong thing. An SSE stream queues: a node can finish at T and have its event delivered at T+2s behind other events, and the browser's `start`/`end` pair then includes network and queueing latency. The geology branch's 110–140 s rerank would be reported as whatever the stream happened to deliver.
+
+So `api_server.py` stamps every `node` event with `t` — milliseconds since request start, measured where the work actually happens:
+
+```python
+"t": round((time.time() - started) * 1000),   # on both the start and end event
+```
+
+The frontend subtracts `t_end − t_start` and never calls `time.time()` itself. The `done` payload also gained the fields the dashboard needs and that were previously computed but never surfaced: `parallel_timing`, `geology_status`, `wellbore_status`, `branch_merge`.
+
+### Two tabs, and one Streamlit trap each
+
+Tab 1 is the report; tab 2 is the run dashboard (wall-clock, tokens, cost, savings, timing bars, parallel-branch row, stacked token chart, per-stage cost table).
+
+**Trap 1 — `st.write_stream` output does not survive `st.rerun()`.** The report is streamed into a slot, then the page reruns to settle the layout, and the streamed text is gone. The fix is to persist before rerunning:
+
+```python
+st.session_state["meta"] = {
+    "report": streamed or (local.get("done") or {}).get("report", ""),
+    "states": states, "timings": timings, "elapsed": elapsed, ...
+}
+```
+
+with a fallback to the `done` payload's `report` field, so a rerun mid-stream still renders something rather than an empty box.
+
+**Trap 2 — `st.empty()` holds exactly one element.** The chart region was first written as:
+
+```python
+chart_slot = st.empty()
+chart_slot.markdown("地层压力 — 深度")
+chart_slot.plotly_chart(fig, width="stretch")
+chart_slot.caption("最近一次评估使用：…")
+```
+
+Each write **replaces** the previous one. The visible symptom was "the caption ate the chart": the panel title vanished, the plot vanished, and only a one-line caption remained where a 950×380 chart should have been. Nothing raised. The DOM probe was unambiguous — `plotCount: 1`, correct size, but `hasTitle: false` and no plot in the screenshot. `st.container()` is the correct primitive for a multi-element region:
+
+```python
+chart_slot = st.container()   # empty() 只承载一个元素，连续写三次会互相覆盖
+```
+
+### What makes it read as a console rather than a chatbot
+
+None of this is decoration; each item fixes something that made the page feel like a chat app:
+
+- **Neutral palette.** Every colour is `rgba(128,128,128,α)`, so the panel works in both Streamlit themes without a second stylesheet. Colour is reserved for *meaning* — the verdict dot is the only saturated thing on the page.
+- **The primary button is `#1f4e79`, not Streamlit's default red.** On a monitoring console a red button reads as an alarm or a stop control. This one starts a job.
+- **`font-variant-numeric: tabular-nums` and a monospace stack** on every duration and token figure. Proportional digits make a timing column jitter as values change, which reads as instability.
+- **Uppercase, letter-spaced panel titles** (`任务参数`, `流水线状态`) instead of `###` headings — headings imply prose; labels imply instruments.
+- **LED dots in the status list, with three distinct states.** `●` ran (green), `○` skipped (grey), and `—` never ran. The last two must not collapse into one symbol: "skipped" means the pipeline decided not to call it, "never ran" means the run did not get that far, and those are different facts about the same run.
+
+### Three defects that only a screenshot found
+
+The console logic has 26 unit tests, and they all passed while the page was visibly broken. Three real defects were found by driving a headless browser through a full run and *looking*:
+
+1. **The collapsed right column** — the `st.empty()` bug above. Every unit test on `pressure_figure` passed; the figure was simply never displayed.
+2. **The red primary button** — no test could have an opinion about it.
+3. **Annotation collisions** — the two threshold labels, the legend, and the y-axis title overlapped at the default margins. Fixed with `t=58`, `legend y=1.10`, both annotations at `position="top"` with `annotation_yshift=6`, `r=64` so the depth label is not clipped, and `l=56`/`b=36` so axis titles stop colliding with ticks. This one *is* now asserted (`margin.r ≥ 48 and margin.t ≥ 48`), because it is a number.
+
+The lesson is narrow but worth recording: a figure that is constructed correctly and a figure that is *visible* are different claims, and only the browser can settle the second one.
 
 ---
 
@@ -1033,7 +1190,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **397 offline unit tests**, and a **154-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **442 offline unit tests**, and a **154-assertion** end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1365,11 +1522,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 397 tests in 4.786s
+Ran 442 tests in 8.226s
 OK
 ```
 
-Eighteen suites:
+Twenty suites:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -1383,7 +1540,9 @@ Eighteen suites:
 - `test_graph_analysis.py` — connected components on graphs whose answer can be counted by hand (a chain is one component; two chains plus an isolated node is three), plus edge cases that corrupt the metric silently: duplicate edges must not inflate anything, an edge pointing at a node that is not in the node list must be *added* rather than dropped (dropping it makes the component count look better than it is), and empty graphs must return empty rather than raise. It also locks the `--dry-run` projection: merging two variants must join two components, removing a noise node must take its edges with it, and a merge that collapses an edge into a self-loop must delete that edge.
 - `test_branch_merge.py` — the fan-in logic, i.e. the code that only runs when something has already gone wrong. All four combinations are enumerated (both branches ok / geology down / wellbore down / both down), and two properties are locked: the text handed downstream for a failed branch is **never an empty string** (an empty section reads as "no requirement", a fallback sentence reads as "this requirement failed" — opposite meanings to a reader), and `parallel_timing_of` derives its speedup from branch timestamps rather than node names, so it reports ~1.0 if anyone ever turns the fan-out back into a serial chain. Non-string / non-dict state values are exercised too, because those functions are exactly what gets called on a corrupted state.
 - `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
-- `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls.
+- `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls. It also asserts **object identity** with `pressure_model` (`assertIs`, not `assertEqual`): the front-end draws the same three curves in the browser, so a re-implementation anywhere would be caught as a different function object rather than merely a different number that happens to match today.
+- `test_pressure_model.py` — the shared physics module, and the reason it exists: the formula used to live in `chart_tools`, which imports matplotlib, which the front-end is forbidden to import. Copying five lines into `app.py` would have been the obvious move and would have guaranteed drift. So the formulas moved to a zero-dependency module and this suite pins them independently — known values (2 000 m → 202.1 bar, `P_frac = 1.5·P_h` → 303 bar), linearity, the admissible-window round trip (`fracture_bar(d_min) == p` and `hydrostatic_bar(d_max) == p`), clamping before judging, and the verdict table including the case that is easy to get wrong: **250 bar at 2 500 m is `under`, not `ok`**, because `P_h(2500) ≈ 253`. Boundary conditions are pinned as *inclusive* — exactly at `P_frac` is safe, one bar above is not.
+- `test_ui_components.py` — the console's logic, extracted out of `app.py` precisely so it can be tested at all (a Streamlit page cannot be imported without executing it). Covers `compose_input` (typed parameters reach the backend, and the free-text description is preserved rather than replaced), the three formatters, the three plotly figures, and `pipeline_html`. The interesting assertions are about **distinguishing states that look alike**: a node that never ran must render `—`, while a node that ran but was skipped must render `跳过` — collapsing those two into one symbol would hide a broken fan-out. The figure tests check the y-axis is reversed (depth increases downward, as on a well log), that both threshold lines sit at the *reservoir* depth rather than spanning the plot, that the work point's colour tracks the verdict, and that margins leave room for the annotations — a label collision is invisible to a correctness test but obvious on screen, which is why it is asserted numerically here.
 - `test_degradation.py` — the requirement that matters most, tested **where it actually lands**: `final_report`. `test_branch_merge` proves the fallback text is *produced*; this suite proves it *survives the rest of the node* — that it is appended after the body rather than swallowed by `strip_tool_json`, that the chart reference does not overwrite it, and that the surviving branch's conclusion still reaches the generation prompt (i.e. "continue based on wellbore data" is checkable, not a claim). The branch layer is covered too: a retrieval timeout and an exhausted rate-limit retry both return state with `ok: false` instead of raising into LangGraph, while a healthy run carries **no** degradation text — otherwise every report would cry wolf. Runs locally rather than in CI, because importing *any* node pulls `sentence_transformers` through `utils/tokens.py` → `core.reranker`; installing torch to run one test file is not a trade worth making. This is the one place where the test split is a compromise rather than a design.
 - `test_pinn_query.py` — the natural-language front door to the PINN tool. A wrong extraction here does not raise: it produces a *plausible wrong number* (reading `250 bar` as `250 m`, or `240 hours` as `240 days` — a 24× error). So the cases are enumerated in three groups: must match (Chinese, abbreviations, reversed clause order, hours→days, decimals), must not match (`注入压力 250 bar` contains no distance; distance without time; time without distance), and must reject (`x = 500 m` is outside the domain, i.e. the regex grabbed the wrong number). English word order is pinned as **unsupported** on purpose, because matching bare `10 days` fragments from retrieved literature would fire the tool on questions nobody asked.
 - `test_pinn.py` — the model itself, checked against analysis rather than against itself: the `injection` scenario has an exact linear steady state (`P(50 m) = 110.000 bar`), and at 10 days the network returns **109.951**, a 0.049 bar error. It also asserts the PDE residual on random collocation points (mean 0.138 bar against a 20 bar signal), monotonic decay from well to far field, the maximum principle (in-domain values stay between the boundary values), clamping of out-of-range inputs, and the `baseline` scenario's degeneracy (`P ≡ 100` at every point, which is correct and useless — see the PINN section). One test checks **structure** rather than output: no `ReLU` may appear in the network, because `ReLU`'s zero second derivative makes the physics loss vanish and would make the residual test *pass harder*.

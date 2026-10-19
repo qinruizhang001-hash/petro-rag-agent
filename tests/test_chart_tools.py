@@ -25,6 +25,20 @@ from chart_tools import (
 
 
 class TestPhysics(unittest.TestCase):
+    def test_single_source_of_truth(self):
+        """公式只能有一份：chart_tools 必须复用 pressure_model，不能自己再写一遍。
+
+        前端 app.py 用 pressure_model 实时画曲线、后端用 chart_tools 出报告配图。
+        两份实现一旦漂移，图上的线和报告里的数字就会对不上，而且不会报错 ——
+        所以这里断言的是"同一个函数对象"，不是"结果相等"。
+        """
+        import pressure_model
+
+        self.assertIs(hydrostatic_bar, pressure_model.hydrostatic_bar)
+        self.assertIs(fracture_bar, pressure_model.fracture_bar)
+        self.assertIs(admissible_depth_range, pressure_model.admissible_depth_range)
+        self.assertIs(FRACTURE_RATIO, pressure_model.FRACTURE_RATIO)
+
     def test_hydrostatic_at_2000m(self):
         """ρ=1030 kg/m³、g=9.81 → 2000 m 约 202 bar。"""
         self.assertAlmostEqual(float(hydrostatic_bar(2000)), 202.1, places=1)

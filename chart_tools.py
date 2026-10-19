@@ -45,11 +45,19 @@ import numpy as np
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 CHART_DIR = os.path.join(PROJECT_ROOT, "charts")
 
-RHO_WATER = 1030.0          # kg/m³
-G = 9.81                    # m/s²
-FRACTURE_RATIO = 1.5        # 破裂压力 / 静水压力
-DEFAULT_DEPTH_M = 2000.0
-DEFAULT_INJECTION_BAR = 250.0
+# 公式与常数统一住在 pressure_model（零依赖），这里只做 re-export：
+# 前端 app.py 也要算同样的三条线，但它禁止 import matplotlib（CI 会拦），
+# 所以公式不能留在这个模块里，否则前端只能抄一份 —— 两份实现必然漂移。
+from pressure_model import (  # noqa: E402,F401  （re-export，测试与旧调用方按原路径导入）
+    DEFAULT_DEPTH_M,
+    DEFAULT_INJECTION_BAR,
+    FRACTURE_RATIO,
+    G,
+    RHO_WATER,
+    admissible_depth_range,
+    fracture_bar,
+    hydrostatic_bar,
+)
 
 # ─── 中文字体：优先 CJK，找不到就退回英文标签 ──────────────
 # 不能省：matplotlib 默认字体没有汉字，缺字体时中文全渲染成方块。
@@ -113,30 +121,6 @@ def _apply_style() -> dict:
         labels = _LABELS_EN
     plt.rcParams["axes.unicode_minus"] = False
     return labels
-
-
-def hydrostatic_bar(depth_m):
-    """深度（m）→ 静水压力（bar）。1 bar = 1e5 Pa。"""
-    return RHO_WATER * G * np.asarray(depth_m, dtype=float) / 1e5
-
-
-def fracture_bar(depth_m):
-    """深度（m）→ 地层破裂压力（bar）。"""
-    return hydrostatic_bar(depth_m) * FRACTURE_RATIO
-
-
-def admissible_depth_range(injection_pressure_bar: float) -> tuple[float, float]:
-    """
-    给定注入压力，求"既注得进又不压裂"的深度区间 [d_min, d_max]。
-
-    P_frac(d) >= P_inj  →  d >= P_inj / (0.1013·1.5)   （下界：不压裂）
-    P_h(d)    <= P_inj  →  d <= P_inj / 0.1013         （上界：注得进）
-    返回 (d_min, d_max)，单位 m。
-    """
-    p = float(injection_pressure_bar)
-    d_min = p / (RHO_WATER * G / 1e5 * FRACTURE_RATIO)
-    d_max = p / (RHO_WATER * G / 1e5)
-    return float(d_min), float(d_max)
 
 
 def _relative_to_project(path: str) -> str:

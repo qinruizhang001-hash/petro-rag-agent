@@ -234,6 +234,10 @@ async def _event_stream(user_input: str, thread_id: str):
                     queue.put_nowait(("event", {
                         "type": "node", "node": name,
                         "label": NODE_LABELS[name], "status": "start",
+                        # t = 距请求开始的毫秒数。前端的数据看板靠 start/end 两帧
+                        # 的 t 相减得到每个节点的真实耗时 —— 不能靠前端自己打点，
+                        # 那会把 SSE 排队与网络延迟算进节点耗时里。
+                        "t": round((time.time() - started) * 1000),
                     }))
                 elif kind == "on_chain_end" and name in NODE_LABELS:
                     out = (ev.get("data") or {}).get("output")
@@ -244,6 +248,7 @@ async def _event_stream(user_input: str, thread_id: str):
                     queue.put_nowait(("event", {
                         "type": "node", "node": name,
                         "label": NODE_LABELS[name], "status": "end",
+                        "t": round((time.time() - started) * 1000),
                     }))
         except Exception as e:  # 任何异常都要变成前端能看懂的 error 事件
             queue.put_nowait(("event", {"type": "error", "message": str(e)}))
@@ -298,6 +303,13 @@ async def _event_stream(user_input: str, thread_id: str):
                 # ─── 物理一致性校验 + 人类在环 ───
                 "physics_check": _physics_of(node_outputs),
                 "human_review": _human_review_of(node_outputs),
+                # ─── 并行分支耗时（前端数据看板要用）───
+                # aggregate 已经把两条分支的时间戳算成 wall/serial/speedup，
+                # 但此前没往 done 里放，前端只能看到总耗时，看不出"并行省了多少"。
+                "parallel_timing": node_outputs.get("parallel_timing", {}),
+                "geology_status": node_outputs.get("geology_status", {}),
+                "wellbore_status": node_outputs.get("wellbore_status", {}),
+                "branch_merge": node_outputs.get("branch_merge", {}),
                 # ─── Token 经济学 ───
                 "cost_estimation": compute_cost_estimation(node_outputs),
                 "complexity": node_outputs.get("complexity_info", {}),
