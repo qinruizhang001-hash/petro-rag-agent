@@ -49,20 +49,31 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# 拆成三层：WSL2 默认只给 7.5 GB，一层装 114 个包会被 OOM killer 干掉。
+# 1. 运行时小依赖（~50 MB，峰值低）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+# 2. 编译工具链（~500 MB，单独一层，失败后不用重拉上面的包）
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        curl \
-        libgl1 \
-        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+# 3. 中文字体（~100 MB，matplotlib 画中文图用；缺了不报错只出方块）
+RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# CPU 版 torch 先行安装，避免 requirements.txt 把 CUDA 版拉进来
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+# CPU 版 torch 先行安装，避免 requirements.txt 把 CUDA 版拉进来。
+# 先升级 pip：旧版 pip 会把 PyPI wheel 的 metadata Name "typing_extensions" 误判为
+# 与包名 "typing-extensions" 不一致，从而退而求其次去源码安装；源码构建需要
+# flit_core，而 flit_core 不在 torch 的索引里，导致失败。新版 pip 已修此问题。
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
 
-# 依赖先于代码复制：只改代码时这一层直接命中缓存，不用重装 2 GB 依赖
+# 依赖先于代码复制：只改代码时这一层直接命中缓存，不用重装 2 GB 依赖。
+# 用清华镜像：从当前网络路径访问 PyPI 原站会触发 SSLEOFError，两次均失败。
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 COPY . .
 

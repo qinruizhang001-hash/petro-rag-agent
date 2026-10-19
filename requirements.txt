@@ -12,6 +12,9 @@ matplotlib>=3.8.0
 
 # ─── LLM client (OpenAI-compatible → Ollama) ───
 openai>=1.30.0
+# lightrag 的 ollama 模块在内部 `import ollama`，不是通过 HTTP 调用。
+# 漏了这个包会在容器启动时触发 ModuleNotFoundError，worker 循环崩溃。
+ollama>=0.3.0
 
 # ─── MCP (Model Context Protocol) 工具服务 ───
 # 下限卡在 2.3：v2 把 FastMCP 改名为 MCPServer（mcp.server.mcpserver），
