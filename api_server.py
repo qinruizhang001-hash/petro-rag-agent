@@ -71,7 +71,7 @@ api = FastAPI(
     description="基于 LangGraph 的多智能体后端服务（SSE 流式）",
 )
 
-# 允许前端从其它端口访问（Streamlit 8505 → API 8000）
+# 允许前端从其它端口访问（Streamlit 8501 → API 8000）
 api.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

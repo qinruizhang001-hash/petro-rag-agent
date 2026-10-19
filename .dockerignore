@@ -24,3 +24,19 @@ checkpoint.db
 *.db-shm
 俄语.pdf
 russian_docs/
+
+# 语料 PDF：194 MB，是**输入**不是代码。图谱已经从它们建好了（lightrag_storage
+# 由 volume 挂载），容器运行期不需要原文。真要重建图谱，见 README 的说明。
+ccus_docs/
+*.pdf
+
+# 自我进化与文件记忆的运行时数据：由 volume 挂载，打进镜像只会让别人的容器
+# 一启动就带着"别人的经验"做判断。
+history/
+
+# compose 文件本身不需要进镜像（而且 .env.docker 已被上面的 .env.* 挡住）
+docker-compose*.yml
+
+# 文件记忆的运行时副本：由 volume 挂载，容器里那一份才是活的。
+# 注意别写成 memory/ —— 那是本仓库的 Python 包，排除掉镜像就跑不起来了。
+state/

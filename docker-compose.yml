@@ -1,84 +1,177 @@
 # ─────────────────────────────────────────────────────────────
-# 一键拉起：后端 API（:8000）+ 前端 Streamlit（:8505）
+# 一键拉起整个 CCUS 系统
 #
 #   docker compose up -d --build
-#   open http://localhost:8505
+#   open http://localhost:8501
 #
-# 关键约束：
-# · Ollama **不在**这个 compose 里。它是宿主机上的服务，容器通过
-#   host.docker.internal 访问（Linux 需要 extra_hosts 里的 host-gateway）。
-#   把 Ollama 也塞进来意味着再拖一个几 GB 的镜像，而模型本来就在宿主机上。
-# · 两个服务共用同一个镜像，只是 command 不同 —— 环境完全一致，
-#   不会出现"前端能跑后端不能跑"。
-# · 模型与图谱走 volume，不进镜像。
+# 四个服务，但只有三个是"服务"：
+#
+#   ollama       官方镜像，本地大模型推理（qwen2.5 生成 + nomic-embed-text 嵌入）
+#   ollama-pull  一次性任务：把模型拉进 ollama 的 volume，拉完即退出
+#   backend      FastAPI，:8000
+#   frontend     Streamlit，:8501
+#
+# ollama-pull 单独存在的理由：官方 ollama 镜像**不会**自动拉模型，
+# 没有它，`docker compose up -d` 之后第一次点"启动评估"会在参数提取阶段
+# 报 "Connection error"（模型不存在），而错误信息完全指不到这里。
+# 它是一次性 job，不是常驻服务，restart: "no"。
+#
+# 网络契约（整个文件里最重要的三行）：
+#   frontend → http://backend:8000      容器网络里服务名就是主机名
+#   backend  → http://ollama:11434/v1   localhost 在容器里指的是容器自己
+#   宿主机   → localhost:8501 / :8000 / :11434
+#
+# 模型与图谱不进镜像，靠 volume 挂载；体积与原因见 Dockerfile 顶部注释。
 # ─────────────────────────────────────────────────────────────
+name: ccus
+
 services:
-  api:
+  # ───────────────────────────────────────────────────────────
+  # Ollama：本地推理
+  # ───────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ccus-ollama
+    ports:
+      # 暴露到宿主机，方便用 curl 或本地脚本直接调；不需要可以删掉这一行
+      - "11434:11434"
+    volumes:
+      # 模型权重（qwen2.5 约 4.7 GB + nomic-embed-text 约 274 MB）住在这里。
+      # 命名 volume 而不是 bind mount：Windows/macOS 上 bind mount 一个几 GB
+      # 的模型目录，首次写入会慢到以为卡死。
+      - ollama_models:/root/.ollama
+    environment:
+      # 默认 5 分钟空闲就卸载模型，下一次请求要重新加载（7B 冷启动 10-30 s）。
+      # 演示场景下保持常驻更划算。
+      OLLAMA_KEEP_ALIVE: 30m
+    healthcheck:
+      # 官方镜像里没有 curl/wget，用 ollama 自己的 CLI 探活
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  # ───────────────────────────────────────────────────────────
+  # 一次性任务：确保两个模型都在
+  # ───────────────────────────────────────────────────────────
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ccus-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # CLI 默认连 127.0.0.1:11434，在容器里那是它自己
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      # 注意：这里不能写 shell 变量。compose 在把 YAML 交给 shell 之前会先做一次
+      # 变量插值，脚本里以美元符开头的名字会被替换成空串，命令静默变形。
+      # 真要保留字面量美元符，必须写两遍。这里索性展开成两行，不给自己留坑。
+      - |
+        set -e
+        ollama list | grep -q '^qwen2.5' || ollama pull qwen2.5
+        ollama list | grep -q '^nomic-embed-text' || ollama pull nomic-embed-text
+        echo "[pull] 模型就绪"
+    restart: "no"
+
+  # ───────────────────────────────────────────────────────────
+  # 后端：FastAPI + LangGraph 多智能体
+  # ───────────────────────────────────────────────────────────
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
     image: petro-rag-agent:latest
-    container_name: ccus-api
+    container_name: ccus-backend
     command: ["uvicorn", "api_server:api", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
+    env_file:
+      - .env.docker
     environment:
-      # 容器内的 127.0.0.1 是它自己，Ollama 在宿主机上
-      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
-      LOCAL_API_KEY: ollama
-      APP_LOG_FILE: /app/logs/app.log
-      LOG_LEVEL: INFO
-      # 云端网关（可选）。留空则 report 阶段自动降级到本地模型，
-      # 并在 model_routing 里如实记录降级原因。
-      CLOUD_BASE_URL: ${CLOUD_BASE_URL:-https://api.deepseek.com/v1}
-      CLOUD_API_KEY: ${CLOUD_API_KEY:-}
-      CLOUD_MODEL: ${CLOUD_MODEL:-deepseek-chat}
-      # 逐阶段路由覆盖，例如 ROUTE_REPORT=cloud:kimi/kimi-k2
-      ROUTE_EXTRACT: ${ROUTE_EXTRACT:-local}
-      ROUTE_REPORT: ${ROUTE_REPORT:-cloud}
-      ROUTE_EVALUATE: ${ROUTE_EVALUATE:-local}
-    extra_hosts:
-      # Linux 上 host.docker.internal 不会自动存在，必须显式映射
-      - "host.docker.internal:host-gateway"
+      # 容器网络契约，钉死在这里而不是放在 .env.docker：
+      # 用户改调参可以随便改那个文件，但把服务名改成 localhost 会让整个栈失联，
+      # 这类值不值得开放给"顺手改一下"。
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      # 代码里的默认值是 D:\python-learn\chroma_petro（Windows 绝对路径），
+      # 在 Linux 容器里不覆盖它，chromadb 会建一个名字里带反斜杠的目录。
+      CCUS_CHROMA_PATH: /app/chroma_petro
+      # 文件记忆指向挂载目录而不是仓库根目录。原因见下面 volumes 的注释：
+      # 单文件 bind mount 不能做原子替换。
+      PROJECT_HISTORY_PATH: /app/state/project_history.md
+      USER_PROFILE_PATH: /app/state/user_profile.md
+    depends_on:
+      ollama:
+        condition: service_healthy
+      # 模型没拉完就不启动后端：否则第一次请求才炸，且错误指向 Ollama 而非这里
+      ollama-pull:
+        condition: service_completed_successfully
     volumes:
-      # 只读挂载：2.3 GB 的 reranker，镜像里不该有第二份
+      # 2.2 GB 的 reranker，只读挂载 —— 镜像里不该有第二份
       - ./models:/app/models:ro
       - ./lightrag_storage:/app/lightrag_storage
       - ./chroma_petro:/app/chroma_petro
       - ./charts:/app/charts
       - ./logs:/app/logs
-      # 文件记忆（长期偏好 + 每次评估的历史）。project_history.md 已入库，
-      # 挂上来才能跨容器重建保留；checkpoint.db 首次不存在时 Docker 会
-      # 建成目录导致 sqlite 打不开，所以不挂 —— 它只是断点续跑用的缓存。
-      - ./project_history.md:/app/project_history.md
-      - ./user_profile.md:/app/user_profile.md:ro
+      # 自我进化：experiences.jsonl / semantic_memory.json 必须跨容器重建保留，
+      # 否则"系统从自己的历史里学到的先验"每次 up 都归零
+      - ./history:/app/history
+      # 文件记忆：**必须挂目录，不能挂单个文件**。
+      # file_memory.py 的重写走"临时文件 + os.replace"，而 os.replace 作用在
+      # 一个 bind mount 的**文件**上会返回 EBUSY（挂载点不能被替换）。症状是
+      # 历史压缩那一步失败、历史悄悄停止增长 —— 不报错，只是不再记忆。
+      # 挂目录就没有这个问题：rename 发生在同一个挂载的文件系统内部。
+      # 目录名刻意不叫 memory/：那是本仓库的 Python 包，挂上去等于把代码挂掉。
+      - ./state:/app/state
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 5s
+      # reranker 在 import 阶段加载（2.2 GB），冷启动要 20-60 s
       start_period: 90s
       retries: 3
     restart: unless-stopped
 
-  ui:
+  # ───────────────────────────────────────────────────────────
+  # 前端：Streamlit 监控台
+  # ───────────────────────────────────────────────────────────
+  frontend:
+    # 复用后端刚构建好的镜像：两个服务环境完全一致，
+    # 不会出现"前端能跑、后端不能跑"。没有 build: 段是有意的 ——
+    # docker compose up 会先把带 build 的服务构建完，再来启动这个。
     image: petro-rag-agent:latest
-    container_name: ccus-ui
+    container_name: ccus-frontend
     command:
       - streamlit
       - run
       - app.py
-      - --server.port=8505
+      - --server.port=8501
       - --server.address=0.0.0.0
       - --server.headless=true
     ports:
-      - "8505:8505"
+      - "8501:8501"
     environment:
-      # 容器网络里服务名就是主机名：api:8000，不是 127.0.0.1:8000
-      API_BASE_URL: http://api:8000
-      APP_LOG_FILE: /app/logs/app.log
+      # 唯一一行真正决定"前端能不能连上后端"的配置。
+      # 写成 127.0.0.1:8000 会连到前端容器自己 —— 这是 Docker 里最常见的一类错误，
+      # 症状是页面上一直显示"后端未连接"，而两个容器各自都是健康的。
+      API_BASE_URL: http://backend:8000
     volumes:
       - ./logs:/app/logs
     depends_on:
-      api:
+      backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     restart: unless-stopped
+
+volumes:
+  # 模型权重放在命名 volume 里：跨 `docker compose down` 保留，
+  # 只有 `down -v` 才会删（删了就要重新拉 5 GB）。
+  ollama_models:

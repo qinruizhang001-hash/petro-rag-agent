@@ -138,7 +138,7 @@ Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/
 
 ```mermaid
 flowchart TD
-    UI["Streamlit UI<br/>:8505"] -->|"POST /api/analyze<br/>SSE stream"| API["FastAPI Backend<br/>:8000"]
+    UI["Streamlit UI<br/>:8501"] -->|"POST /api/analyze<br/>SSE stream"| API["FastAPI Backend<br/>:8000"]
     API --> LG["LangGraph Multi-Agent Orchestrator"]
 
     LG --> MR["Memory Router<br/>(personal-context gate)"]
@@ -401,29 +401,171 @@ Missing fields render as `-` rather than raising: most log lines have no model o
 
 ## Deployment (Docker)
 
-<!-- 中文注释：一键部署。Ollama 不在 compose 里——它在宿主机上，容器通过 host.docker.internal 访问。 -->
+<!-- 中文注释：一键容器化。整个栈四个容器：ollama（推理）、ollama-pull（一次性拉模型）、
+     backend（FastAPI:8000）、frontend（Streamlit:8501）。
+     这一节的重点不是"能起来"，而是三件在本地跑不出来、只有进容器才暴露的事：
+     1) 服务名就是主机名 —— 写 localhost 会连到容器自己；
+     2) chromadb 的默认路径是 Windows 绝对路径；
+     3) ollama 官方镜像不会自动拉模型，少了那一步会报 Connection error。
+     另外要如实说明：2.2 GB 的 reranker 与图谱/向量库都不在 git 里。 -->
+
+### 中文速查
 
 ```bash
-docker compose up -d --build
-# API      → http://localhost:8000/docs
-# Frontend → http://localhost:8505
+docker compose up -d --build     # 首次构建约 5-10 分钟（装 torch 与依赖）
+# 浏览器打开  http://localhost:8501
+docker compose logs -f backend   # 看后端在干什么
+docker compose down              # 停掉（模型 volume 保留）
 ```
 
-Two services from **one image**, differing only in `command` — so "works on the frontend, broken on the backend" cannot happen:
+前提是 `./models/bge-reranker-v2-m3` 存在 —— 它不在 git 里，原因见下一节。
 
-| Service | Port | Command |
+### What `docker compose up -d` actually starts
+
+```
+                    ┌──────────────────────────────────────────┐
+  localhost:8501    │ frontend   Streamlit 监控台               │
+  ─────────────────▶│   API_BASE_URL=http://backend:8000        │
+                    └───────────────┬──────────────────────────┘
+                                    │ service DNS
+                    ┌───────────────▼──────────────────────────┐
+  localhost:8000    │ backend    FastAPI + LangGraph            │
+  ─────────────────▶│   OLLAMA_BASE_URL=http://ollama:11434/v1  │
+                    └───────────────┬──────────────────────────┘
+                                    │ service DNS
+                    ┌───────────────▼──────────────────────────┐
+  localhost:11434   │ ollama     qwen2.5 + nomic-embed-text     │
+  ─────────────────▶│   models in the ollama_models volume      │
+                    └──────────────────────────────────────────┘
+
+  ollama-pull  ← one-shot job: pulls both models, then exits
+```
+
+| Service | Image | Host port | Role |
+|---|---|---|---|
+| `ollama` | `ollama/ollama` | 11434 | Local inference: `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
+| `ollama-pull` | `ollama/ollama` | — | Runs once, pulls the two models, exits 0 |
+| `backend` | built from `Dockerfile` | 8000 | `uvicorn api_server:api` — API docs at `/docs` |
+| `frontend` | same image | 8501 | `streamlit run app.py --server.port=8501` |
+
+### Two things are not in git, and one of them is a hard requirement
+
+This is the part a fresh clone trips over, so it is stated plainly rather than buried.
+
+| Path | Size | In git? | If missing |
+|---|---|---|---|
+| `models/bge-reranker-v2-m3` | 2.2 GB | **no** | **Backend cannot start.** `core/reranker.py` loads it at import time, so `uvicorn` dies before serving. The frontend then never starts either (it waits for `backend` to be healthy) |
+| `lightrag_storage/` | 8 MB | no | Starts fine; retrieval has no index, so reports lose their evidence grounding |
+| `chroma_petro/` | 184 KB | no | Starts fine; the wellbore branch finds no chunks |
+
+The first row is deliberate design, not an oversight: a 2.2 GB weight file in a git repo is worse than a documented download step, and `docker compose up` failing loudly beats the alternative — an `OSError` at the first request pointing at the wrong layer.
+
+If you cloned this repo fresh, fetch the reranker into the bind-mounted directory:
+
+```bash
+docker compose run --rm --no-deps \
+  -v "$(pwd)/models:/app/models" \
+  -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 \
+  backend python -c "from huggingface_hub import snapshot_download; \
+snapshot_download('BAAI/bge-reranker-v2-m3', local_dir='/app/models/bge-reranker-v2-m3')"
+```
+
+The graph and the vector store are **derived data**, produced by the ingestion scripts (`ingest_ccus_batch.py`, `ingest_pdf.py`) from the corpus PDFs — which are also not in git. Build them on the host (or in a one-off container with `ccus_docs/` mounted), then `docker compose up -d` picks them up through the bind mounts.
+
+### The network contract
+
+Three values decide whether the stack works, and all three are pinned in `docker-compose.yml` under `environment:` rather than in the env file — because getting one wrong makes the stack unreachable in a way that looks like a code bug:
+
+| From | To | Value | Why not `localhost` |
+|---|---|---|---|
+| `frontend` | `backend` | `API_BASE_URL: http://backend:8000` | Inside the frontend container, `127.0.0.1:8000` is the frontend itself. The page would show "backend not connected" while both containers report healthy |
+| `backend` | `ollama` | `OLLAMA_BASE_URL: http://ollama:11434/v1` | Same reason; the symptom is `Connection error` from the OpenAI client |
+| `backend` | ChromaDB | `CCUS_CHROMA_PATH: /app/chroma_petro` | The code's default is `D:\python-learn\chroma_petro`. On Linux that becomes a directory literally named `D:\python-learn\chroma_petro` — no error, just a permanently empty collection |
+| browser | `frontend` | `localhost:8501` | Only the browser runs on the host |
+
+CI asserts all three (`Frontend/backend contract` job), including a check that `API_BASE_URL` never points at loopback.
+
+### Where configuration lives
+
+Two files, one rule each:
+
+- **`.env.docker`** — everything tunable: `LOCAL_MODEL`, `CCUS_COLLECTION`, retrieval breadth (`LIGHTRAG_TOP_K=25`, `LIGHTRAG_CHUNK_TOP_K=12`), history compression, and the optional cloud block. No secrets, safe to commit.
+- **`docker-compose.yml` → `environment:`** — only the three contract values above.
+
+`docker compose` auto-loads the repo's `.env` for variable substitution, which is exactly why the Docker stack does **not** reuse it: that file points at the host's `http://127.0.0.1:3425/v1` gateway and a Windows Chroma path. Container config therefore comes from `env_file: .env.docker`, and `.dockerignore` keeps `.env*` out of the image entirely.
+
+**To use a real cloud model** for the report stage, uncomment the block at the bottom of `.env.docker`:
+
+```ini
+CLOUD_BASE_URL=https://api.deepseek.com/v1
+CLOUD_API_KEY=sk-...
+CLOUD_MODEL=deepseek-chat
+```
+
+Without a key the system still runs: `geology` / `wellbore` / `report` default to the cloud tier, fail the availability check, and **degrade to local with a stated reason** recorded in `model_routing` — it never silently pretends it used a frontier model.
+
+### GPU
+
+CPU-only by default. Ollama on CPU runs a 7B model roughly an order of magnitude slower — the geology branch measured ~70 s on GPU can take several minutes.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+```
+
+On Windows this needs Docker Desktop's WSL2 backend plus a working NVIDIA driver on the host side. Verify passthrough before blaming the stack:
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+```
+
+If that prints a GPU table, the override will work; `could not select device driver` means the container toolkit is missing.
+
+### What persists
+
+| Mount | Type | Contents |
 |---|---|---|
-| `api` | 8000 | `uvicorn api_server:api --host 0.0.0.0 --port 8000` |
-| `ui` | 8505 | `streamlit run app.py --server.port=8505 --server.address=0.0.0.0` |
+| `ollama_models` | named volume | ~5 GB of model weights; survives `down`, only `down -v` removes it |
+| `./models` | bind, read-only | the reranker; the container must never write here |
+| `./lightrag_storage` | bind | the knowledge graph |
+| `./chroma_petro` | bind | the vector store |
+| `./history` | bind | `experiences.jsonl`, `semantic_memory.json` — the self-evolution priors |
+| `./state` | bind | `project_history.md` + `user_profile.md` — the container's file memory |
+| `./logs`, `./charts` | bind | `app.log`, generated figures |
 
-Details that are easy to get wrong and are handled in the `Dockerfile`:
+`history/` is mounted on purpose: the self-evolution loop learns from its own assessment history, and without a mount every `docker compose down` would erase what it learned.
 
-- `libgl1` / `libglib2.0-0` — chromadb's opencv dependency; missing it throws `libGL.so.1: cannot open shared object file` at import time, which looks like broken code rather than a missing system library.
-- `fonts-noto-cjk` — without it matplotlib renders every Chinese label as a tofu box, silently producing an unreadable chart.
-- CPU-only torch is installed first (`--index-url .../whl/cpu`); the default PyPI wheel drags in ~2 GB of CUDA that a CPU-inference container never uses.
-- Models and graph storage are **volumes, not layers** — the 2.3 GB reranker must not be baked into the image.
-- Ollama is *not* in the compose file. It runs on the host and is reached via `host.docker.internal` (`extra_hosts: host-gateway` on Linux).
-- The UI talks to `http://api:8000` (service DNS), not `127.0.0.1:8000` — `API_BASE_URL` exists precisely for this.
+`state/` is a **directory**, not two file mounts, and that is not cosmetic. `file_memory.py` rewrites history with a temp file plus `os.replace`, and `os.replace` onto a bind-mounted *file* returns `EBUSY` — the mount point cannot be renamed over. The failure is quiet: compression fails, history stops growing, and nothing in the report looks wrong. Renaming inside a bind-mounted *directory* is fine, because both names live on the same filesystem.
+
+The directory is called `state/` rather than `memory/` for a related reason: `memory/` is a Python package in this repo (`memory_manager.py`, `chroma_memory.py`). Mounting over it would replace code with data.
+
+Local runs (`streamlit run app.py`) still use the tracked `project_history.md` at the repo root; the container keeps its own copy under `state/`. To carry existing history into Docker:
+
+```bash
+cp project_history.md user_profile.md state/
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `localhost:8501` refuses connection | `frontend` never started because `backend` is unhealthy | `docker compose logs backend` — most likely the reranker is missing |
+| Page loads, banner says backend unreachable | `API_BASE_URL` points at loopback | it must be `http://backend:8000` |
+| `Connection error` on the first assessment | models not pulled | `docker compose logs ollama-pull`; or `docker compose exec ollama ollama list` |
+| Every assessment takes minutes | CPU inference | use the GPU override |
+| Report has no citations | `lightrag_storage/` empty | build the graph from the corpus on the host |
+| `docker compose up` says `ollama-pull exited with code 1` | pull failed (no network / wrong tag) | `docker compose run --rm ollama-pull` to see the error |
+
+### Why one image for two services
+
+`backend` and `frontend` run the **same image**, differing only in `command`. A separate slim frontend image would be smaller — the console needs only streamlit, plotly, and two modules — but it would also mean two dependency resolutions that can drift, and "works on the frontend, broken on the backend" is a class of bug worth paying a few hundred megabytes to eliminate. The cost is bounded: the image is built once and both containers start from it.
+
+The `Dockerfile` details that are load-bearing rather than stylistic:
+
+- `libgl1` / `libglib2.0-0` — chromadb's opencv dependency; without it the import fails with `libGL.so.1: cannot open shared object file`, which reads as broken code rather than a missing system library.
+- `fonts-noto-cjk` — matplotlib renders every Chinese label as a tofu box without it: the chart is generated, nothing errors, and it is simply unreadable.
+- CPU-only torch installed first (`--index-url .../whl/cpu`); the default PyPI wheel drags in ~2 GB of CUDA that a container talking to Ollama never uses.
+- `requirements.txt` is copied **before** the source, so editing code does not reinstall 2 GB of dependencies.
+- `EXPOSE 8000 8501`, and the healthcheck hits `/health` — a route that returns without loading any model, so it can answer during the 20-60 s the reranker is still coming off the volume.
 
 ---
 
@@ -1237,8 +1379,10 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 petro-rag-agent/
 ├── app.py                    # Streamlit frontend (pure HTTP client, API_BASE_URL-aware)
 ├── api_server.py             # FastAPI: SSE stream + sync + HITL (hitl/review/approve)
-├── Dockerfile                # python:3.10-slim, exposes 8000 (API) + 8505 (UI)
-├── docker-compose.yml        # One image, two services: api + ui
+├── Dockerfile                # python:3.10-slim, exposes 8000 (API) + 8501 (UI)
+├── docker-compose.yml        # ollama + ollama-pull + backend + frontend
+├── docker-compose.gpu.yml    # optional override: NVIDIA passthrough for ollama
+├── .env.docker               # compose env_file: tuning + optional cloud block (no secrets)
 ├── multi_agent_ccus.py       # Entry shim only: `from workflow import app`
 ├── workflow.py               # Graph: add_node / add_edge / conditional / 3 compile targets
 ├── core/
@@ -1362,11 +1506,11 @@ python graph_rag_test.py
 
 python api_server.py
 
-# 5. Start the frontend  →  http://127.0.0.1:8505
-streamlit run app.py --server.port 8505
+# 6. Start the frontend  →  http://127.0.0.1:8501
+streamlit run app.py --server.port 8501
 ```
 
-Open `http://127.0.0.1:8505`, paste a project description, and click **启动评估** (*Start Assessment*).
+Open `http://127.0.0.1:8501`, paste a project description, and click **启动评估** (*Start Assessment*).
 
 <!-- 中文注释：启动顺序很重要——必须先起后端，前端才能调通；图谱索引只需建一次。 -->
 
@@ -1374,11 +1518,11 @@ Open `http://127.0.0.1:8505`, paste a project description, and click **启动评
 
 ```bash
 docker compose up -d --build
-# API      → http://localhost:8000/docs
-# Frontend → http://localhost:8505
+# Frontend → http://localhost:8501
+# API docs → http://localhost:8000/docs
 ```
 
-Ollama stays on the host (`host.docker.internal:11434`); models and graph storage are mounted, not baked into the image. See [Deployment](#deployment-docker) for why the image installs CPU-only torch and CJK fonts.
+This one brings up **Ollama too**, so nothing has to be installed on the host beyond Docker itself. Models, graph storage and the reranker are mounted, not baked into the image; `ollama-pull` fetches `qwen2.5` and `nomic-embed-text` on first start. See [Deployment](#deployment-docker) for the prerequisites (one of them is a 2.2 GB download that is not in git) and for the GPU override.
 
 ---
 

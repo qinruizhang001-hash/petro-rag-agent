@@ -6,7 +6,7 @@ CCUS 智能评估监控台 — 前端（Streamlit）
 所有"算图 / 算字"的纯函数在 ui_components.py（那里能被 CI 直接测）。
 
 依赖：streamlit、plotly、requests
-启动：streamlit run app.py --server.port 8505
+启动：streamlit run app.py --server.port 8501
 
 布局为什么是"左参数 / 右看板"
 -----------------------------

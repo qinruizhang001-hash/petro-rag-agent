@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────
+# 可选覆盖层：让 ollama 容器用上 NVIDIA GPU
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# 不加这个文件也能跑，但 7B 模型纯 CPU 推理大约慢一个数量级 ——
+# 地质分支实测在 GPU 上 ~70 s，CPU 上可能要好几分钟。
+#
+# 前置条件（Windows）：
+#   1. 安装 Docker Desktop 并启用 WSL2 后端；
+#   2. 宿主机有可用的 NVIDIA 驱动（WSL2 里的驱动由 Windows 侧提供，
+#      不要在 WSL 里另装 Linux 驱动）；
+#   3. 验证穿透是否生效：
+#        docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+#      能打印出显卡表才说明可用。报 "could not select device driver" 就是没配好。
+#
+# 前置条件（Linux）：安装 nvidia-container-toolkit 并重启 docker。
+# ─────────────────────────────────────────────────────────────
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
