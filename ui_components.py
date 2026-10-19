@@ -340,3 +340,351 @@ def pipeline_html(states: dict, timings: dict, running: bool) -> str:
         )
     out.append("</div>")
     return "".join(out)
+
+
+# ─── 图 5：五维风险雷达图 ────────────────────────────────
+def risk_radar_figure(
+    scores: dict[str, float],
+    height: int = 340,
+) -> go.Figure:
+    """
+    五维风险雷达图。分数 0–100，越高表示该维度风险越大。
+
+    五个维度是 CCUS 项目评估的通用框架：
+    · 地质风险 —— 储层封闭性、断层活性、盖层完整性
+    · 井筒风险 —— 注入压力是否超破裂压力、井筒腐蚀
+    · 环境风险 —— CO₂ 泄漏概率、地下水污染
+    · 经济风险 —— 监测成本、钻探成本、碳价波动
+    · 合规风险 —— 审批难度、法规符合性、社区接受度
+    """
+    categories = ["地质风险", "井筒风险", "环境风险", "经济风险", "合规风险"]
+    values = [max(0.0, min(100.0, float(scores.get(c, 0)))) for c in categories]
+    # 闭合雷达图：首尾相接
+    values_closed = values + [values[0]]
+    categories_closed = categories + [categories[0]]
+
+    fig = go.Figure()
+
+    # 背景网格：每 20 分一个浅色环
+    for ring in [20, 40, 60, 80]:
+        fig.add_trace(go.Scatterpolar(
+            r=[ring] * len(categories_closed),
+            theta=categories_closed,
+            mode="lines",
+            line=dict(color="rgba(128,128,128,.15)", width=1),
+            fill="toself",
+            fillcolor="rgba(128,128,128,.04)",
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+    # 实际得分面
+    color_fill = "rgba(207,34,46,.18)" if max(values) >= 70 else \
+                 "rgba(154,103,0,.18)" if max(values) >= 40 else \
+                 "rgba(26,127,55,.18)"
+    color_line = "#cf222e" if max(values) >= 70 else \
+                 "#9a6700" if max(values) >= 40 else \
+                 "#1a7f37"
+
+    fig.add_trace(go.Scatterpolar(
+        r=values_closed,
+        theta=categories_closed,
+        mode="lines+markers+text",
+        line=dict(color=color_line, width=2.2),
+        marker=dict(size=7, color=color_line, line=dict(color="#fff", width=1.2)),
+        text=[f"{v:.0f}" for v in values] + [""],
+        textposition="top center",
+        textfont=dict(size=10, color=color_line),
+        fill="toself",
+        fillcolor=color_fill,
+        name="风险评分",
+        hovertemplate="%{theta}: %{r:.0f}/100<extra></extra>",
+    ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=48, r=48, t=48, b=32),
+        paper_bgcolor="rgba(0,0,0,0)",
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(
+                visible=True, range=[0, 100],
+                tickvals=[20, 40, 60, 80, 100],
+                ticktext=["20", "40", "60", "80", "100"],
+                gridcolor="rgba(128,128,128,.20)",
+                tickfont=dict(size=9, color="rgba(128,128,128,.85)"),
+            ),
+            angularaxis=dict(
+                gridcolor="rgba(128,128,128,.20)",
+                tickfont=dict(size=11, color="rgba(80,80,80,.95)"),
+                rotation=90,  # 让"地质风险"在正上方
+                direction="clockwise",
+            ),
+        ),
+        showlegend=False,
+    )
+    return fig
+
+
+def compute_risk_scores(
+    done: dict,
+    depth_m: float,
+    p_inj: float,
+    temp: float,
+) -> dict[str, float]:
+    """
+    从评估结果和当前参数计算五维风险分数（0–100）。
+
+    不需要后端新增字段：所有输入都来自现有 API 响应和左侧参数。
+    """
+    from pressure_model import clamp_inputs, fracture_bar, hydrostatic_bar, verdict_of
+
+    d, p = clamp_inputs(depth_m, p_inj)
+    p_h = float(hydrostatic_bar(d))
+    p_f = float(fracture_bar(d))
+    margin = p_f - p  # 破裂压力裕度（bar）
+    verdict = verdict_of(d, p)
+
+    # ── 地质风险 ──
+    # verdict 是核心：risky 直接给高分；under 也危险（注不进 = 项目失败）
+    geo_base = {"ok": 25, "risky": 85, "under": 65}[verdict]
+    # 裕度越小，地质风险越高（盖层/断层问题更易触发）
+    geo_margin_penalty = max(0, (30 - margin)) * 1.5  # 裕度 < 30 bar 时加分
+    geo_score = min(100, geo_base + geo_margin_penalty)
+
+    # ── 井筒风险 ──
+    # 从注入风险概率中取 risky 概率；如果没有 UQ 结果，用 verdict 近似
+    inj_probs = ((done.get("uq") or {}).get("injection") or {}).get("probabilities") or {}
+    if inj_probs:
+        well_score = (inj_probs.get("risky", 0) * 80 +
+                      inj_probs.get("under", 0) * 40 +
+                      inj_probs.get("ok", 0) * 10)
+    else:
+        well_score = {"ok": 15, "risky": 90, "under": 50}[verdict]
+    # 温度越高，井筒腐蚀/水泥环降解风险越高
+    well_temp_bonus = max(0, (temp - 60)) * 0.4
+    well_score = min(100, well_score + well_temp_bonus)
+
+    # ── 环境风险 ──
+    # 深度越浅，CO₂ 泄漏到地表的概率越高；>3000m 几乎可忽略
+    if d < 1000:
+        env_depth = 75
+    elif d < 2000:
+        env_depth = 50 - (d - 1000) * 0.025
+    elif d < 3000:
+        env_depth = 25 - (d - 2000) * 0.015
+    else:
+        env_depth = 10
+    # 超破裂压力 → 诱导微地震 → 环境扰动
+    env_frack_bonus = 25 if verdict == "risky" else 0
+    env_score = min(100, env_depth + env_frack_bonus)
+
+    # ── 经济风险 ──
+    # 深度越深深井成本越高；注入压力接近破裂压力时需要昂贵实时监测
+    econ_depth = min(60, d * 0.015)  # 2000m → 30 分
+    # 裕度 < 20 bar 时，需要密集微地震监测和高频压力计 → 成本飙升
+    econ_margin = max(0, (40 - margin)) * 1.2
+    # 温度高 → 需要耐腐蚀材料 → 成本增加
+    econ_temp = max(0, (temp - 50)) * 0.3
+    econ_score = min(100, econ_depth + econ_margin + econ_temp)
+
+    # ── 合规风险 ──
+    # 超压、断层、浅层注入都是审批红线
+    comp_base = {"ok": 20, "risky": 80, "under": 55}[verdict]
+    # 浅层（<1000m）在许多司法管辖区禁止或严格限制 CO₂ 注入
+    comp_shallow = 20 if d < 1000 else 0
+    comp_score = min(100, comp_base + comp_shallow)
+
+    return {
+        "地质风险": geo_score,
+        "井筒风险": well_score,
+        "环境风险": env_score,
+        "经济风险": econ_score,
+        "合规风险": comp_score,
+    }
+
+
+# ─── 图 6：地层剖面示意图 ────────────────────────────────
+def stratigraphy_figure(
+    depth_m: float,
+    p_inj: float,
+    temp: float,
+    has_fault: bool = True,
+    height: int = 420,
+) -> go.Figure:
+    """
+    简化地质地层剖面示意图（二维横截面）。
+
+    用 Plotly 的填充面积图"伪造"地层，不是真实地质建模，
+    目的是让非地质背景的决策者一眼看懂：
+    "注入层在哪、盖层有多厚、断层会不会切穿储层"。
+
+    随参数动态更新：
+    · depth_m 变化 → 注入层上下移动
+    · p_inj 变化 → 工作点颜色变化（绿/黄/红）
+    · has_fault 变化 → 断层线显示/隐藏
+    """
+    from pressure_model import clamp_inputs, verdict_of
+
+    d, p = clamp_inputs(depth_m, p_inj)
+    verdict = verdict_of(d, p)
+
+    # x 范围：0–2000 m（横向距离）
+    x = list(range(0, 2001, 100))
+
+    # ── 地层边界定义（y 向下为正，所以数值越大越深）──
+    # 地表
+    y_surface = [0] * len(x)
+    # 土壤层底界（200m）
+    y_soil = [200] * len(x)
+    # 含水层底界（800m）
+    y_aquifer = [800] * len(x)
+    # 盖层底界 = 储层顶界（depth - 300m）
+    y_caprock_top = [max(200, d - 500)] * len(x)
+    # 储层底界（depth + 200m）
+    y_reservoir_bottom = [d + 200] * len(x)
+    # 基底底界（画到 depth + 800m）
+    y_basement = [d + 800] * len(x)
+
+    # 让盖层顶界有些起伏，看起来更像地质图
+    import math
+    y_caprock_top = [y + 20 * math.sin(xi / 300) + 15 * math.cos(xi / 500)
+                     for xi, y in zip(x, y_caprock_top)]
+
+    fig = go.Figure()
+
+    # 1. 土壤层（浅棕色）
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y_surface + y_soil[::-1],
+        fill="toself", fillcolor="rgba(194,178,128,.35)",
+        line=dict(width=0), hoverinfo="skip", showlegend=False,
+    ))
+
+    # 2. 含水层（浅蓝色）
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y_soil + y_aquifer[::-1],
+        fill="toself", fillcolor="rgba(135,206,235,.30)",
+        line=dict(width=0), hoverinfo="skip", showlegend=False,
+    ))
+
+    # 3. 盖层（深灰色，密封层）
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y_aquifer + y_caprock_top[::-1],
+        fill="toself", fillcolor="rgba(105,105,105,.40)",
+        line=dict(width=0), hoverinfo="skip", showlegend=False,
+    ))
+
+    # 4. 储层/注入层（砂岩色，高亮）
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y_caprock_top + y_reservoir_bottom[::-1],
+        fill="toself", fillcolor="rgba(218,165,32,.45)",
+        line=dict(width=0), hoverinfo="skip",
+        name="CO₂ 注入层",
+    ))
+
+    # 5. 基底（深褐色）
+    fig.add_trace(go.Scatter(
+        x=x + x[::-1],
+        y=y_reservoir_bottom + y_basement[::-1],
+        fill="toself", fillcolor="rgba(139,90,43,.35)",
+        line=dict(width=0), hoverinfo="skip", showlegend=False,
+    ))
+
+    # ── 地层分界线（描边）──
+    for y_vals, label, dash in (
+        (y_surface, "地表", "solid"),
+        (y_soil, "土壤层底界", "solid"),
+        (y_aquifer, "含水层底界", "solid"),
+        (y_caprock_top, "盖层底界（储层顶界）", "dash"),
+        (y_reservoir_bottom, "储层底界", "solid"),
+    ):
+        fig.add_trace(go.Scatter(
+            x=x, y=y_vals, mode="lines",
+            line=dict(color="rgba(80,80,80,.55)", width=1, dash=dash),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    # ── 注入井（竖线）──
+    well_x = 1000
+    fig.add_trace(go.Scatter(
+        x=[well_x, well_x], y=[0, d + 50],
+        mode="lines",
+        line=dict(color="#1f4e79", width=3),
+        hoverinfo="skip",
+        name="注入井",
+    ))
+    # 井口标记
+    fig.add_trace(go.Scatter(
+        x=[well_x], y=[0],
+        mode="markers+text",
+        marker=dict(size=10, color="#1f4e79", symbol="triangle-up"),
+        text=["井口"], textposition="top center",
+        textfont=dict(size=10, color="#1f4e79"),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    # ── 工作点（注入层深度处）──
+    v_color = {"ok": "#1a7f37", "risky": "#cf222e", "under": "#9a6700"}[verdict]
+    v_label = {"ok": "安全", "risky": "超压", "under": "欠压"}[verdict]
+    fig.add_trace(go.Scatter(
+        x=[well_x], y=[d],
+        mode="markers+text",
+        marker=dict(size=14, color=v_color, line=dict(color="#fff", width=2),
+                    symbol="diamond"),
+        text=[f"{v_label}\n{d:.0f}m"], textposition="middle right",
+        textfont=dict(size=10, color=v_color),
+        hovertemplate=f"深度: {d:.0f} m<br>注入压力: {p:.0f} bar<br> verdict: {v_label}<extra></extra>",
+        showlegend=False,
+    ))
+
+    # ── 断层（斜线）──
+    if has_fault:
+        fault_x = list(range(600, 1601, 50))
+        # 断层从 (600, 100) 斜向 (1600, d+400)
+        fault_y = [100 + (xi - 600) * (d + 300) / 1000 for xi in fault_x]
+        fig.add_trace(go.Scatter(
+            x=fault_x, y=fault_y, mode="lines",
+            line=dict(color="#cf222e", width=2.5, dash="dot"),
+            name="推测断层",
+        ))
+        # 断层标注
+        fig.add_annotation(
+            x=1300, y=fault_y[14],
+            text="推测断层",
+            showarrow=True, arrowhead=2, arrowsize=1,
+            arrowcolor="#cf222e",
+            font=dict(size=10, color="#cf222e"),
+            ax=40, ay=-30,
+        )
+
+    # ── 图例 ──
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(size=12, color="rgba(218,165,32,.65)"),
+        name="CO₂ 注入层",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(size=12, color="rgba(105,105,105,.55)"),
+        name="盖层（密封层）",
+    ))
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=48, r=48, t=40, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.08,
+                    xanchor="left", x=0, font=dict(size=10)),
+        xaxis=dict(title="横向距离 (m)", gridcolor=GRID,
+                   zeroline=False, range=[-100, 2100]),
+        yaxis=dict(title="深度 (m)", autorange="reversed",
+                   gridcolor=GRID, zeroline=False,
+                   range=[d + 900, -50]),
+    )
+    return fig

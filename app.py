@@ -53,10 +53,13 @@ from ui_components import (
     PIPELINE,
     UQ_VERDICT_LABELS,
     compose_input,
+    compute_risk_scores,
     fmt_s,
     fmt_tok,
     pipeline_html,
     pressure_figure,
+    risk_radar_figure,
+    stratigraphy_figure,
     timing_figure,
     token_figure,
     uq_figure,
@@ -317,6 +320,23 @@ with chart_slot:
             + ("" if same else "（与左侧当前输入不同）")
         )
 
+    # ─── 地层剖面示意图（随参数动态更新）──────────────────
+    st.markdown('<div class="panel-title">地层剖面示意图</div>',
+                unsafe_allow_html=True)
+    # has_fault 的判定：从报告文本或地质状态中推断是否有断层
+    report_text = (done.get("report") or "").lower()
+    has_fault = "断层" in report_text or "fault" in report_text
+    st.plotly_chart(
+        stratigraphy_figure(depth, p_inj, temp, has_fault=has_fault),
+        width="stretch",
+        config={"displayModeBar": False},
+        key="stratigraphy",
+    )
+    st.caption(
+        "简化地质剖面：盖层（深灰）密封 CO₂，注入层（砂岩色）储存 CO₂。"
+        "红色虚线为推测断层。工作点按当前 verdict 着色。"
+    )
+
 
 # ─── 一次评估 ────────────────────────────────────────────
 def run_evaluation(payload_input: str) -> None:
@@ -404,7 +424,7 @@ def run_evaluation(payload_input: str) -> None:
     st.session_state["last_run"] = {"id": run_id, "elapsed": elapsed}
 
 
-def render_report(meta: dict) -> None:
+def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
     """报告页：正文 + 必须先被看见的告警 + 成本文案。"""
     err = meta.get("error")
     done_ = meta.get("done") or {}
@@ -489,6 +509,35 @@ def render_report(meta: dict) -> None:
     density_uq = uq.get("density") or {}
     if density_uq.get("text"):
         st.caption(f"🎲 {density_uq['text']}")
+
+    # ─── 五维风险雷达图 ───────────────────────────────────
+    # 基于现有评估结果和参数，计算五个维度的风险分数。
+    # 不需要后端新增字段，纯前端计算，rerun 时随参数即时更新。
+    scores = compute_risk_scores(done_, depth, p_inj, temp)
+    st.markdown('<div class="panel-title">五维风险评估</div>',
+                unsafe_allow_html=True)
+    r1, r2 = st.columns([2, 1])
+    with r1:
+        st.plotly_chart(
+            risk_radar_figure(scores),
+            width="stretch",
+            config={"displayModeBar": False},
+            key="risk_radar",
+        )
+    with r2:
+        st.markdown("**维度说明**")
+        for dim, score in scores.items():
+            color = "#cf222e" if score >= 70 else "#9a6700" if score >= 40 else "#1a7f37"
+            st.markdown(
+                f"<span style='color:{color};font-weight:600'>{dim}</span> "
+                f"<span style='font-family:monospace'>{score:.0f}</span>",
+                unsafe_allow_html=True,
+            )
+        max_dim = max(scores, key=scores.get)
+        st.caption(
+            f"当前最高风险维度：**{max_dim}**（{scores[max_dim]:.0f}/100）。"
+            f"分数基于物理校验结果、UQ 概率和注入参数综合计算。"
+        )
 
     review = done_.get("human_review") or {}
     if review.get("auto"):
@@ -694,7 +743,7 @@ if started_run:
 # ─── 常驻渲染（首屏与 rerun 后都走这里）───
 with report_slot:
     if not started_run:
-        render_report(meta)
+        render_report(meta, depth, p_inj, temp)
 with board_slot:
     render_board(meta)
 
