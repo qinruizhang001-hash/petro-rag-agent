@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-442%20unit%20%C2%B7%20171%20e2e-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-533%20unit%20%C2%B7%20196%20e2e-brightgreen">
 </p>
 
 ---
