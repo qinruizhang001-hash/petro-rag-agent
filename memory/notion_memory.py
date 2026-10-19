@@ -31,10 +31,19 @@ def _get_client():
     return _notion
 
 
-def add_note(title: str, content: str, tags: Optional[list] = None) -> Optional[dict]:
+def add_note(
+    title: str,
+    content: str,
+    tags: Optional[list] = None,
+    timestamp: Optional[str] = None,
+) -> Optional[dict]:
     """
     Create a new page under the configured Notion page.
     Returns None if Notion is not configured.
+
+    ``timestamp`` 会作为页面开头的 callout 写进正文：Notion 的 page 属性里没有
+    现成的"记录时间"字段，而时间维度检索需要它在**正文里可读**（否则只存在
+    ChromaDB 的 metadata 里，人翻笔记时看不到）。
     """
     notion = _get_client()
     if notion is None:
@@ -43,6 +52,15 @@ def add_note(title: str, content: str, tags: Optional[list] = None) -> Optional[
 
     # Chunk content to respect Notion's 2000-char limit per rich_text block
     children = []
+    if timestamp:
+        children.append({
+            "object": "block",
+            "type": "callout",
+            "callout": {
+                "rich_text": [{"type": "text", "text": {"content": f"记录时间：{timestamp}"}}],
+                "icon": {"type": "emoji", "emoji": "🕒"}
+            }
+        })
     remaining = content
     while remaining:
         chunk = remaining[:2000]

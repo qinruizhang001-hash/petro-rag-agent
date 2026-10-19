@@ -134,7 +134,24 @@ def _fake_tool(name: str, arguments: dict) -> dict:
     torch，也不需要启动传输层，而被测的降级逻辑一行都没被绕过。
     """
     if name == "get_co2_density":
-        return {"density_kg_m3": 0.785, "text": "0.785 g/cm3"}
+        # v1.6 起的契约：均值 + 90% 置信区间 + 模拟次数（物理工具输出分布而非点值）。
+        # 这里刻意给一组"和真实公式算不出来的"数字，用来证明报告里的数值
+        # 确实来自工具结果，而不是节点自己重算的。
+        return {
+            "density_kg_m3": 0.785,
+            "mean_kg_m3": 0.785,
+            "ci90_low_kg_m3": 0.741,
+            "ci90_high_kg_m3": 0.829,
+            "std_kg_m3": 0.027,
+            "n_simulations": 100,
+            "input_uncertainty": 0.05,
+            "ci_level": 0.9,
+            "samples": [0.78, 0.79, 0.785, 0.79, 0.78],
+            "text": (
+                "0.79 kg/m³（90% 置信区间 0.74–0.83 kg/m³，"
+                "100 次蒙特卡洛模拟，输入 ±5% 扰动）"
+            ),
+        }
     if name == "predict_pressure_pinn":
         return {"pressure_bar": 109.951, "x_m": arguments.get("x"),
                 "t_days": arguments.get("t"), "scenario": "injection",
@@ -274,8 +291,10 @@ class TestAggregateDegradation(unittest.TestCase):
         self.assertIn(GEOLOGY_FALLBACK, report)
         self.assertIn(WELLBORE_FALLBACK, report)
         self.assertEqual(sorted(out["branch_merge"]["missing"]), ["geology", "wellbore"])
-        # 密度来自物理工具，与分支结论无关 —— 全挂也必须还在
-        self.assertIn("0.785", report, "数值兜底失效：密度值没有进报告")
+        # 密度来自物理工具，与分支结论无关 —— 全挂也必须还在，
+        # 而且必须是"均值 + 区间"，不能只剩一个点值。
+        self.assertIn("0.79", report, "数值兜底失效：密度均值没有进报告")
+        self.assertIn("0.83", report, "置信区间没有进报告 —— 概率性结论丢失")
 
     def test_healthy_run_has_no_degradation_text(self):
         """两条都成功时不得出现降级文案（否则等于天天误报"需人工复核"）。"""

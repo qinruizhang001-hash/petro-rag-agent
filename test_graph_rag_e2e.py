@@ -30,6 +30,10 @@ os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
 # 同时关掉图谱写入 —— 测试不该改动语料图谱。
 os.environ.setdefault("EVOLVE_HOME", tempfile.mkdtemp(prefix="ccus_e2e_evolve_"))
 os.environ.setdefault("EVOLVE_WRITE_GRAPH", "0")
+# 文件记忆（project_history.md）同样必须隔离，否则测试问句会混进真实历史
+_tmp_state = tempfile.mkdtemp(prefix="ccus_e2e_state_")
+os.makedirs(_tmp_state, exist_ok=True)
+os.environ.setdefault("PROJECT_HISTORY_PATH", os.path.join(_tmp_state, "project_history.md"))
 
 PASS, FAIL = [], []
 
@@ -54,44 +58,80 @@ def ollama_get(path: str, payload: dict = None):
 
 # ─── 进程内 API 服务（Step 6 与 Step 8 共用）──────────────
 _API_SERVER = None
+_API_PORT = int(os.environ.get("E2E_API_PORT", "8000"))
+API_BASE = f"http://127.0.0.1:{_API_PORT}"
+
+
+def _port_open(port, timeout=0.3):
+    """端口有没有人监听（不看是谁）。"""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def ensure_api_server(check):
     """
-    确保 127.0.0.1:8000 上有服务；没有就在**本进程内**起一个 uvicorn 线程。
+    在**本进程内**起一个 uvicorn 线程，并把 API_BASE 指向它。
 
-    这不是绕过 HTTP（请求仍走真 socket、SSE 仍真分帧），而是被内存逼的：
-    bge-reranker-v2-m3 单份约 3.95 GB commit，本机可用 commit 只有 4.5 GB 左右，
-    两个进程各持一份必然有一个被系统杀掉（ConnectionReset / 裸 segfault，
-    且没有任何 traceback）。同进程起服务共享已加载的模型，commit 增量接近 0。
+    为什么必须是自己起的，而不是"端口上有人就复用"：
+    `docker compose up` 的后端常驻 127.0.0.1:8000，它读的是 .env.docker，
+    API_TOKEN 有值。复用它会得到一连串 401 —— 实测一次刷出 34 条假失败
+    （SSE、成本仪表盘、HITL 全挂），而代码一行没坏。更麻烦的是 Step 7-B
+    靠"改 api_server.API_TOKEN 这个模块级全局"来切鉴权，那改的是**本进程**
+    的变量，对另一个进程里的服务毫无作用，于是"开启鉴权"这条也必然失败。
+    结论：被测对象必须和测试同进程，否则测的是别人的配置。
+
+    为什么同进程而不是另起一个 python：bge-reranker-v2-m3 单份约 3.95 GB
+    commit，本机可用 commit 只有 4.5 GB 左右，两个进程各持一份必然有一个被
+    系统杀掉（ConnectionReset / 裸 segfault，且没有任何 traceback）。Step 2
+    的工作流本来就在本进程加载了模型，服务挂进来 share 同一份，增量接近 0。
+    请求仍走真 socket、SSE 仍真分帧，没有绕过 HTTP。
+
+    端口策略：默认 8000（可用 E2E_API_PORT 覆盖）；被占用就顺延到下一个空闲
+    端口，并把 API_BASE 指向它。
     """
-    global _API_SERVER
-    import requests as _rq
+    global _API_SERVER, _API_PORT, API_BASE
 
-    def _ready(timeout=5.0):
+    def _ready(port, timeout=5.0):
+        import requests as _rq
+
         end = time.time() + timeout
         while time.time() < end:
             try:
-                if _rq.get("http://127.0.0.1:8000/health", timeout=1).status_code == 200:
+                r = _rq.get(f"http://127.0.0.1:{port}/health", timeout=1)
+                # 只认 200 还不够：要确认应答的确实是**我们起的**这一份。
+                # 鉴权关闭是判据之一 —— 本进程读的是 .env（无 token）。
+                if r.status_code == 200 and r.json().get("auth") == "disabled":
                     return True
             except Exception:
                 pass
             time.sleep(0.2)
         return False
 
-    if _ready(timeout=1.0):
-        check("复用已在运行的外部 API 服务", True, "127.0.0.1:8000")
-        return
+    if _port_open(_API_PORT):
+        for cand in range(_API_PORT + 11, _API_PORT + 60):
+            if not _port_open(cand):
+                check("首选端口被占用，改用备用端口（避免测到容器里的配置）",
+                      True, f"{_API_PORT} → {cand}")
+                _API_PORT = cand
+                API_BASE = f"http://127.0.0.1:{cand}"
+                break
+        else:
+            check("找不到可用端口启动 API 服务", False, f"从 {_API_PORT} 起探测 49 个端口")
+            return
 
     import threading
     import uvicorn
     from api_server import api as _api
 
     _API_SERVER = uvicorn.Server(
-        uvicorn.Config(_api, host="127.0.0.1", port=8000, log_level="warning")
+        uvicorn.Config(_api, host="127.0.0.1", port=_API_PORT, log_level="warning")
     )
     threading.Thread(target=_API_SERVER.run, daemon=True).start()
-    check("进程内启动 API 服务（避免第二份 reranker）", _ready(timeout=30.0))
+    check("进程内启动 API 服务（与被测配置同源，且不额外占一份 reranker）",
+          _ready(_API_PORT, timeout=30.0), API_BASE)
 
 
 def shutdown_api_server():
@@ -204,6 +244,41 @@ def main():
     except Exception as e:
         check("文件记忆模块", False, str(e))
         history_before = 0
+
+    # ─── Step 1-F: 时间维度记忆（跨时间冲突检测，纯函数）──
+    print("\n[Step 1-F] 时间维度记忆（跨时间冲突检测）")
+    try:
+        from core.temporal import analyze_temporal
+
+        docs = [
+            "2025年6月，A-1井实测地层压力为200 bar。",
+            "2026年3月，A-1井地层压力升至300 bar。",
+        ]
+        tm = analyze_temporal(docs)
+        check("抽取到带时间戳的断言", tm["claims"] >= 2, f"{tm['claims']} 条")
+        check("检测到跨时间冲突", len(tm["conflicts"]) == 1,
+              str(tm["conflicts"][:1]))
+
+        c0 = (tm["conflicts"] or [{}])[0]
+        check("冲突以最新时间戳为准",
+              c0.get("newer", {}).get("timestamp") == "2026-03"
+              and c0.get("newer", {}).get("value") == 300.0,
+              str(c0.get("newer")))
+        check("冲突提示包含强制性指令（优先最新）",
+              "必须优先采用时间戳最新的数据" in tm["notice"])
+        check("冲突提示禁止取平均", "禁止" in tm["notice"])
+
+        agree = analyze_temporal([
+            "2025年6月，A-1井地层压力 200 bar。",
+            "2026年3月，A-1井地层压力 201 bar。",
+        ])
+        check("数值一致时不误报冲突", agree["conflicts"] == [] and agree["notice"] == "")
+
+        # 埋深 2000 m 不能被当成 2000 年（误报会让每份报告都多出假冲突）
+        check("裸四位数不被误认为年份",
+              analyze_temporal(["埋深 2000 m，注入压力 250 bar。"])["claims"] == 0)
+    except Exception as e:
+        check("时间维度模块可用", False, f"{type(e).__name__}: {e}")
 
     # ─── Step 1-D: 记忆压缩（Memory Summarization）──────
     print("\n[Step 1-D] 记忆压缩（真实大模型 + 临时文件，不碰真实历史）")
@@ -632,6 +707,38 @@ def main():
           bool(phys.get("checks")) and all("detail" in c for c in phys["checks"]),
           f"{len(phys.get('checks') or [])} 条")
 
+    # ─── 不确定性量化（工作流实测）─────────────────────
+    uqs = final_state.get("uq_summary") or {}
+    check("工作流产出了不确定性量化结果", bool(uqs), str(sorted(uqs)))
+    dens_uq = uqs.get("density") or {}
+    check("密度 UQ 含 90% 区间",
+          dens_uq.get("p5") is not None and dens_uq.get("p95") is not None,
+          str(dens_uq.get("text")))
+    check("密度 UQ 记录了模拟次数", int(dens_uq.get("n") or 0) == 100,
+          str(dens_uq.get("n")))
+    # 注入风险判定依赖埋深。本次问句里**没有**给埋深，所以正确行为是
+    # "不判" —— 拿默认 2000 m 编一个概率比不给更危险：读者会把它当成
+    # 针对本项目的结论。这里正反两个方向都钉住，防止哪天有人"顺手补个默认值"。
+    has_depth = "埋深" in test_input or "深度" in test_input
+    inj_probs = (uqs.get("injection") or {}).get("probabilities")
+    if has_depth:
+        check("注入风险概率已计算", bool(inj_probs), str(inj_probs))
+    else:
+        check("无埋深时不编造注入风险概率", not inj_probs,
+              str((uqs.get("injection") or {}).get("text") or "（未计算）"))
+    # 报告里的概率性结论由 Prompt 约束 + 代码兜底共同保证：
+    # 模型漏写时 aggregate 会追加"置信区间"那句，所以这里可以硬断言。
+    check("报告写入了概率性结论（含置信区间）",
+          "置信区间" in report or "90%" in report)
+
+    # ─── 时间维度记忆（工作流实测）─────────────────────
+    tstats = final_state.get("temporal_stats") or {}
+    check("工作流记录了时间维度统计",
+          isinstance(tstats, dict) and "claims" in tstats, str(tstats))
+    check("时间冲突字段存在且为列表",
+          isinstance(final_state.get("temporal_conflicts"), list),
+          str(type(final_state.get("temporal_conflicts")).__name__))
+
     # ─── Step 4: 新特性断言 ───────────────────────────
     print("\n[Step 4] 新特性断言（多模型路由 + 文件记忆）")
 
@@ -760,6 +867,44 @@ def main():
     print("\n[Step 5-B] PINN 压力预测（MCP 工具，端到端约 1-2 分钟）")
     step_pinn()
 
+    # ─── Step 5-C: 不确定性量化（蒙特卡洛）────────────
+    print("\n[Step 5-C] 不确定性量化（蒙特卡洛，100 次）")
+    try:
+        from core.uq import uq_block
+        from tools.physics_tools import (
+            calculate_co2_density,
+            co2_density_uq,
+            injection_risk_uq,
+        )
+
+        text = calculate_co2_density(250, 80, seed=42)
+        check("密度输出含 90% 置信区间", "90% 置信区间" in text, text)
+        check("密度输出含模拟次数", "100 次蒙特卡洛" in text)
+
+        uq = co2_density_uq(250, 80, seed=42, keep_samples=True)
+        check("置信区间包住均值", uq["p5"] < uq["mean"] < uq["p95"],
+              f"{uq['p5']:.3f} < {uq['mean']:.3f} < {uq['p95']:.3f}")
+        check("生成了 100 个样本", len(uq.get("samples") or []) == 100,
+              f"{len(uq.get('samples') or [])} 个")
+        check("同种子可复现",
+              co2_density_uq(250, 80, seed=42)["mean"] == uq["mean"])
+        check("区间宽度与 ±5% 扰动同量级",
+              0.04 < (uq["p95"] - uq["p5"]) / uq["mean"] < 0.11,
+              f"{(uq['p95'] - uq['p5']) / uq['mean']:.3f}")
+
+        inj = injection_risk_uq(2500, 300, seed=42)
+        check("注入风险概率归一",
+              abs(sum(inj["probabilities"].values()) - 1.0) < 1e-9,
+              str(inj["probabilities"]))
+        check("注入风险文案带概率", "%" in inj["text"], inj["text"])
+        check("远超破裂压力时判定为压裂风险",
+              injection_risk_uq(2500, 600, seed=42)["probabilities"].get("risky") == 1.0)
+
+        blk = uq_block({"density": uq, "injection": inj})
+        check("报告 Prompt 注入概率性硬约束", "禁止只写单一确定值" in blk)
+    except Exception as e:
+        check("UQ 模块可用", False, f"{type(e).__name__}: {e}")
+
     # ─── Step 6: 流式输出 ─────────────────────────────
     print("\n[Step 6] 流式输出（SSE token 级推送）")
     try:
@@ -775,7 +920,7 @@ def main():
         t_start = time.time()
 
         with _rq.post(
-            "http://127.0.0.1:8000/api/analyze",
+            f"{API_BASE}/api/analyze",
             json={"user_input": "某CCUS项目埋深2000m，注入压力250bar，温度80℃，请评估风险。"},
             stream=True, timeout=(5, 600),
             headers={"Accept": "text/event-stream"},
@@ -918,7 +1063,7 @@ def main():
 
         import api_server as _api_mod
 
-        base = "http://127.0.0.1:8000"
+        base = API_BASE
 
         # ── A. 健康检查报告的是依赖，不是"进程还活着" ──
         h = _rq.get(f"{base}/health", timeout=30)
@@ -1027,7 +1172,7 @@ def main():
               no_depth["status"] == "unverifiable" and not no_depth["blocking"])
 
         # ─── B. HITL：HTTP 往返（暂停 → 驳回重写 → 通过落盘）───
-        base = "http://127.0.0.1:8000"
+        base = API_BASE
         r = _rq.post(
             f"{base}/api/analyze/hitl",
             json={"user_input": "某CCUS项目埋深2000m，注入压力250bar，温度80℃，请评估风险。"},

@@ -37,12 +37,14 @@ import time
 from chart_tools import generate_pressure_curve
 from core.config import get_llm, llm_chat, llm_chat_streamed
 from core.state import AgentState
+from core.uq import uq_block
 from file_memory import (
     build_memory_context,
     compress_history_if_needed,
     history_needs_compression,
 )
 from memory.memory_manager import save_memory
+from tools.physics_tools import co2_density_uq, injection_risk_uq
 from utils.branch_merge import (
     compose_branch_inputs,
     degradation_block,
@@ -101,14 +103,61 @@ def _call_pinn(x, t, scenario: str = "injection") -> dict:
     return out
 
 
-def _call_density(pressure_bar, temperature_celsius) -> str | None:
-    """调用 CO2 密度工具（经 MCP），返回 "1.35 kg/m³" 这样的文本。"""
+def _call_density(pressure_bar, temperature_celsius) -> dict | None:
+    """
+    调用 CO2 密度工具（经 MCP），返回含置信区间的结构化结果。
+
+    返回 dict 而不是裸字符串：报告需要 ``text``（一句话，带区间），
+    前端看板需要 ``mean/p5/p95/samples``（画直方图）。只留 text 的话，
+    前端就得回头解析中文括号，那是最容易漂移的一种"接口"。
+
+    MCP 不可用时退回本地计算 —— 密度是纯函数、毫秒级，没有理由因为
+    传输层问题就让报告失去这个数值。
+    """
     payload = _execute_tool(
         "get_co2_density",
-        {"pressure_bar": float(pressure_bar), "temperature_celsius": float(temperature_celsius)},
+        {
+            "pressure_bar": float(pressure_bar),
+            "temperature_celsius": float(temperature_celsius),
+            "uncertainty": 0.05,
+            "n_simulations": 100,
+        },
     )
-    text = payload.get("text")
-    return str(text) if text else None
+    if (
+        payload.get("text")
+        and payload.get("mean_kg_m3") is not None
+        and payload.get("ci90_high_kg_m3") is not None
+    ):
+        mean = float(payload["mean_kg_m3"])
+        std = float(payload.get("std_kg_m3") or 0.0)
+        return {
+            "text": str(payload["text"]),
+            "mean": mean,
+            "p5": payload.get("ci90_low_kg_m3"),
+            "p95": payload.get("ci90_high_kg_m3"),
+            "std": std,
+            # 标称值与变异系数由这里补齐：MCP 的响应里没有它们，
+            # 而前端要拿 nominal 做"均值 vs 标称"的对照、拿 cv 判断离散程度。
+            "nominal": float(pressure_bar),
+            "cv": (std / mean) if mean else 0.0,
+            "n": payload.get("n_simulations"),
+            "rel_sigma": payload.get("input_uncertainty"),
+            "unit": "kg/m³",
+            "samples": payload.get("samples"),
+            "source": "mcp",
+        }
+
+    log.info("  [System] MCP 密度结果缺少区间字段（旧版 Server 或测试替身）→ 本地计算")
+    try:
+        summary = co2_density_uq(
+            float(pressure_bar), float(temperature_celsius),
+            rel_sigma=0.05, n=100, keep_samples=True,
+        )
+        summary["source"] = "local"
+        return summary
+    except Exception as exc:  # noqa: BLE001
+        log.warning(f"  [Warning] 本地密度计算失败: {type(exc).__name__}: {exc}")
+        return None
 
 
 def _plan_prompt_tools() -> str:
@@ -170,6 +219,7 @@ def get_client_specs() -> list[dict]:
 _TOOL_HINTS = {
     "get_co2_density": (
         "参数中出现注入压力和温度时调用，不要自己口算密度。"
+        "返回的是均值 + 90% 置信区间，报告里必须把区间一起写出来。"
     ),
     "predict_pressure_pinn": (
         "当问题问的是\"距井口 X 米处、注入 T 天后的压力\"时调用，"
@@ -189,7 +239,15 @@ _EXAMPLE_VALUES = {
     "query": "断层活化与注入压力的关系",
 }
 
-_TOOL_POLICY = {"skip_in_planner": {"query_ccus_graph"}}
+_TOOL_POLICY = {
+    "skip_in_planner": {
+        "query_ccus_graph",
+        # 注入风险的概率分布是**确定性触发**的：只要参数里有深度和压力就一定要算，
+        # 不能交给 7B 决定"这次要不要评估不确定性"。不确定性量化是报告的固定项，
+        # 不是可选工具 —— 交给模型规划，等于让它自己决定要不要诚实。
+        "assess_injection_uncertainty",
+    }
+}
 
 
 def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
@@ -238,6 +296,38 @@ def _chart_payload(result: dict | None) -> dict:
         "admissible_depth_max_m", "depth_assumed",
     )
     return {k: result.get(k) for k in keep if k in result}
+
+
+def _uq_payload(uq: dict | None) -> dict:
+    """
+    把不确定性量化结果裁成可 JSON 序列化的结构。
+
+    保留 ``samples``（100 个浮点，约 1 KB）：前端画分布直方图要靠它。
+    只给 mean/p5/p95 的话，看板上只能显示三个数字，"分布"这件事就丢了 ——
+    而分布恰恰是 UQ 唯一比点估计多出来的信息。
+    """
+    if not uq:
+        return {}
+    keep = (
+        "mean", "p5", "p50", "p95", "std", "cv", "n", "rel_sigma", "unit",
+        "text", "nominal", "ci_level", "probabilities", "counts",
+        "verdict", "verdict_label", "depth_m", "injection_pressure_bar",
+    )
+    out: dict = {}
+    for key in ("density", "injection"):
+        item = uq.get(key) or {}
+        if not item:
+            continue
+        # MCP 路径返回的是原始工具输出，里面不一定有 cv，但一定有 std+mean。
+        if item.get("cv") is None and item.get("std") is not None and item.get("mean"):
+            item = dict(item)
+            item["cv"] = item["std"] / item["mean"]
+        slim = {k: item.get(k) for k in keep if item.get(k) is not None}
+        samples = item.get("samples")
+        if samples:
+            slim["samples"] = [round(float(v), 4) for v in samples]
+        out[key] = slim
+    return out
 
 
 _TOOL_FENCE = re.compile(r"```(?:json)?\s*\{.*?\}\s*```", re.DOTALL)
@@ -397,7 +487,15 @@ def aggregate_report(state: AgentState, config=None):
 6. **绝对不要输出 JSON、工具指令或图片 Markdown 路径**，只写正文。
 7. 下面给的是**两条并行分支各自产出的结论**（地质 / 井筒）。你的任务是
    **融合**而不是复述：保留两段中的全部数值与判断，去掉重复表述，
-   按上面的 1/2/3 结构重新组织。**不要新增两段里没有的结论。**"""
+   按上面的 1/2/3 结构重新组织。**不要新增两段里没有的结论。**
+8. **结论必须是概率性的，不是绝对的。** 凡是来自【不确定性量化结果】的数值，
+   必须写成「均值 + 90% 置信区间」的形式（如"密度 1.35 kg/m³，
+   90% 置信区间 1.28–1.42"），**禁止只给单一数值**，也禁止写成
+   "约为""大约"这类模糊措辞 —— 前者隐瞒了不确定性，后者没有信息量。
+9. 风险判断必须带概率（如"压裂风险概率 12%（100 次蒙特卡洛）"），
+   不要用"存在一定风险""需密切关注"这类无法证伪的表述。
+10. 如果【时间维度提示】里给出了冲突数据，必须采用**最新时间戳**的数值，
+   并显式说明引用了哪个时间点、与旧数据差多少；禁止取平均或隐去旧值。"""
 
     # ─── 本次任务的材料（两个阶段共用）───
     # 注意：这里不再拼 state["retrieved_knowledge"]。扇出之后，注入给下游的
@@ -412,13 +510,29 @@ def aggregate_report(state: AgentState, config=None):
             + "\n"
         )
 
+    # ─── 时间维度冲突：只注入结构化摘要，不重放整段检索结果 ───
+    # retrieve 节点已经把完整提示块拼进了 retrieved_knowledge，但终稿刻意
+    # 不再读那一整段（省 token）。冲突只有几条，单独带进来代价极小，
+    # 而漏掉它会让"优先采用最新数据"这条约束在终稿阶段彻底消失。
+    temporal_block = ""
+    conflicts = state.get("temporal_conflicts") or []
+    if conflicts:
+        lines = ["\n【时间维度：检测到同一对象在不同时间点的冲突数据】"]
+        for c in conflicts[:5]:
+            lines.append(
+                f"- {c['message']} → **以 {c['newer']['timestamp']} 的 "
+                f"{c['newer']['display']} 为准**"
+            )
+        lines.append("（禁止取平均；必须说明差异幅度与可能原因）\n")
+        temporal_block = "\n".join(lines)
+
     materials = f"""【提取的 CCUS 参数】：{state['extracted_params']}
 【地质分支结论（LightRAG 图谱证据）】：
 {branch['geology']}
 
 【井筒分支结论（ChromaDB 文献证据）】：
 {branch['wellbore']}
-{degraded_hint}
+{degraded_hint}{temporal_block}
 {personal_context}
 【上一版报告的修改意见】：{state.get('feedback', '无')}"""
 
@@ -521,6 +635,47 @@ def aggregate_report(state: AgentState, config=None):
         log.info("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
         density_result = _call_density(p_val, t_val)
 
+    # ─── 不确定性量化（确定性触发，不经模型规划）───────────
+    # 这一块和密度/图表兜底同一个理由，但更强：UQ 不是"锦上添花的工具"，
+    # 而是报告的**固定组成部分**。交给 7B 决定要不要评估不确定性，
+    # 它几乎总会在"信息已经够了"的时候跳过 —— 而恰恰是那种自信最危险。
+    depth_val = _extract_depth(state.get("extracted_params", ""))
+    uq_summary: dict = {}
+    if density_result and density_result.get("mean") is not None:
+        uq_summary["density"] = {
+            "mean": density_result.get("mean"),
+            "p5": density_result.get("p5"),
+            "p95": density_result.get("p95"),
+            "std": density_result.get("std"),
+            "n": density_result.get("n"),
+            "rel_sigma": density_result.get("rel_sigma"),
+            "unit": density_result.get("unit", "kg/m³"),
+            "text": density_result.get("text", ""),
+            "samples": density_result.get("samples"),
+        }
+
+    # 注入风险：深度与压力都从**提取出的参数**里取，不采用模型给的数字
+    if p_val is not None and depth_val is not None:
+        try:
+            uq_summary["injection"] = injection_risk_uq(
+                depth_val, p_val, rel_sigma=0.05, n=100
+            )
+            log.info(f"  [UQ] 注入风险分布：{uq_summary['injection']['text']}")
+        except Exception as e:
+            log.warning(f"  [Warning] 注入风险蒙特卡洛失败（不影响报告）: {e}")
+
+    if uq_summary:
+        log.info(
+            f"  [UQ] 不确定性量化完成："
+            f"{len(uq_summary)} 项（每项 100 次模拟）"
+        )
+        # 推给前端：UQ 面板不必等报告写完
+        if sink is not None:
+            try:
+                sink({"type": "uq", "uq": _uq_payload(uq_summary)})
+            except Exception:
+                pass
+
     # ─── 地质分支降级时，用图谱工具补证据 ────────────────────
     # query_ccus_graph 不交给 7B 规划（会重复检索），而是绑定在这个明确的
     # 条件下：地质分支没产出结论时，才值得再检索一次来补。
@@ -575,12 +730,17 @@ def aggregate_report(state: AgentState, config=None):
     # Phase B：终稿（流式，唯一被流式展示的一遍）
     # ══════════════════════════════════════════════════════
     tool_facts = []
-    if density_result is not None:
-        tool_facts.append(f"CO2 密度 = {density_result}（由物理工具计算）")
+    if density_result and density_result.get("text"):
+        tool_facts.append(
+            f"CO2 密度 = {density_result.get('text')}（由物理工具 + 蒙特卡洛计算）"
+        )
     if chart_ok:
         tool_facts.append(f"地层压力曲线结论：{chart_result['summary']}")
     if pinn_result is not None:
         tool_facts.append(f"PINN 压力预测：{pinn_result['text']}")
+    injection_uq = uq_summary.get("injection") or {}
+    if injection_uq.get("text"):
+        tool_facts.append(f"注入风险概率分布：{injection_uq['text']}")
 
     facts_block = ""
     if tool_facts:
@@ -588,6 +748,12 @@ def aggregate_report(state: AgentState, config=None):
             "【工具执行结果 —— 必须写进报告正文】\n- " + "\n- ".join(tool_facts)
             + "\n\n"
         )
+
+    # 概率性结论的硬约束单独成块（由 core.uq 生成，不是 System Prompt 里的
+    # 一句"请包含不确定性"）。放在工具结果后面，因为它是"怎么用这些数"的说明。
+    prob_block = uq_block(uq_summary)
+    if prob_block:
+        facts_block += prob_block + "\n"
 
     # 工具结果放在**最前面**：实测本地模型对结尾处的约束遵守度很差，
     # 把数值要求前置后，模型更可能把密度直接写进正文而不是靠代码兜底补。
@@ -607,6 +773,7 @@ def aggregate_report(state: AgentState, config=None):
         + graph_block
         + "\n\n请撰写完整报告。上面工具结果里的数值必须原样写进正文"
           "（例如在地质风险部分点明该压力/温度下的 CO2 密度），"
+          "**并且必须带上 90% 置信区间与风险概率，不能只写单一数值**；"
           "不要改写、不要省略，也不要单独列成附注；"
           "不要输出 JSON 指令，不要在正文里写图片路径。"
     )
@@ -636,12 +803,33 @@ def aggregate_report(state: AgentState, config=None):
     # ─── 数值兜底：工具算出来的数不能"没写进报告"───────────
     # 模型偶尔会漏掉注入的数值。数值来自工具是核心承诺，漏了就等于没算，
     # 所以这里补一行显式数值，而不是让它自生自灭。
-    if density_result is not None:
-        numeric = density_result.split()[0] if density_result else ""
-        if numeric and numeric not in report_text:
-            log.info(f"  [System] 报告未包含工具算出的密度 {numeric} → 追加数值说明")
+    #
+    # v1.6 起判据从"均值出现过吗"改成"**区间上界**出现过吗"：
+    # 模型很容易只抄一个 1.35 就交差，而"1.35"恰恰是这次改造要消灭的
+    # 那种伪确定性。上界没出现，说明区间没写进去。
+    if density_result and density_result.get("mean") is not None and density_result.get("p95") is not None:
+        mean_txt = f"{density_result['mean']:.2f}"
+        hi_txt = f"{density_result['p95']:.2f}"
+        if hi_txt not in report_text:
+            log.info(
+                f"  [System] 报告缺少密度置信区间（上界 {hi_txt} 未出现）"
+                f" → 追加概率性结论"
+            )
             report_text = report_text.rstrip() + (
-                f"\n\n> CO2 密度 {density_result}，按注入压力与温度由状态方程工具计算。"
+                f"\n\n> **CO2 密度（概率性结论）**：{density_result['text']}。"
+                f"均值 {mean_txt} kg/m³ 不是唯一可能值，"
+                f"上述区间覆盖 90% 的模拟结果。"
+            )
+
+    # ─── 注入风险概率兜底：同上，模型倾向于只写"有风险/无风险" ───
+    injection_uq = uq_summary.get("injection") or {}
+    if injection_uq.get("text"):
+        labels = ("注入可行", "压裂风险", "压力不足")
+        if not any(lbl in report_text for lbl in labels):
+            log.info("  [System] 报告缺少注入风险概率 → 追加概率性结论")
+            report_text = report_text.rstrip() + (
+                f"\n\n> **注入风险（概率性结论）**：{injection_uq['text']}。"
+                f"概率来自 100 次蒙特卡洛抽样，不是主观判断。"
             )
 
     # ─── PINN 数值兜底：与密度同理，工具算了但没写进报告就等于没算 ───
@@ -715,6 +903,9 @@ def aggregate_report(state: AgentState, config=None):
         "file_memory_context": file_memory_block,
         "chart_info": _chart_payload(chart_result) if chart_ok else {},
         "pinn_prediction": pinn_result or {},
+        # 不确定性量化结果：结构化字段，供 API / 前端 / 评审直接消费。
+        # 报告正文里那段话是模型转述，可能被漏写；这个字段才是数值的可靠来源。
+        "uq_summary": _uq_payload(uq_summary),
         **compress_update,
         **state_update,
     }

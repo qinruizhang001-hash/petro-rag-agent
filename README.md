@@ -88,7 +88,8 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment, **93 %** below all-cloud |
-| 3 | **171 end-to-end assertions** through the real HTTP path | 171 PASS / 0 FAIL, 667 s, plus 442 unit tests |
+| 3 | **171 end-to-end assertions** through the real HTTP path | 171 PASS / 0 FAIL, 667 s, plus 517 unit tests |
+| 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI, 100 runs |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
 
@@ -138,6 +139,54 @@ The assertions that earn their place are the ones written against a *specific* w
 - **A well-written report that contradicts physics is scored 0 and sent back** — with a numeric correction (`≤ 227 bar`, `≥ 1 649 m`), not a vague complaint.
 - **The PINN tool returns 109.951 bar against an analytic 110.000.** "The model planned the call" and "the number reached the report" are pinned as two separate assertions, because both have failed independently.
 - **`/health` probes are real**: Ollama 15–27 ms, Chroma 1–2 ms, SQLite 4 ms — against `ccus_knowledge_v3` with `1982 vectors` and a checkpoint DB with `779 rows`. A probe that re-derives its own paths once reported "healthy" against an empty directory; the current one imports the app's own constants.
+
+### 4. Two answers a point estimate cannot give
+
+A retrieval system that returns both `200 bar (2025-06)` and `300 bar (2026-03)` has not
+found two facts — it has found one *trend* and one *contradiction*. Averaging them, or
+quoting whichever chunk ranked higher, produces a number that is wrong in a way nobody
+can see. And a report that states `ρ = 1.35 kg/m³` with no interval is claiming a
+precision the inputs do not have.
+
+**Temporal layer** (`core/temporal.py`, pure functions, no model):
+
+```text
+"2025年6月，A-1井实测地层压力为200 bar。"   ┐
+"2026年3月，A-1井地层压力升至300 bar。"     ┘
+   → 2 claims → 1 conflict (A-1井 · 地层压力, +50.0 %, 9 个月)
+   → notice injected into the context **after** pruning:
+     "必须优先采用时间戳最新的数据 … 禁止取平均"
+```
+
+Three details that decide whether this works or quietly misfires:
+
+- **A bare four-digit number is not a date.** `埋深 2000 m` must not become the year 2000,
+  or every report inherits a century of phantom conflicts. A timestamp requires `年` or a
+  `-` / `/` separator.
+- **Keywords are scoped to the gap between two numbers**, not the sentence. Otherwise
+  `压力 200 bar，温度 80℃` yields two pressure readings and a fabricated `−60 %` conflict.
+- **The notice is injected after context pruning**, because it is an instruction. A
+  summariser rewrites "必须用最新数据" into "存在历史差异" and the constraint evaporates.
+
+**Uncertainty layer** (`core/uq.py` + `tools/physics_tools.py`): every physical tool now
+perturbs its input 100 times and reports a distribution.
+
+```text
+250 bar / 80 ℃  →  1.35 kg/m³（90 % CI 1.28–1.40，100 次蒙特卡洛，输入 ±5 % 扰动）
+2500 m / 250 bar →  注入可行 44 % · 压力不足 56 %（标称判定：压力不足）
+```
+
+The perturbation is **uniform ±5 %** — an instrument error bound, not a 1σ. Treating ±5 %
+as 1σ and sampling normally widens the 90 % interval to ±8.2 %, while the report still
+says "±5 %"; the two conventions are both defensible, but mixing them is not. The interval
+is a **percentile** interval (`p5`–`p95`), not `mean ± 1.645σ`, because the injection
+verdict is a step function and its output distribution is skewed near the fracture
+threshold — exactly where the answer matters.
+
+The report prompt gets both constraints as generated text (`core/uq.uq_block`), and
+`aggregate` re-appends the interval by code if the model writes only the mean. Measured
+behaviour: local 7B drops injected numbers from the prose roughly every other run, which
+is why the numeric fallback is not optional.
 
 ---
 

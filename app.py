@@ -51,6 +51,7 @@ from pressure_model import (
 from ui_components import (
     NODE_SHORT,
     PIPELINE,
+    UQ_VERDICT_LABELS,
     compose_input,
     fmt_s,
     fmt_tok,
@@ -58,6 +59,7 @@ from ui_components import (
     pressure_figure,
     timing_figure,
     token_figure,
+    uq_figure,
 )
 
 # 后端地址必须可配置：本地是 127.0.0.1:8000，Docker Compose 里是 http://api:8000。
@@ -364,6 +366,11 @@ def run_evaluation(payload_input: str) -> None:
                 elif etype == "chart":
                     local["chart"] = ev.get("chart") or {}
 
+                elif etype == "uq":
+                    # UQ 在终稿之前就算完，先存下来；done 事件里还会再带一份
+                    # 完整版（含 samples），两者合并而不是覆盖。
+                    local["uq"] = {**local.get("uq", {}), **(ev.get("uq") or {})}
+
                 elif etype == "done":
                     local["done"] = ev
 
@@ -388,6 +395,7 @@ def run_evaluation(payload_input: str) -> None:
         "done": local.get("done"),
         "error": local.get("error"),
         "chart": local.get("chart"),
+        "uq": local.get("uq"),
         "report": streamed or (local.get("done") or {}).get("report", ""),
         "states": states,
         "timings": timings,
@@ -424,6 +432,44 @@ def render_report(meta: dict) -> None:
         if v.get("severity") == "warning":
             st.warning(f"物理校验提示：{v.get('message')}")
 
+    # ─── 时间维度冲突：与物理告警同级，必须顶在正文之前 ───
+    # 这类问题最容易被读者忽略：报告里出现一个"最新"的压力值，看起来毫无异常，
+    # 而实际上它是从两条互相矛盾的证据里挑出来的。不显式说明，等于隐瞒。
+    temporal = done_.get("temporal") or {}
+    conflicts = temporal.get("conflicts") or []
+    tstats = temporal.get("stats") or {}
+    if conflicts:
+        st.warning(
+            "⏱ 检测到跨时间冲突数据：同一对象在不同时间点的数值不一致。"
+            "报告已按**最新时间戳**取值，旧值仅作为演化对比保留。"
+        )
+        st.dataframe(
+            [
+                {
+                    "对象": c.get("entity"),
+                    "参数": c.get("metric_label"),
+                    "旧数据": f"{c['older']['display']}（{c['older']['timestamp']}）",
+                    "最新数据": f"{c['newer']['display']}（{c['newer']['timestamp']}）",
+                    "变化": f"{c.get('delta_pct', 0):+.1f}%",
+                    "间隔": c.get("span"),
+                }
+                for c in conflicts
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+    elif tstats.get("claims"):
+        st.caption(
+            f"⏱ 时间轴：识别到 {tstats['claims']} 条带时间戳的断言"
+            f"（{len(tstats.get('entities') or [])} 个对象），未发现冲突。"
+        )
+    else:
+        # 让时间维度这条能力在界面上"看得见"——即使本次检索没有任何带时间戳的
+        # 断言，也给出一行状态，而不是整个能力静默消失。当前语料 70 个片段里
+        # 只有 1 处含年份字样（还是 NeurIPS 2023 的引用），所以生产查询大概率
+        # 走这条分支；要看到冲突告警，请往知识库里补带日期的监测记录。
+        st.caption("⏱ 时间维度：本次检索未识别到带时间戳的断言（暂无历史冲突可比对）。")
+
     # 报告正文：rerun 后靠这里恢复（流式那次的内容已经随上一次渲染销毁）。
     # 不要用 <div> 包裹再分两次 markdown 输出：Streamlit 每次 markdown 是独立的
     # DOM 节点，未闭合的 div 会被浏览器就地补上闭合标签，包不住后面的内容。
@@ -436,6 +482,13 @@ def render_report(meta: dict) -> None:
     pinn = done_.get("pinn") or {}
     if pinn.get("text"):
         st.caption(f"🧮 {pinn['text']}")
+
+    # 概率性结论：报告里应当已经写了，这里再给一份"未经模型转述"的原文，
+    # 保证读者看到的是工具算出来的区间，而不是被改写过的措辞。
+    uq = done_.get("uq") or meta.get("uq") or {}
+    density_uq = uq.get("density") or {}
+    if density_uq.get("text"):
+        st.caption(f"🎲 {density_uq['text']}")
 
     review = done_.get("human_review") or {}
     if review.get("auto"):
@@ -494,6 +547,60 @@ def render_board(meta: dict) -> None:
               delta=f"基线 ¥{cost.get('baseline_cny', 0):.6f}", delta_color="off")
     k4.metric("节省比例", f"{(cost.get('saved_pct') or 0) * 100:.0f}%",
               delta=f"{len(breakdown)} 个阶段", delta_color="off")
+
+    # ─── 不确定性量化（Monte Carlo）────────────────────────
+    # 放在看板最上面：这是本次评估"结论有多可信"的唯一量化来源，
+    # 比 token 花了几厘钱重要得多。
+    uq = done_.get("uq") or meta.get("uq") or {}
+    density_uq = uq.get("density") or {}
+    injection_uq = uq.get("injection") or {}
+    if density_uq or injection_uq:
+        st.markdown('<div class="panel-title">不确定性量化（蒙特卡洛模拟）</div>',
+                    unsafe_allow_html=True)
+
+        if density_uq:
+            u1, u2, u3, u4 = st.columns(4)
+            u1.metric("密度均值", f"{density_uq.get('mean', 0):.2f} kg/m³",
+                      delta=f"标称 {density_uq.get('nominal', 0):.2f}",
+                      delta_color="off")
+            u2.metric("90% 区间下界", f"{density_uq.get('p5', 0):.2f} kg/m³")
+            u3.metric("90% 区间上界", f"{density_uq.get('p95', 0):.2f} kg/m³")
+            u4.metric("变异系数 CV",
+                      f"{(density_uq.get('cv') or 0) * 100:.1f}%",
+                      delta=f"{density_uq.get('n', 0)} 次模拟",
+                      delta_color="off")
+
+            if density_uq.get("samples"):
+                st.plotly_chart(
+                    uq_figure(
+                        density_uq["samples"],
+                        p5=density_uq.get("p5"),
+                        p95=density_uq.get("p95"),
+                        mean=density_uq.get("mean"),
+                        unit="kg/m³",
+                    ),
+                    width="stretch",
+                    config={"displayModeBar": False},
+                    key="uq_hist",
+                )
+            if density_uq.get("text"):
+                st.caption(f"🎲 {density_uq['text']}")
+
+        if injection_uq.get("probabilities"):
+            st.markdown('<div class="panel-title">注入结局概率分布</div>',
+                        unsafe_allow_html=True)
+            probs = injection_uq["probabilities"]
+            for key, prob in sorted(probs.items(), key=lambda kv: -kv[1]):
+                st.progress(
+                    min(max(float(prob), 0.0), 1.0),
+                    text=f"{UQ_VERDICT_LABELS.get(key, key)} — {prob * 100:.0f}%",
+                )
+            st.caption(
+                f"标称判定：{injection_uq.get('verdict_label', '—')}；"
+                f"深度 {injection_uq.get('depth_m', 0):.0f} m / 注入压力 "
+                f"{injection_uq.get('injection_pressure_bar', 0):.0f} bar；"
+                f"深度与压力各 ±{(injection_uq.get('rel_sigma') or 0) * 100:.0f}% 扰动。"
+            )
 
     st.markdown('<div class="panel-title">全链路耗时（节点墙钟）</div>',
                 unsafe_allow_html=True)

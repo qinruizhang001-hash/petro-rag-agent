@@ -9,6 +9,7 @@ crashing at import time if HuggingFace Hub is unreachable.
 """
 import sys
 import os
+from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import chromadb
@@ -47,16 +48,35 @@ def _ensure_initialized():
     log.info(f"[Memory/ChromaDB] 初始化完成 (collection={CHROMA_COLLECTION})")
 
 
-def add(text: str, metadata: dict | None = None, custom_id: str | None = None) -> str:
-    """Store a memory. Returns the memory ID."""
+def add(
+    text: str,
+    metadata: dict | None = None,
+    custom_id: str | None = None,
+    timestamp: str | None = None,
+) -> str:
+    """
+    Store a memory. Returns the memory ID.
+
+    ``timestamp`` 是**强制字段**：每条记忆都必须能回答"什么时候写下的"。
+    不传时用当前时间补，而不是留空 —— 缺失时间戳的记忆在时间维度检索里
+    等于不存在，而"忘了传"是最常见的漏法，所以默认值放在这里而不是调用方。
+    已有 metadata 里的 timestamp 优先（导入历史数据时不该被覆盖）。
+    """
     _ensure_initialized()
     mem_id = custom_id or f"mem_{abs(hash(text))}"
+
+    meta = dict(metadata or {})
+    meta.setdefault("timestamp", timestamp or datetime.now().isoformat(timespec="seconds"))
+    if timestamp:
+        # 显式传入时以传入值为准（回填历史记录的场景）
+        meta["timestamp"] = timestamp
+
     _collection.add(
         documents=[text],
-        metadatas=[metadata or {}],
+        metadatas=[meta],
         ids=[mem_id]
     )
-    log.info(f"[Memory/ChromaDB] Saved (id={mem_id})")
+    log.info(f"[Memory/ChromaDB] Saved (id={mem_id}, ts={meta['timestamp']})")
     return mem_id
 
 

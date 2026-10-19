@@ -100,6 +100,17 @@ class AgentState(TypedDict):
     cost_estimation: dict          # 本次任务的成本估算（人民币）
     # ─── 物理一致性校验（规则引擎，不是模型打分）───
     physics_check: dict            # {status, blocking, verdict, limits, violations, feedback}
+    # ─── 时间维度记忆（Temporal Knowledge）───
+    # retrieve 节点产出。conflicts 是"同一井位 + 同一参数 + 不同时间 + 数值显著不同"
+    # 的结构化列表；context 是注入给下游的硬指令原文（可审计）。
+    temporal_conflicts: list
+    temporal_context: str
+    temporal_stats: dict           # {claims, conflicts, entities}
+    # ─── 不确定性量化（Monte Carlo）───
+    # aggregate 节点产出：{density: {...}, injection: {...}}，每项含
+    # mean / p5 / p95 / std / n / rel_sigma / text。数值全部来自代码模拟，
+    # 模型只负责转述，不负责计算。
+    uq_summary: dict
     # ─── 人类在环（HITL）───
     human_decision: dict           # {approved, reviewer, comment, auto}
     human_rejections: int          # 人工驳回次数，用于给"人一直驳回"设上限

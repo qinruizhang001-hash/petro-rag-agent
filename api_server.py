@@ -178,6 +178,26 @@ def _physics_of(values: dict) -> dict:
     return values.get("physics_check") or {}
 
 
+def _temporal_of(values: dict) -> dict:
+    """
+    时间维度记忆的对外视图。
+
+    ``conflicts`` 是结构化冲突（前端据此渲染告警表），``stats`` 是"抽了多少条
+    带时间戳的断言" —— 没有后者的话，用户看到"无冲突"无法区分是"真的没有"
+    还是"一条时间戳都没认出来"，这两件事的置信度完全不同。
+    """
+    return {
+        "conflicts": values.get("temporal_conflicts") or [],
+        "stats": values.get("temporal_stats") or {},
+        "context": values.get("temporal_context") or "",
+    }
+
+
+def _uq_of(values: dict) -> dict:
+    """不确定性量化的对外视图（density / injection 两项）。"""
+    return values.get("uq_summary") or {}
+
+
 def _human_review_of(values: dict) -> dict:
     """把 state 里的人工决定整理成前端/调用方看得懂的字段。"""
     decision = values.get("human_decision") or {}
@@ -205,6 +225,9 @@ def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
         "history_entry": values.get("history_entry", ""),
         "chart": values.get("chart_info", {}),
         "pinn": values.get("pinn_prediction", {}),
+        # ─── 时间维度记忆 + 不确定性量化 ───
+        "temporal": _temporal_of(values),
+        "uq": _uq_of(values),
         # ─── 物理一致性校验（规则引擎）───
         "physics_check": _physics_of(values),
         # ─── 人类在环 ───
@@ -245,6 +268,9 @@ async def analyze_sync(request: ProjectRequest):
             "history_entry": final_state.get("history_entry", ""),
             "chart": final_state.get("chart_info", {}),
             "pinn": final_state.get("pinn_prediction", {}),
+            # ─── 时间维度记忆 + 不确定性量化 ───
+            "temporal": _temporal_of(final_state),
+            "uq": _uq_of(final_state),
             # ─── 物理一致性校验 + 人类在环 ───
             "physics_check": _physics_of(final_state),
             "human_review": _human_review_of(final_state),
@@ -350,6 +376,12 @@ async def _event_stream(user_input: str, thread_id: str):
                 yield _sse({"type": "chart", "chart": payload.get("chart", {})})
                 continue
 
+            # 不确定性量化在终稿之前就算完了，先推给前端：
+            # 用户不必等报告写完才看到置信区间。
+            if payload.get("type") == "uq":
+                yield _sse({"type": "uq", "uq": payload.get("uq", {})})
+                continue
+
             if payload.get("type") == "node":
                 yield _sse(payload)
                 continue
@@ -372,6 +404,9 @@ async def _event_stream(user_input: str, thread_id: str):
                 "chart": node_outputs.get("chart_info", {}),
                 "pinn": node_outputs.get("pinn_prediction", {}),
                 "history_entry": node_outputs.get("history_entry", ""),
+                # ─── 时间维度记忆 + 不确定性量化 ───
+                "temporal": _temporal_of(node_outputs),
+                "uq": _uq_of(node_outputs),
                 # ─── 物理一致性校验 + 人类在环 ───
                 "physics_check": _physics_of(node_outputs),
                 "human_review": _human_review_of(node_outputs),

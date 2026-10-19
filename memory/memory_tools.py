@@ -43,13 +43,18 @@ def search_personal_memory(query: str) -> str:
 
         formatted = []
         for i, mem in enumerate(semantic, 1):
-            title = mem.get("metadata", {}).get("title", "无标题记忆")
-            tags = mem.get("metadata", {}).get("tags", "")
+            meta = mem.get("metadata", {}) or {}
+            title = meta.get("title", "无标题记忆")
+            tags = meta.get("tags", "")
+            # 时间戳必须出现在检索结果里：模型看到"2025-06"才会意识到
+            # 这条记忆可能已经过期，而不是把三年前的结论当成当前状态。
+            ts = meta.get("timestamp", "")
             dist = mem.get("distance")
             relevance = f" (相关度: {1 - dist:.0%})" if dist is not None else ""
             doc = mem.get("document", "").strip()
             tag_str = f" [{tags}]" if tags else ""
-            formatted.append(f"【{i}. {title}】{tag_str}{relevance}\n{doc}")
+            ts_str = f" 🕒 {ts}" if ts else ""
+            formatted.append(f"【{i}. {title}】{tag_str}{ts_str}{relevance}\n{doc}")
 
         # Structured results (Notion) — append as supplementary
         structured = results.get("structured", [])
@@ -64,22 +69,29 @@ def search_personal_memory(query: str) -> str:
         return f"记忆检索失败: {str(e)}"
 
 
-def save_personal_memory(title: str, content: str, tags: list = None) -> str:
+def save_personal_memory(title: str, content: str, tags: list = None,
+                         timestamp: str = None) -> str:
     """
     Save a memory to personal long-term storage (Notion + ChromaDB).
 
     Used when the agent decides something is worth remembering.
 
     Args:
-        title:   Short title
-        content: Full content
-        tags:    Optional tag list
+        title:     Short title
+        content:   Full content
+        tags:      Optional tag list
+        timestamp: ISO 8601 时间；缺省用当前时间（时间维度检索依赖它）
 
     Returns:
         Confirmation message with IDs.
     """
     try:
-        result = save_memory(title=title, content=content, tags=tags)
-        return f"已保存到长期记忆。Notion ID: {result.get('notion_page_id', 'N/A')}, ChromaDB ID: {result['chroma_id']}"
+        result = save_memory(title=title, content=content, tags=tags,
+                             timestamp=timestamp)
+        return (
+            f"已保存到长期记忆（记录时间 {result.get('timestamp', '-')}）。"
+            f"Notion ID: {result.get('notion_page_id', 'N/A')}, "
+            f"ChromaDB ID: {result['chroma_id']}"
+        )
     except Exception as e:
         return f"记忆保存失败: {str(e)}"

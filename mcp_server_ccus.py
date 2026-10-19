@@ -67,28 +67,68 @@ server = MCPServer(
     name="get_co2_density",
     description=(
         "计算给定注入压力与温度下 CO2 的密度（kg/m³），使用简化状态方程 "
-        "rho = 1.9 * P / T(K)。这是确定性计算，不要用模型记忆的密度值替代。"
-        "典型值：250 bar / 80℃ → 约 1.35 kg/m³。"
+        "rho = 1.9 * P / T(K)，并对压力输入做 100 次蒙特卡洛传播，"
+        "返回均值与 90% 置信区间（p5~p95）。"
+        "这是确定性计算 + 统计传播，不要用模型记忆的密度值替代。"
+        "典型值：250 bar / 80℃ → 均值约 1.35 kg/m³。"
     ),
 )
-def get_co2_density(pressure_bar: float, temperature_celsius: float) -> dict:
-    """CO2 密度（状态方程，非 Span-Wagner）。"""
-    from tools.physics_tools import calculate_co2_density
+def get_co2_density(
+    pressure_bar: float,
+    temperature_celsius: float,
+    uncertainty: float = 0.05,
+    n_simulations: int = 100,
+) -> dict:
+    """CO2 密度（状态方程 + 蒙特卡洛，非 Span-Wagner）。"""
+    from tools.physics_tools import co2_density_uq
 
-    text = calculate_co2_density(pressure_bar, temperature_celsius)
-    # 底层返回 "1.35 kg/m³"，这里拆出数值，让调用方不必解析字符串
-    try:
-        value = float(str(text).split()[0])
-    except (ValueError, IndexError):
-        value = None
+    summary = co2_density_uq(
+        pressure_bar, temperature_celsius,
+        rel_sigma=uncertainty, n=n_simulations, keep_samples=True,
+    )
     return {
-        "density_kg_m3": value,
-        "text": str(text),
+        # 保留标量字段名，老调用方（float(text.split()[0]) 或读 density_kg_m3）不会坏
+        "density_kg_m3": round(summary["mean"], 4),
+        "mean_kg_m3": round(summary["mean"], 4),
+        "ci90_low_kg_m3": round(summary["p5"], 4),
+        "ci90_high_kg_m3": round(summary["p95"], 4),
+        "std_kg_m3": round(summary["std"], 4),
+        "n_simulations": summary["n"],
+        "input_uncertainty": summary["rel_sigma"],
+        "ci_level": summary["ci_level"],
+        # 100 个样本随结果一起返回：前端画分布直方图要用，重算会与
+        # 报告里的区间不一致（两次抽样不是同一批随机数）
+        "samples": summary.get("samples", []),
+        "text": summary["text"],
         "formula": "rho = 1.9 * P[bar] / T[K]",
         "pressure_bar": float(pressure_bar),
         "temperature_celsius": float(temperature_celsius),
-        "note": "简化状态方程，用于演示工具调用契约，不是工程精度模型",
+        "note": "简化状态方程 + 100 次蒙特卡洛传播，用于演示工具契约，不是工程精度模型",
     }
+
+
+@server.tool(
+    name="assess_injection_uncertainty",
+    description=(
+        "给定储层埋深与注入压力，用 100 次蒙特卡洛（深度与压力各 ±5% 1σ）"
+        "评估注入可行性的概率分布，返回 ok / risky / under 三类结局的概率。"
+        "ok = 压力介于静水压力与破裂压力之间；risky = 超过破裂压力（有压裂风险）；"
+        "under = 低于静水压力（注不进）。"
+    ),
+)
+def assess_injection_uncertainty(
+    depth_m: float,
+    injection_pressure_bar: float,
+    uncertainty: float = 0.05,
+    n_simulations: int = 100,
+) -> dict:
+    """注入风险的概率分布（蒙特卡洛）。"""
+    from tools.physics_tools import injection_risk_uq
+
+    return injection_risk_uq(
+        depth_m, injection_pressure_bar,
+        rel_sigma=uncertainty, n=n_simulations,
+    )
 
 
 @server.tool(
@@ -151,6 +191,9 @@ def _selftest() -> int:
     """不经过 MCP 协议，直接调三个函数 —— 用来区分"工具坏了"和"传输坏了"。"""
     print("=== get_co2_density ===")
     print(get_co2_density(250, 80))
+
+    print("\n=== assess_injection_uncertainty ===")
+    print(assess_injection_uncertainty(2500, 250))
 
     print("\n=== predict_pressure_pinn ===")
     print(predict_pressure_pinn(50, 10))

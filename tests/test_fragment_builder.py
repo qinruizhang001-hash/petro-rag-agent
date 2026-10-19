@@ -141,6 +141,64 @@ class TestBuildFragments(unittest.TestCase):
         self.assertIn("Y", docs[0])
 
 
+class TestFragmentTimestamps(unittest.TestCase):
+    """时间标注：能认出来的加，认不出来的保持原样，正文一个字都不许改。"""
+
+    def test_entity_with_year_in_description_gets_tag(self):
+        payload = {
+            "entities": [{
+                "entity_name": "A-1井", "entity_type": "井位",
+                "description": "2025年6月实测地层压力 200 bar",
+            }],
+            "relationships": [], "chunks": [],
+        }
+        docs = build_fragments(payload)
+        self.assertTrue(docs[0].startswith("[实体]"), "类型前缀不能被时间标注挤掉")
+        self.assertIn("[时间:2025-06]", docs[0])
+
+    def test_entity_without_time_has_no_tag(self):
+        payload = {
+            "entities": [{"entity_name": "Caprock", "entity_type": "T",
+                          "description": "Low-permeability seal."}],
+            "relationships": [], "chunks": [],
+        }
+        self.assertNotIn("[时间:", build_fragments(payload)[0])
+
+    def test_relation_takes_newest_endpoint_timestamp(self):
+        payload = {
+            "entities": [
+                {"entity_name": "A", "entity_type": "T",
+                 "description": "2024年观测到的断层"},
+                {"entity_name": "B", "entity_type": "T",
+                 "description": "2026年复测的压力异常"},
+            ],
+            "relationships": [{"src_id": "A", "tgt_id": "B",
+                               "keywords": "triggers", "description": "linked"}],
+            "chunks": [],
+        }
+        frag = [d for d in build_fragments(payload) if d.startswith("[关系]")][0]
+        self.assertIn("[时间:2026]", frag)
+
+    def test_chunk_body_is_never_rewritten(self):
+        # chunk 是证据原文，即使正文里有年份也不能被加标注/改写
+        payload = {"entities": [], "relationships": [],
+                   "chunks": [{"content": "2025年测得压力 200 bar。"}]}
+        self.assertEqual(build_fragments(payload), ["2025年测得压力 200 bar。"])
+
+    def test_chunk_metadata_timestamp_is_used(self):
+        payload = {"entities": [], "relationships": [],
+                   "chunks": [{"content": "压力 200 bar。", "timestamp": "2025-06-01"}]}
+        self.assertIn("[时间:2025-06-01]", build_fragments(payload)[0])
+
+    def test_switch_off_removes_all_tags(self):
+        payload = {
+            "entities": [{"entity_name": "A-1井", "entity_type": "井位",
+                          "description": "2025年测得压力 200 bar"}],
+            "relationships": [], "chunks": [],
+        }
+        self.assertNotIn("[时间:", build_fragments(payload, with_timestamps=False)[0])
+
+
 class TestExtractData(unittest.TestCase):
     def test_returns_data_on_success(self):
         self.assertEqual(extract_data({"status": "success", "data": {"a": 1}}), {"a": 1})

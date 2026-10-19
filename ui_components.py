@@ -43,6 +43,14 @@ VERDICT_TEXT = {
     "under": ("低于静水压力", "#9a6700"),
 }
 
+# 蒙特卡洛三类结局的中文名（后端 tools.physics_tools 用同一套措辞，
+# 前端这里只做展示，不参与判定）
+UQ_VERDICT_LABELS = {
+    "ok": "注入可行",
+    "risky": "压裂风险",
+    "under": "压力不足（注不进）",
+}
+
 # 图表配色：一条线一个固定色，前端与后端 PNG（chart_tools）保持一致
 COL_HYDRO = "#1f77b4"
 COL_FRAC = "#ff7f0e"
@@ -214,6 +222,64 @@ def timing_figure(rows: list[dict]) -> go.Figure:
         xaxis=dict(title="秒", gridcolor=GRID),
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         showlegend=False,
+    )
+    return fig
+
+
+# ─── 图 4：不确定性分布 ──────────────────────────────────
+def uq_figure(
+    samples: list[float],
+    p5: float | None = None,
+    p95: float | None = None,
+    mean: float | None = None,
+    unit: str = "",
+    height: int = 280,
+) -> go.Figure:
+    """
+    蒙特卡洛结果的分布直方图，叠加均值与 90% 区间边界。
+
+    为什么值得画：只报"1.34（1.29–1.40）"时，读者无法判断这个区间是
+    因为模型敏感还是因为抽样噪声；看到分布形状，才知道它是对称、偏斜、
+    还是双峰（双峰通常意味着判定在某个阈值两侧来回跳，是真正需要注意的信号）。
+    """
+    xs = [float(v) for v in (samples or [])]
+    fig = go.Figure()
+    if not xs:
+        fig.update_layout(height=height, margin=dict(l=8, r=8, t=8, b=8))
+        return fig
+
+    fig.add_trace(go.Histogram(
+        x=xs,
+        nbinsx=20,
+        marker=dict(color="rgba(44,111,187,.60)", line=dict(width=0)),
+        hovertemplate=f"%{{x:.3f}} {unit}<br>%{{y}} 次<extra></extra>",
+        name="模拟样本",
+    ))
+
+    for value, color, dash, label in (
+        (p5, "#cf222e", "dash", "p5"),
+        (p95, "#cf222e", "dash", "p95"),
+        (mean, "#1a7f37", "solid", "均值"),
+    ):
+        if value is None:
+            continue
+        fig.add_vline(
+            x=float(value),
+            line=dict(color=color, width=1.4, dash=dash),
+            annotation_text=f"{label} {float(value):.2f}",
+            annotation_position="top",
+            annotation_font=dict(size=10, color=color),
+        )
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=8, r=8, t=28, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        bargap=0.04,
+        showlegend=False,
+        xaxis=dict(title=f"模拟结果（{unit}）" if unit else "模拟结果",
+                   gridcolor=GRID),
+        yaxis=dict(title="频次", gridcolor=GRID),
     )
     return fig
 

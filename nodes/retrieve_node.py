@@ -23,6 +23,7 @@ import os
 from core.config import get_llm, llm_chat
 from core.reranker import reranker
 from core.state import AgentState
+from core.temporal import analyze_temporal
 from lightrag_retriever import retrieve_documents
 from model_router import RAG_MIN_SCORE, classify_complexity, escalate_complexity
 from utils.context_pruner import context_char_count, needs_pruning, prune_context
@@ -88,6 +89,9 @@ def retrieve_knowledge(state: AgentState):
             "token_usage": empty_usage,
             "complexity_mode": complexity["mode"],
             "complexity_info": complexity,
+            "temporal_conflicts": [],
+            "temporal_context": "",
+            "temporal_stats": {"claims": 0, "conflicts": 0, "entities": []},
         }
 
     log.info(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
@@ -102,6 +106,22 @@ def retrieve_knowledge(state: AgentState):
     top_docs = [doc for score, doc in ranked[:RAG_TOP_K]]
     retrieved_text = "\n\n".join(top_docs)
     top_score = float(ranked[0][0]) if ranked else 0.0
+
+    # ─── 时间维度：抽取"井位 + 参数 + 数值 + 时间"并检测冲突 ──
+    # 在**压缩之前**做：压缩会把长片段改写成语义摘要，数字往往第一个被丢掉，
+    # 那时候再找冲突就什么都找不到了。
+    temporal = analyze_temporal(top_docs)
+    if temporal["conflicts"]:
+        log.warning(
+            f"  [Temporal] ⚠️ 检测到 {len(temporal['conflicts'])} 处跨时间冲突数据"
+            f"（{temporal['claims']} 条带时间戳的断言）"
+        )
+        for c in temporal["conflicts"]:
+            log.warning(f"     · {c['message']}")
+    else:
+        log.info(
+            f"  [Temporal] 时间轴：{temporal['claims']} 条带时间戳的断言，无冲突"
+        )
 
     # ─── 复杂度升级：RAG 是否真的命中 ──────────────────────
     # 注意"召回了"≠"命中"：图谱对无关提问也会返回片段，但 rerank 分数接近 0。
@@ -211,6 +231,18 @@ def retrieve_knowledge(state: AgentState):
         else:
             log.warning(f"  [Prune] ⚠️ 压缩未生效，保留原文：{prune_result['reason']}")
 
+    # ─── 时间冲突提示：放在压缩**之后**注入 ─────────────────
+    # 顺序不能反。这段文字是给模型的硬指令（"必须用最新数据、禁止取平均"），
+    # 一旦被送进压缩器，7B 模型很可能把它概括成"存在历史数据差异"，
+    # 指令性就没了 —— 而它恰恰是整条时间维度链路唯一的执行点。
+    if temporal["notice"]:
+        retrieved_text = f"{temporal['notice']}\n\n{retrieved_text}"
+        base_usage["retrieve"]["temporal_conflicts"] = len(temporal["conflicts"])
+        log.info(
+            f"  [Temporal] 冲突提示已注入上下文（{len(temporal['notice'])} 字，"
+            f"位于压缩之后，不会被摘要掉）"
+        )
+
     # 压缩后重新统计实际注入量（这是真正花在云端输入上的那份）
     injected_tokens = count_tokens(retrieved_text)
     if prune_result["status"] == "pruned":
@@ -235,6 +267,17 @@ def retrieve_knowledge(state: AgentState):
         },
         "complexity_mode": mode,
         "complexity_info": complexity,
+        # ─── 时间维度记忆 ───
+        # conflicts 是结构化字段，供 API / 前端直接展示；
+        # context 是注入给下游的提示块原文（可审计：报告里那句"存在冲突"
+        # 必须有对应的来源，否则无法判断是不是模型编的）。
+        "temporal_conflicts": temporal["conflicts"],
+        "temporal_context": temporal["notice"],
+        "temporal_stats": {
+            "claims": temporal["claims"],
+            "conflicts": len(temporal["conflicts"]),
+            "entities": temporal["entities"],
+        },
     }
     # ⚠️ model_routing 只在压缩真的发生时才回写。
     # LangGraph 对 dict 字段是**替换**语义，不是合并：早先这里写成
