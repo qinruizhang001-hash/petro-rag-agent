@@ -18,7 +18,9 @@ jobs:
     name: Full pipeline regression
     if: github.event.inputs.confirm == 'run'
     runs-on: [self-hosted]
-    timeout-minutes: 30
+    # 10 道题的 RAGAS 评估每题要跑完整工作流（含可能的自检重检），
+    # 30 分钟不够；这里给足余量，避免跑到一半被 GitHub 砍掉。
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -30,3 +32,31 @@ jobs:
 
       - name: Run 138-assertion E2E suite
         run: python test_graph_rag_e2e.py
+
+      - name: Install RAGAS evaluation dependencies
+        run: python -m pip install -r requirements-eval.txt
+
+      # RAGAS 的忠实度 prompt 要同时装下「全部检索证据 + 整篇报告」，
+      # Ollama 默认 4096 窗口装不下（实测 5387 tokens 被 400 拒绝）。
+      # 用同一个权重建一个 16k 上下文的评判变体，只改 num_ctx，不复制权重。
+      # 8k 实测不够：证据 8852 字（≈4.4k token）+ 报告 1500 字（≈0.8k token）
+      # 之后只剩不到 3k 给输出，陈述列表一旦偏长就被截断。
+      - name: Build wide-context judge model
+        env:
+          RAGAS_JUDGE_MODEL: qwen2.5-16k
+        run: |
+          printf 'FROM %s\nPARAMETER num_ctx 16384\n' "${LOCAL_MODEL:-qwen2.5}" > /tmp/Modelfile.judge
+          ollama create "$RAGAS_JUDGE_MODEL" -f /tmp/Modelfile.judge
+
+      - name: Run RAGAS Golden Set quality gate
+        env:
+          RAGAS_JUDGE_MODEL: qwen2.5-16k
+        run: python eval_ragas.py --threshold 0.8 --output eval/ragas_report.json
+
+      - name: Upload RAGAS evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ragas-evaluation-report
+          path: eval/ragas_report.json
+          if-no-files-found: ignore

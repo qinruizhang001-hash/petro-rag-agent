@@ -185,3 +185,8 @@ ui_board.png
 # 注意目录名不能叫 memory/：那是本仓库的 Python 包（memory_manager.py 等），
 # 把它挂掉等于把代码挂掉。
 state/
+
+# RAGAS evaluation output is a runtime artifact (CI uploads it separately).
+eval/ragas_report.json
+# 逐题断点（--resume 用），同样是运行产物。
+eval/*.partial.jsonl

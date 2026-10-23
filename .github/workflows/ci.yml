@@ -280,6 +280,9 @@ jobs:
           python -m unittest -v \
             tests.test_fragment_builder \
             tests.test_file_memory \
+            tests.test_state \
+            tests.test_eval_ragas \
+            tests.test_evaluate_budget \
             tests.test_model_router \
             tests.test_context_pruner \
             tests.test_cost_model \

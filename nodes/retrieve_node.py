@@ -56,18 +56,27 @@ RAG_TOP_K = _env_int("RAG_TOP_K", 2)
 CONTEXT_PRUNE_THRESHOLD = _env_int("CONTEXT_PRUNE_THRESHOLD", 4000)
 
 
-def retrieve_knowledge(state: AgentState):
+def retrieve_knowledge(
+    state: AgentState, *, query_override: str | None = None, mode: str = "hybrid"
+):
+    """LightRAG 召回 + 本地精排；mode 可在 Self-RAG 重试时切换。"""
     log.info("\n[Agent 2] 正在通过 LightRAG 知识图谱检索，并执行本地 Rerank 精排...")
-    query = state["extracted_params"]
+    query = (query_override or state.get("geology_query") or
+             state.get("extracted_params") or state.get("user_input") or "").strip()
+    attempt_stage = (
+        "retrieve_retry" if state.get("retrieval_strategy") == "expanded" else "retrieve"
+    )
 
     # ─── 第一阶段：LightRAG 图谱检索（实体 + 关系 + chunk） ──
-    raw_docs = retrieve_documents(query, mode="hybrid")
+    raw_docs = retrieve_documents(query, mode=mode)
 
     if not raw_docs:
         empty_usage = merge_token_usage(
             state,
-            "retrieve",
+            attempt_stage,
             {
+                "query": query,
+                "mode": mode,
                 "query_tokens": count_tokens(query),
                 "candidate_docs": 0,
                 "candidate_tokens": 0,
@@ -92,6 +101,9 @@ def retrieve_knowledge(state: AgentState):
             "temporal_conflicts": [],
             "temporal_context": "",
             "temporal_stats": {"claims": 0, "conflicts": 0, "entities": []},
+            "top_candidates": [],
+            "retrieval_query": query,
+            "retrieval_mode": mode,
         }
 
     log.info(f"  -> LightRAG 图谱检索返回 {len(raw_docs)} 个候选片段")
@@ -151,8 +163,10 @@ def retrieve_knowledge(state: AgentState):
     # 两处都省 token，而不是只在报告那一步省。
     base_usage = merge_token_usage(
         state,
-        "retrieve",
+        attempt_stage,
         {
+            "query": query,
+            "mode": mode,
             "query_tokens": query_tokens,
             "candidate_docs": len(raw_docs),
             "candidate_tokens": candidate_tokens,
@@ -210,10 +224,11 @@ def retrieve_knowledge(state: AgentState):
         )
 
         if captured["calls"] > 0:
-            # 压缩本身也是真实调用，必须记账，否则成本统计会漏掉自己
+            # 压缩本身也是真实调用，重检轮次单独记账，避免覆盖首轮成本。
+            prune_stage = "prune_retry" if attempt_stage == "retrieve_retry" else "prune"
             prune_update = record_usage_payload(
                 {**state, "token_usage": base_usage},
-                "prune",
+                prune_stage,
                 captured["prompt_tokens"],
                 captured["completion_tokens"],
                 captured["model"],
@@ -258,6 +273,12 @@ def retrieve_knowledge(state: AgentState):
 
     update = {
         "retrieved_knowledge": retrieved_text,
+        "top_candidates": [
+            {"text": doc, "rerank_score": float(score)}
+            for score, doc in ranked[:RAG_TOP_K]
+        ],
+        "retrieval_query": query,
+        "retrieval_mode": mode,
         "token_usage": prune_update.get("token_usage", base_usage),
         "context_pruning": {
             k: prune_result.get(k)

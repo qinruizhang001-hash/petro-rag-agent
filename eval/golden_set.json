@@ -1,0 +1,96 @@
+{
+  "dataset_name": "petro-rag-agent-ccus-golden-v1",
+  "description": "Ten CCUS evaluation questions grounded in the project's downloaded-paper manifest and abstracts. Reference contexts are annotations for dataset provenance; Faithfulness is scored only against contexts actually retrieved by the Agent.",
+  "cases": [
+    {
+      "id": "ccus-01-pressure-management",
+      "question": "CO2 注入导致地层压力持续升高时，可以怎样做压力管理来降低断层再活化和盖层破裂风险？",
+      "reference": "压力管理可在注入过程的不同阶段抽采地层既有流体，以缓解压力升高，从而降低断层再活化、盖层破裂及泄漏风险。相关研究还提出用代理模型与强化学习高效优化压力管理策略。",
+      "reference_contexts": [
+        "Injecting greenhouse gas into deep underground reservoirs for permanent storage can inadvertently lead to fault reactivation, caprock fracturing and greenhouse gas leakage when the injection-induced stress exceeds the critical threshold. Extraction of pre-existing fluids at various stages of injection process, referred as pressure management, can mitigate associated risks. This paper introduces a surrogate model-based reinforcement learning method for devising optimal pressure management strategies.",
+        "Optimization of Pressure Management Strategies for Geological CO2 Sequestration Using Surrogate Model-based Reinforcement Learning (ccus_auto_02.pdf; arXiv:2403.07360v2)"
+      ]
+    },
+    {
+      "id": "ccus-02-fault-geomechanics",
+      "question": "盐水层中存在构造断层时，如何耦合 CO2 多相流模拟与地质力学来评估断层和盖层风险？",
+      "reference": "一种耦合流程可先用 MUFITS 模拟非等温 CO2-盐水多相流及压力、温度和密度分布，再将这些场传递给 FLAC3D 计算力学平衡；随后用变形和应力更新孔隙度、渗透率，进入下一轮水动力模拟。",
+      "reference_contexts": [
+        "The simulation approach is based on coupling the MUFITS reservoir simulator and the FLAC3D mechanical simulator. MUFITS simulates the non-isothermal multiphase flow of CO2 and brine accounting for phase transitions and thermal effects. Pressure, temperature, and density distributions are passed to FLAC3D, which calculates the equilibrium mechanical state. Computed deformations and stresses are utilized to update the porosity and permeability fields for subsequent hydrodynamic modeling.",
+        "CO2 storage in deep saline aquifers: evaluation of geomechanical risks using integrated modeling workflow (ccus_auto_04.pdf; arXiv:2301.04931v2)"
+      ]
+    },
+    {
+      "id": "ccus-03-well-cement-integrity",
+      "question": "地质封存环境中的 CO2 会对井筒水泥完整性造成哪些影响？除水泥材料本身外，还要关注什么薄弱部位？",
+      "reference": "研究关注 CO2 封存期间水泥的机械、热学和化学性质变化，以及实验和模拟中的腐蚀时间。套管-水泥和水泥-地层界面的脱粘及微环隙也值得重点研究，因为压力、温度和化学反应可能影响这些界面。",
+      "reference_contexts": [
+        "This review focuses on mechanical, thermal, and chemical property changes and corrosion time for cement in experiments and simulation during geological CO2 storage. The debonding interface between casing/cement or cement/formation has not been addressed profoundly. Further investigation should inspect how pressure, temperature, and chemical reaction affect the micro-annuli.",
+        "Well Cement Degradation and Wellbore Integrity in Geological CO2 Storages: A Literature Review (ccus_auto_03.pdf; arXiv:2301.02357v2)"
+      ]
+    },
+    {
+      "id": "ccus-04-salt-precipitation",
+      "question": "深部盐水层注入 CO2 时发生盐析，盐沉淀对孔喉、渗透率和孔隙结构有什么影响？",
+      "reference": "盐沉淀可能堵塞控制流动的孔喉并降低渗透率。不过一项研究发现，岩盐也可能形成具有内部孔隙的三维多孔网络，报告的内部孔隙率为 40%；其生长与气液界面成核、毛细吸力及正反馈过程有关。",
+      "reference_contexts": [
+        "Salt precipitation during CO2 injection into saline aquifers obstructs flow-controlling pore throats and reduces permeability. We demonstrate that halite instead creates three-dimensional porous networks with 40% internal porosity through self-enhancing growth mechanisms. Preferential nucleation occurs at gas-liquid interfaces, where porous hydrophilic aggregates generate capillary suction that draws brine films toward precipitation sites.",
+        "Self-Enhancing Halite Growth Creates Secondary Porous Networks During CO2 Storage in Saline Aquifers (ccus_auto_05.pdf; arXiv:2506.17241v2)"
+      ]
+    },
+    {
+      "id": "ccus-05-seismic-leakage-detection",
+      "question": "如何利用时移地震监测图像识别并定位地质封存中的 CO2 泄漏？",
+      "reference": "相关研究把时移地震图像上的 CO2 羽流/泄漏识别建模为二分类任务，并用深度学习模型进行判别；Class Activation Mapping 可进一步帮助定位羽流泄漏区域。地震成像对 CO2 浓度的敏感性有限，因此解释监测图像仍是挑战。",
+      "reference_contexts": [
+        "Time-lapse seismic monitoring can monitor the growth of the CO2 plume from surface-recorded seismic data, but seismic imaging has low sensitivity to CO2 concentration. The work introduces binary classification of time-lapse seismic images to delineate CO2 plumes (leakage) using deep learning models and localizes the leakage region by leveraging Class Activation Mapping methods.",
+        "De-risking Carbon Capture and Sequestration with Explainable CO2 Leakage Detection in Time-lapse Seismic Monitoring Images (ccus_auto_07.pdf; arXiv:2212.08596v1)"
+      ]
+    },
+    {
+      "id": "ccus-06-digital-shadow-monitoring",
+      "question": "地质碳封存的 3D Digital Shadow 如何融合地震和井筒观测来跟踪 CO2 羽流，并处理储层不确定性？",
+      "reference": "3D Digital Shadow 可融合时移地震与井筒观测，通过机器学习辅助的数据同化和非线性集合贝叶斯滤波更新羽流模型，同时纳入储层性质不确定性。相较 2D 方法，3D 监测可更准确地刻画 CO2 迁移的空间范围。",
+      "reference_contexts": [
+        "A Digital Shadow framework integrates field data, including seismic and borehole measurements, to track CO2 saturation over time. Machine learning-assisted data assimilation, such as generative AI and nonlinear ensemble Bayesian filtering, updates a digital model of the CO2 plume while incorporating uncertainties in reservoir properties. Compared to 2D approaches, 3D monitoring enhances spatial accuracy and captures the full extent of CO2 migration.",
+        "Advancing Geological Carbon Storage Monitoring With 3d Digital Shadow Technology (ccus_auto_09.pdf; arXiv:2502.07169v1)"
+      ]
+    },
+    {
+      "id": "ccus-07-commercial-forecasting",
+      "question": "商业规模、多井注入的地质碳封存项目，如何加快压力累积和 CO2 羽流预测，同时量化地质不确定性？",
+      "reference": "一种工作流将物理认识与深度学习结合，用集合平滑多重数据同化更新地质属性，并利用代理模型预测多井注入下的动态压力和 CO2 羽流范围，从而快速更新储层表现并量化不确定性。",
+      "reference_contexts": [
+        "The workflow leverages physical understanding of porous-medium flow with deep learning for fast history matching and reservoir-response forecasting. An Ensemble Smoother Multiple Data Assimilation framework updates geologic properties and predicts reservoir performance with quantified uncertainty from pressure history and CO2 plumes interpreted through seismic inversion. Surrogate models predict dynamic pressure and CO2 plume extents under multi-well injection.",
+        "A Deep Learning-Accelerated Data Assimilation and Forecasting Workflow for Commercial-Scale Geologic Carbon Storage (ccus_auto_14.pdf; arXiv:2105.09468v2)"
+      ]
+    },
+    {
+      "id": "ccus-08-fracture-pressure-geomechanics",
+      "question": "Mae Moh 砂岩储层的 30 年 CO2 注入方案中，压力累积达到破裂压力的多少？忽略地质力学会怎样改变这一比例？",
+      "reference": "该案例报告，按 30 年注入率设计时，考虑储层地质力学得到的压力累积为破裂压力的 77%；排除地质力学后升至 80%。",
+      "reference_contexts": [
+        "With the injection rate designed for 30-year injection, reservoir pressure build-ups were 77% of fracture pressure but increased to 80% when geomechanics was excluded.",
+        "Geomechanics Contribution to CO2 Storage Containment and Trapping Mechanisms in Tight Sandstone Complexes: A Case Study on Mae Moh (ccus_auto_11.pdf; arXiv:2404.14422v1)"
+      ]
+    },
+    {
+      "id": "ccus-09-4d-seismic-history-matching",
+      "question": "如何把监测井数据与 4D 时移地震饱和度数据结合起来做 CO2 封存历史拟合，并评估不确定性降低？",
+      "reference": "相关方法使用两个针对不同数据尺度的代理模型，分别预测井下监测数据和解释后的时移地震饱和度数据，再将其整合进分层 MCMC 历史拟合流程；通过有无 4D 地震数据的合成案例比较不确定性变化。",
+      "reference_contexts": [
+        "The history-matching framework uses two fit-for-purpose deep-learning surrogate models to predict in-situ monitoring-well data and interpreted time-lapse (4D) seismic saturation data. The two data types have very different resolution scales, so separate specialized networks are used and integrated into a hierarchical Markov chain Monte Carlo (MCMC) history-matching procedure.",
+        "Deep Learning Framework for History Matching CO2 Storage with 4D Seismic and Monitoring Well Data (ccus_auto_15.pdf; arXiv:2408.01575v2)"
+      ]
+    },
+    {
+      "id": "ccus-10-long-term-safe-operations",
+      "question": "长期 CO2 封存运营中，如何在增加封存量的同时满足安全约束，并优化注入井和监测井的位置？",
+      "reference": "一项研究将碳封存运营建模为部分可观测马尔可夫决策过程（POMDP），使用信念状态规划优化注入井和监测井位置，目标是在维持安全的同时最大化封存量，并通过模拟比较不同监测策略对决策质量的影响。",
+      "reference_contexts": [
+        "The study models carbon storage operations as a partially observable Markov decision process (POMDP). Belief-state planning optimizes injector and monitoring-well locations to maximize stored CO2 while maintaining safety. Simulation results examine three monitoring strategies and their impact on decision quality.",
+        "Optimizing Carbon Storage Operations for Long-Term Safety (ccus_auto_18.pdf; arXiv:2304.09352v1)"
+      ]
+    }
+  ]
+}

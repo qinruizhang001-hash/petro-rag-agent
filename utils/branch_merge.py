@@ -27,8 +27,8 @@
 from __future__ import annotations
 
 # 降级文案：必须与需求逐字一致（测试会断言），改之前先想清楚
-GEOLOGY_MISSING_TEXT = "地质模块检索超时，请人工复核"
-WELLBORE_MISSING_TEXT = "井筒模块检索超时，请人工复核"
+GEOLOGY_MISSING_TEXT = "地质模块未能提供可用证据，请人工复核"
+WELLBORE_MISSING_TEXT = "井筒模块未能提供可用证据，请人工复核"
 
 
 def _text_of(state: dict, key: str) -> str:

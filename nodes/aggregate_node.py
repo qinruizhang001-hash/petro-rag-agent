@@ -16,7 +16,7 @@ Fan-in 节点。上游是 ``geology`` 与 ``wellbore`` 两条并行分支，Lang
 
 为什么降级说明要**用代码追加**而不是交给模型
 --------------------------------------------
-"如果地质模块挂了，报告里必须写'地质模块检索超时，请人工复核'"这条要求，
+"如果地质模块没有可用证据，报告里必须提醒人工复核"这条要求，
 交给模型就是在赌它照做。实测本地 7B 模型对"缺失模块"这类元信息极不敏感：
 prompt 里写了它也可能只字不提，而这类遗漏恰恰是最危险的 ——
 读者会把"没写"理解成"没风险"。所以这里用代码在报告末尾追加一段
@@ -44,6 +44,7 @@ from file_memory import (
     history_needs_compression,
 )
 from memory.memory_manager import save_memory
+from nodes.evaluate_node import strip_unsupported_probabilities
 from tools.physics_tools import co2_density_uq, injection_risk_uq
 from utils.branch_merge import (
     compose_branch_inputs,
@@ -492,10 +493,17 @@ def aggregate_report(state: AgentState, config=None):
    必须写成「均值 + 90% 置信区间」的形式（如"密度 1.35 kg/m³，
    90% 置信区间 1.28–1.42"），**禁止只给单一数值**，也禁止写成
    "约为""大约"这类模糊措辞 —— 前者隐瞒了不确定性，后者没有信息量。
-9. 风险判断必须带概率（如"压裂风险概率 12%（100 次蒙特卡洛）"），
-   不要用"存在一定风险""需密切关注"这类无法证伪的表述。
+9. 风险判断可以带概率，但**概率只能照抄【工具执行结果】或【不确定性量化结果】
+   里已有的数字**。工具没算过的风险类型，写"该风险未做概率量化，需现场评估"，
+   不要编造百分比，也不要给它配上"100 次蒙特卡洛"之类的来源说明 ——
+   实测 7B 会照着示例把 5 类风险各编一个百分数，全部无法溯源。
 10. 如果【时间维度提示】里给出了冲突数据，必须采用**最新时间戳**的数值，
-   并显式说明引用了哪个时间点、与旧数据差多少；禁止取平均或隐去旧值。"""
+   并显式说明引用了哪个时间点、与旧数据差多少；禁止取平均或隐去旧值。
+11. **每一句风险判断和建议都必须能在下面【证据】里找到出处。**
+    "应做微地震监测""应制定应急预案""应布置监测井"这类通用工程常识，
+   证据里没出现就不要写 —— 第 3 节若证据未提供针对性建议，直接写
+   "知识库中未提供针对性的缓解/监测建议"。评审按"每个陈述能否被证据支持"
+   打分，凭空补的通用段落会直接拉低忠实度。"""
 
     # ─── 本次任务的材料（两个阶段共用）───
     # 注意：这里不再拼 state["retrieved_knowledge"]。扇出之后，注入给下游的
@@ -556,15 +564,29 @@ def aggregate_report(state: AgentState, config=None):
         {"role": "user", "content": plan_prompt},
     ]
     _, plan_model, plan_tier, _ = get_llm("report_plan")
-    plan_resp = llm_chat("report_plan", messages=plan_msgs, temperature=0.0)
-    state_update = record_llm_usage(
-        {**state, **compress_update}, "report_plan", plan_resp, plan_model, plan_tier
-    )
+    try:
+        plan_resp = llm_chat("report_plan", messages=plan_msgs, temperature=0.0)
+    except Exception as exc:
+        # 工具规划是**可选项**：它只决定要不要额外算几个数值（密度、压力曲线、
+        # PINN），报告本身不依赖它。本地 Ollama 实测会在这个阶段整段不吐 token
+        # （服务端 /api/ps 仍正常），客户端超时后如果继续上抛，一次卡顿就会把
+        # 整条 case 拖成失败 —— 降级成"不调用任何工具"显然更划算。
+        log.warning(
+            f"  [Warning] 工具规划失败（{type(exc).__name__}: {exc}）→ 本次不调用任何工具，直接写报告"
+        )
+        plan_resp = None
+    if plan_resp is None:
+        state_update = {}
+    else:
+        state_update = record_llm_usage(
+            {**state, **compress_update}, "report_plan", plan_resp, plan_model, plan_tier
+        )
     usage_state = {**state, **compress_update, **state_update}
 
     # 扫描**所有** json 代码块（一份报告可能同时要密度和图）
     tool_requests = []
-    for block in re.findall(r'```json\s*(\{.*?\})\s*```', plan_resp.choices[0].message.content or "", re.DOTALL):
+    plan_text = (plan_resp.choices[0].message.content or "") if plan_resp else ""
+    for block in re.findall(r'```json\s*(\{.*?\})\s*```', plan_text, re.DOTALL):
         try:
             data = json.loads(block)
         except Exception as e:
@@ -858,6 +880,27 @@ def aggregate_report(state: AgentState, config=None):
         if chart_result["rel_path"] not in report_text:
             report_text = report_text.rstrip() + f"\n\n{ref}\n"
 
+    # ─── 概率溯源：删掉无法溯源的百分比（代码保证，不靠模型自觉）──
+    # 评审节点会因此扣分并打回重写，但重写预算只有两次；预算用尽后报告仍会
+    # 放行。与其把"我们知道它没有依据"的数字发出去，不如在这里直接删掉。
+    probability_source = " ".join(
+        [
+            str(state.get("geology_evidence") or ""),
+            str(state.get("wellbore_evidence") or ""),
+            str(graph_extra or ""),
+            str(state.get("retrieved_knowledge") or ""),
+            " ".join(str(fact) for fact in tool_facts),
+        ]
+    )
+    report_text, stripped_probabilities = strip_unsupported_probabilities(
+        report_text, probability_source
+    )
+    if stripped_probabilities:
+        log.warning(
+            f"  [System] 删除 {len(stripped_probabilities)} 处无法溯源的百分比："
+            f"{stripped_probabilities[:3]}"
+        )
+
     # ─── 自动保存报告到个人长期记忆 ───────────────────────
     if not state.get("feedback"):
         try:
@@ -891,6 +934,12 @@ def aggregate_report(state: AgentState, config=None):
     return {
         "final_report": report_text,
         "retrieved_knowledge": merged_evidence,
+        # 地质分支降级时补取的图谱片段：它确实进了报告 Prompt，因此必须能被
+        # 审计（API / UI / RAGAS 评估都要能看到模型实际依据了什么）。
+        "supplemental_evidence": graph_extra,
+        # 确定性工具结果（密度 / 压力曲线 / PINN / 注入风险）同样进了 Prompt，
+        # 报告里复述这些数值是有依据的，不该在忠实度评估里被算成"编造"。
+        "tool_facts": list(tool_facts),
         "parallel_timing": timing,
         "branch_merge": {
             "degraded": branch["degraded"],

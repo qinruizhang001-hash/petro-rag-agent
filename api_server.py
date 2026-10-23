@@ -198,6 +198,22 @@ def _uq_of(values: dict) -> dict:
     return values.get("uq_summary") or {}
 
 
+def _retrieval_quality_of(values: dict) -> dict:
+    """查询重写与 Self-RAG 审核状态，供同步、流式和 HITL API 统一返回。"""
+    return {
+        "rewrite": values.get("query_rewrite_status") or {},
+        "geology_query": values.get("geology_query", ""),
+        "wellbore_query": values.get("wellbore_query", ""),
+        "grade": values.get("retrieval_grade") or {},
+        "web_evidence_grade": (values.get("geology_status") or {}).get("web_evidence_grade") or {},
+        "geology_status": values.get("geology_status") or {},
+        "wellbore_status": values.get("wellbore_status") or {},
+        "branch_merge": values.get("branch_merge") or {},
+        "strategy": values.get("retrieval_strategy", "primary"),
+        "retry_count": int(values.get("retrieval_retry_count") or 0),
+    }
+
+
 def _human_review_of(values: dict) -> dict:
     """把 state 里的人工决定整理成前端/调用方看得懂的字段。"""
     decision = values.get("human_decision") or {}
@@ -236,6 +252,7 @@ def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
         "cost_estimation": compute_cost_estimation(values),
         "complexity": values.get("complexity_info", {}),
         "context_pruning": values.get("context_pruning", {}),
+        "retrieval_quality": _retrieval_quality_of(values),
     }
 
 
@@ -278,6 +295,7 @@ async def analyze_sync(request: ProjectRequest):
             "cost_estimation": compute_cost_estimation(final_state),
             "complexity": final_state.get("complexity_info", {}),
             "context_pruning": final_state.get("context_pruning", {}),
+            "retrieval_quality": _retrieval_quality_of(final_state),
         }
     except Exception as e:
         log.exception("[API] /sync 执行失败")
@@ -421,6 +439,7 @@ async def _event_stream(user_input: str, thread_id: str):
                 "cost_estimation": compute_cost_estimation(node_outputs),
                 "complexity": node_outputs.get("complexity_info", {}),
                 "context_pruning": node_outputs.get("context_pruning", {}),
+                "retrieval_quality": _retrieval_quality_of(node_outputs),
                 "elapsed_s": round(time.time() - started, 1),
             })
             done_sent = True

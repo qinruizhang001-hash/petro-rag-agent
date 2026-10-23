@@ -361,6 +361,7 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 | Layer | Runs on | Why it lives there |
 |---|---|---|
 | Parameter extraction (Agent 1) | **Local** Ollama · Qwen2.5 | Raw project descriptions may contain commercially sensitive well/reservoir data; extraction is structured and short, a 7B model is enough |
+| Query rewriting + Self-RAG grading | **Local-only** Ollama · Qwen2.5 | Rewriter and grader stay on-device; rejected local or optional web evidence is withheld from generation |
 | Graph retrieval + reranking (geology branch) | **Local** LightRAG + bge-reranker | The corpus and the query never need to leave the machine |
 | Vector retrieval (wellbore branch) | **Local** ChromaDB | Same reason; and it is a 20 ms embedding lookup, not a network call |
 | Physics validation (Agent 4, rule layer) | **Local** pure Python | Determinism beats intelligence here — see [Physics-consistency gate](#physics-consistency-gate) |
@@ -369,7 +370,11 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 | **Branch conclusions + final synthesis** | **Cloud** via gateway (DeepSeek by default) | Long-form engineering prose is exactly where model quality shows. These are the only steps worth paying for |
 | Human approval (HITL gate) | **Human** | A safety-critical conclusion should not be auto-approved |
 
-Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), so "which side of the line a step sits on" is a config change, not a code change. If the cloud is unreachable or unconfigured, the branch and report stages degrade to the local model and the degradation is recorded in `model_routing` — it is never silent.
+Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), except `query_rewrite` and `grade`, which are hard-pinned to the local Ollama model so raw questions and retrieved snippets never leave the machine. If the cloud is unreachable or unconfigured, the branch and report stages degrade to the local model and the degradation is recorded in `model_routing` — it is never silent.
+
+Before generation, `rewrite_query` creates separate English technical search queries for geology and wellbore while preserving the original question and extracted parameters. Each retrieval branch returns its Top-K candidates to the local `grade` node, which judges the two branches in **two separate calls** — one branch per prompt, against its own rewritten query. That split is deliberate: a single combined prompt made the 7B grader score wellbore snippets against the whole question ("cement degradation does not answer the pressure-management question"), so a legitimate branch was rejected purely because the question happened to be geological. Evidence is also budgeted per call (1200 characters per snippet, 2000 per branch) because the local model's 4096-token window is smaller than four raw Chroma chunks, and a `400 context size exceeded` used to withhold *every* branch at once.
+
+A relevance score below `SELF_RAG_MIN_SCORE` (default `0.55`) triggers one bounded alternate pass: LightRAG switches from `hybrid` to `mix`, while ChromaDB expands the query and candidate pool. If evidence still fails grading—or that branch's grader is unavailable—only that branch abstains and its rejected snippets are withheld from report generation; the other branch keeps its evidence. One rule overrides all of that: **at least one branch's evidence always reaches the generator.** Withholding both looks like the cautious choice and is the opposite — a report with zero evidence can only be written from model memory, which is precisely the hallucination Self-RAG exists to prevent, and leaves RAGAS nothing to check claims against. When nothing passes, the higher-scored branch is kept and `retrieval_grade.fallback_domain` records which one, so the degradation stays visible instead of silent. Optional Tavily results are graded separately by the same local-only evaluator before they can be added to the geology prompt. Set `SELF_RAG_MIN_SCORE` in `.env` to tune the acceptance threshold.
 
 ```mermaid
 flowchart TD
@@ -385,18 +390,19 @@ flowchart TD
 
     FM --> EX["Agent 1 · Parameter Extraction<br/>LOCAL"]
 
-    EX -->|"fan-out<br/>(same superstep)"| GEO["Geology branch<br/>faults · caprock"]
-    EX -->|"fan-out<br/>(same superstep)"| WB["Wellbore branch<br/>corrosion · pressure"]
+    EX --> RW["Query rewrite<br/>English technical terms · LOCAL"]
+    RW --> GEO_R["Geology retrieval<br/>LightRAG + rerank · Top-2"]
+    RW --> WB_R["Wellbore retrieval<br/>ChromaDB · Top-4"]
 
-    GEO --> LR["LightRAG GraphRAG<br/>389 entities · 400 relations<br/>84 components · main 244"]
-    LR --> RR["bge-reranker-v2-m3<br/>rerank → Top-2"]
-    RR --> GS["Geology conclusion<br/>CLOUD"]
+    GEO_R --> GR["Self-RAG Grader<br/>relevance + sufficiency · LOCAL"]
+    WB_R --> GR
+    GR -->|"low score · one retry"| GEO_R
+    GR -->|"low score · one retry"| WB_R
+    GR -->|"pass or retry exhausted"| GEO_G["Geology conclusion<br/>accepted evidence only"]
+    GR -->|"pass or retry exhausted"| WB_G["Wellbore conclusion<br/>accepted evidence only"]
 
-    WB --> CH["ChromaDB<br/>raw chunks · Top-4"]
-    CH --> WS["Wellbore conclusion<br/>CLOUD"]
-
-    GS -->|"fan-in<br/>(barrier)"| AG["Aggregate<br/>defensive merge"]
-    WS -->|"fan-in<br/>(barrier)"| AG
+    GEO_G -->|"fan-in<br/>(barrier)"| AG["Aggregate<br/>defensive merge"]
+    WB_G -->|"fan-in<br/>(barrier)"| AG
 
     AG --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
     PLAN --> FC["Function Calling<br/>CO2 density · pressure curve · PINN"]
@@ -412,10 +418,14 @@ flowchart TD
     HM --> OUT["Final Report"]
 
     EX -.-> LOCAL["Local LLM<br/>Ollama · Qwen2.5"]
+    RW -.-> LOCAL
+    GR -.-> LOCAL
     EV -.-> LOCAL
     RP2 ==>|"cloud route"| CLOUD["Cloud LLM<br/>DeepSeek via gateway"]
+    GEO_G -.-> CLOUD
+    WB_G -.-> CLOUD
     HM -.-> LOCAL
-    LR -.-> EMB["Embeddings<br/>nomic-embed-text · 768-d"]
+    GEO_R -.-> EMB["Embeddings<br/>nomic-embed-text · 768-d"]
     LG -.-> CKPT["SqliteSaver<br/>checkpointing"]
 
     RP2 -.->|"token deltas"| API
@@ -532,7 +542,7 @@ If a branch produces nothing, `aggregate` still writes a report — but the miss
 ```
 > ⚠️ **数据完整性提示**：本次报告未能获得全部分支的证据，
 > 以下模块失败，其结论**不代表该维度无风险**，请人工复核：
-> - 地质模块检索超时，请人工复核（原因：TimeoutError: read timed out）
+> - 地质模块未能提供可用证据，请人工复核（原因：Self-RAG 相关性不足）
 ```
 
 The wording matters: without "不代表该维度无风险", a reader interprets a missing section as *no risk* — the most dangerous possible misreading of a safety report. `utils/branch_merge.py` owns this logic as pure functions, so all four combinations (both ok / geology down / wellbore down / both down) are unit-tested without a model.
@@ -1771,8 +1781,9 @@ petro-rag-agent/
 ├── nodes/
 │   ├── memory_node.py        # memory_router → search_memory → inject_memory
 │   ├── extract_node.py       # Agent 1: parameter extraction + complexity decision
-│   ├── geology_node.py       # fan-out L: LightRAG → rerank → geology conclusion (never raises)
-│   ├── wellbore_node.py      # fan-out R: ChromaDB → wellbore conclusion (never raises)
+│   ├── query_nodes.py        # local English query rewrite + Self-RAG evidence grader
+│   ├── geology_node.py       # LightRAG retrieval / graded-evidence geology conclusion
+│   ├── wellbore_node.py      # ChromaDB retrieval / graded-evidence wellbore conclusion
 │   ├── retrieve_node.py      # Graph retrieval used by the geology branch (rerank + pruning)
 │   ├── aggregate_node.py     # fan-in: defensive merge → tool planning → one streamed report
 │   ├── evaluate_node.py      # Agent 4: physics rules first, then model scoring
@@ -2113,6 +2124,80 @@ If that gateway is not running, the suite fails at *workflow execution* with `Co
 Step 8 is the newest: it drives the physics rules as pure functions (a case that must be blocked, the same case once the report acknowledges the risk, a "smooth injection" claim that contradicts a sub-hydrostatic pressure, and a missing-depth case that must stay `unverifiable` rather than pass or fail), then runs a **full HTTP round-trip through the human gate** — `hitl` → `review` → reject → rewrite → approve — including the 404/409 error paths.
 
 Step 6 brings up the API server **inside the test process** when nothing is listening on port 8000 (it reuses an already-running one if there is). That is not a shortcut around the HTTP path — the request still goes over a real socket and the SSE frames are parsed from the wire — it exists because `bge-reranker-v2-m3` needs ~3.95 GB of commit and a second process holding its own copy gets killed by the OS mid-request (`ConnectionReset` / segfault, with no traceback anywhere). Sharing the loaded model keeps the extra commit near zero.
+
+### RAGAS Golden Set quality gate
+
+The self-hosted E2E workflow also runs `eval_ragas.py` against the ten source-grounded questions in `eval/golden_set.json`. It executes the production LangGraph, scores each final report with RAGAS Faithfulness and Answer Relevancy, and blocks the workflow when mean Faithfulness is below **0.8**. Faithfulness receives only the evidence actually retrieved for that run; the Golden Set reference contexts are provenance annotations, not substitute evidence. Evaluation history and self-evolution writes are isolated in a temporary directory. The runner needs the built LightRAG graph and a reachable local Ollama model.
+
+What counts as a context is deliberately narrow — only what the generator was actually given: the two graded branch evidences, the graph fragments `aggregate` adds when the geology branch degrades, and the deterministic tool facts (CO₂ density, pressure curve, PINN, injection-risk distribution). Counting the tool results matters: a report that repeats `650 kg/m³` is quoting a computed fact, not inventing one, and omitting it would mark grounded numbers as hallucination.
+
+```bash
+python -m pip install -r requirements-eval.txt
+
+# Faithfulness sends every context plus the whole report to the judge, which does
+# not fit Ollama's default 4096-token window (measured: 5387 tokens, HTTP 400).
+# Build a same-weights variant with a larger window — only num_ctx changes.
+printf 'FROM %s\nPARAMETER num_ctx 16384\n' "${LOCAL_MODEL:-qwen2.5}" > /tmp/Modelfile.judge
+ollama create qwen2.5-16k -f /tmp/Modelfile.judge
+
+RAGAS_JUDGE_MODEL=qwen2.5-16k \
+  python eval_ragas.py --threshold 0.8 --output eval/ragas_report.json
+```
+
+Two operational notes, both learned the hard way on this machine. A local Ollama stream can stall mid-generation without raising — one run sat idle for 25 minutes while the server still answered `/api/ps` — so every question runs under a `--case-timeout` (default 900 s) watchdog that terminates the process with exit code **3** instead of occupying the runner forever. The stall itself is now bounded earlier: `core/config.py` gives the local client `timeout=180 s, max_retries=1` (`LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_RETRIES`) instead of the SDK's 600 s × 3, so a frozen generation raises `APITimeoutError` and lets the node degrade, rather than silently eating half an hour. The watchdog stays as the last resort, because a thread cannot be cancelled. And a full pass is slow: each question fans out into two retrieval branches, may retry once with expanded retrieval, then gets scored by two RAGAS metrics on the same local model.
+
+If the judge silently loses its window (a `faithfulness` of exactly `0.0` next to a non-zero `answer_relevancy`), the script prints an explicit `::warning::` naming the affected cases instead of letting the gate report a bare zero. The mirror image — `answer_relevancy` of exactly `0.0` next to a grounded report — gets its own warning: the judge regenerated an empty question, which RAGAS turns into NaN. (It can no longer be the noncommittal flag; that path is removed below.)
+
+Two judge-side failure modes were measured on one saved sample (case 1, a 2 121-character report) instead of guessed, and both are fixed in the harness:
+
+- **The cap is about output room, not context window.** RAGAS ships `max_tokens=1024`. At 1024 and even at 2048 the statement decomposition is cut off, instructor raises `IncompleteOutputException`, and `raise_exceptions=False` turns that into NaN → `0.0`. The same sample scores **0.976** at `--judge-max-tokens 4096`, which is now the default.
+- **Answer Relevancy hides two assumptions.** The metric multiplies the whole score by `int(not noncommittal)`, and the 7B judge labelled a report full of explicit probabilities as `noncommittal=1` — a flat `0.000` for a perfectly relevant answer. Its few-shot examples are also English, so it regenerated the Chinese question in English, and Chroma's English-only `all-MiniLM-L6-v2` then scored the correct answer at `0.444` cosine instead of `0.973`. `_build_judge_llms` therefore builds **two** judge instances: Faithfulness and Answer Relevancy get separate calibrations, and the relevancy one pins the noncommittal definition and requires the regenerated question to be written in Chinese. With it, the same sample scores **0.973**.
+
+The JSON score report is a runtime artifact (ignored by Git); the E2E workflow uploads it even when the quality gate fails.
+
+The gate paid for itself on its first full pass: case 2 died with `BadRequestError: request (4097 tokens) exceeds the available context size (4096)`. The cause was not RAGAS at all — `evaluate_node` pasted the *entire* retrieved evidence and the *entire* report into its review prompt with no budget, so any long report crashed the reviewer and took the whole case down with it. Both sections are now capped (`EVAL_EVIDENCE_CHARS` 1 500, `EVAL_REPORT_CHARS` 3 000) with the cut marked inside the prompt, so a normal report is reviewed verbatim and only an oversized one is trimmed. That is the point of scoring the production graph instead of a fixture: it finds the 400s a unit test never would.
+
+The second full pass found the other half of the same class of bug. A `report_plan` call stalled — the server kept answering `/api/ps`, no token ever arrived — and because the local client had the SDK default 600 s × 3, the case sat there until the watchdog killed the *whole process*. Two changes came out of that: the local client now has an explicit `timeout=180 s, max_retries=1`, and `aggregate` treats tool planning as what it actually is — optional. If that one call fails, the report is still written without computed tool numbers instead of the case failing. A stuck optional step should cost you a chart, not a report.
+
+The third pass exposed the watchdog's own blind spot: killing the process took the seven already-finished cases with it, because results only lived in memory. Every case is now appended to `<output>.partial.jsonl` the moment it finishes, the watchdog writes a partial report from that checkpoint before `os._exit(3)`, and `--resume` picks up where it stopped:
+
+```bash
+python eval_ragas.py --resume --judge-model qwen2.5-16k   # after a watchdog abort
+```
+
+Without `--resume` the checkpoint is deleted at startup, so a CI run can never silently reuse last run's answers. `--case-timeout` defaults to 1 200 s: one 360 s stall plus a forced rewrite is a legitimate 15-minute case, and calling that "hung" wastes more time than it saves.
+
+#### What the gate says right now: 0.562, blocked
+
+The fifth complete pass scored mean Faithfulness **0.562** and Answer Relevancy **0.566**, and the gate blocks:
+
+| case | Faithfulness | Answer Relevancy | evidence given |
+|---|---|---|---|
+| ccus-01 | 0.091 | 0.941 | 2 280 chars |
+| ccus-02 | 0.778 | 0.276 | 2 000 |
+| ccus-03 | 0.952 | 0.861 | 6 529 |
+| ccus-04 | 0.105 | 0.477 | 1 405 |
+| ccus-05 | 0.100 | 0.396 | 1 074 |
+| ccus-06 | 0.727 | 0.550 | 3 799 |
+| ccus-07 | 0.941 | 0.643 | 7 717 |
+| ccus-08 | 0.214 | 0.390 | 2 394 |
+| ccus-09 | 0.786 | 0.713 | 8 912 |
+| ccus-10 | 0.923 | 0.409 | 8 852 |
+
+The number fell from 0.754 on the previous pass and the reports did not get worse — the *measurement* got honest. Three judge-side defects were inflating it, and each one was found by reading the statements and verdicts rather than the score:
+
+- **Statement decomposition looped.** On `ccus-09` the 7B emitted the same two sentences about CO₂ density for 6 610 characters, hit the output cap mid-array, and instructor raised `IncompleteOutputException`. `raise_exceptions=False` turned that into NaN → `0.000` for a report that had scored 0.889 the pass before. A 16 k window did not help; the output was not truncated by the window, it was *degenerate*. `_calibrate_faithfulness_prompt` now forbids repetition and caps the list at 25 statements — the case scores **0.786**.
+- **Answer Relevancy measured candour, not relevance.** RAGAS multiplies the score by `int(not noncommittal)`, and the judge labelled four fully grounded reports noncommittal because they say "图谱证据未覆盖具体的突破压力值". That sentence is *required*: the pipeline deletes invented percentages so a missing quantity gets named instead of guessed. `_build_answer_relevancy` drops the flag and reports the mean cosine similarity itself.
+- **The guard was manufacturing unsupported sentences.** Replacing a fabricated percentage with "（该风险未做概率量化）" inserts a claim no evidence can support; one report accumulated 11 of them and every one was judged unfaithful. `strip_unsupported_probabilities()` now deletes the whole sentence instead of rewriting it.
+
+What is left is not measurement. `ccus-04` asks what salt precipitation does to pore throats and permeability, and the retrieved graph evidence answers exactly that ("self-enhancing halite growth obstructs flow-controlling pore throats", "40±15% internal porosity"). The report instead discusses fault reactivation, caprock integrity and wellbore cement — the generic risk template — and never mentions pore throats once. Faithfulness 0.105 is the correct verdict on that report; so is 0.100 for `ccus-05`, which states 40 MPa / 25 MPa / 30 MPa thresholds that appear in no context. The reports are template-shaped, and the gate is now sharp enough to say so.
+
+The fifth pass also found two more harness defects:
+
+- **A cloud client survived isolation.** `_prepare_isolated_agent_environment` cleared `CLOUD_API_KEY`, but environment variables are read once at `core.config` import. Any runner that imported a node module first — a probe script, an IDE, a test — had already built a live cloud client, so a case that escalated on complexity hit a dead endpoint and died with `APIConnectionError` *during report generation*. `_pin_loaded_routing_to_local()` now rewrites the already-imported module: cloud client dropped, routing table rebuilt from the pinned `ROUTE_*` values.
+- **Self-RAG could withhold everything.** When both branches failed grading after the retry, all evidence was dropped — which reads as caution and is the opposite: a report with no evidence can only be written from model memory, the exact failure Self-RAG exists to prevent, and it leaves Faithfulness nothing to measure against. At least one branch now always reaches the generator; when nothing passes, the higher-scored branch is kept and `retrieval_grade.fallback_domain` records the compromise.
+
+So the gate is red on purpose, and the remaining work is generation quality — making the report answer the question that was asked and only with what was retrieved — not the measurement.
 
 ### MCP round-trip — requires the reranker, runs locally
 

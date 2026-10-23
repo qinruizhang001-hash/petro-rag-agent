@@ -1,0 +1,5 @@
+# Optional dependencies for the self-hosted RAGAS Golden Set evaluation.
+# Kept separate from requirements.txt so production containers do not acquire
+# evaluation-only dependencies.
+ragas==0.4.3
+datasets>=4.0,<6

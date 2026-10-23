@@ -721,6 +721,28 @@ def render_board(meta: dict) -> None:
                 + (f"\n{pruning['reason']}" if pruning.get("reason") else ""),
                 language="text",
             )
+        retrieval = done_.get("retrieval_quality") or {}
+        if retrieval:
+            st.write("**英文检索改写：**")
+            st.code(
+                f"地质：{retrieval.get('geology_query') or '—'}\n"
+                f"井筒：{retrieval.get('wellbore_query') or '—'}",
+                language="text",
+            )
+            grade = retrieval.get("grade") or {}
+            st.write("**Self-RAG 证据评估：**")
+            st.json({
+                "status": grade.get("status"),
+                "strategy": retrieval.get("strategy"),
+                "retry_count": retrieval.get("retry_count"),
+                "minimum_score": grade.get("minimum_score"),
+                "geology": grade.get("geology"),
+                "wellbore": grade.get("wellbore"),
+                "web_evidence": retrieval.get("web_evidence_grade"),
+                "geology_status": retrieval.get("geology_status"),
+                "wellbore_status": retrieval.get("wellbore_status"),
+                "branch_merge": retrieval.get("branch_merge"),
+            })
         if done_.get("model_routing"):
             st.write("**模型路由：**")
             st.json(done_["model_routing"])

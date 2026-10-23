@@ -12,22 +12,28 @@ LangGraph 工作流定义与编译
 ::
 
     memory_router ─┬─ search_memory → inject_memory ─┐
-                   └─────────────────────────────────┴─→ extract
-                                                          │
-                                    ┌─────────────────────┴─────────────────────┐
-                                    ▼                                           ▼
-                              geology（LightRAG）                        wellbore（ChromaDB）
-                                    │                                           │
-                                    └─────────────────────┬─────────────────────┘
-                                                          ▼
-                                                      aggregate ──→ evaluate ──→ hitl_gate ──→ save_file_memory
-                                                          ▲                        │
-                                                          └──── rewrite / reject ──┘
+                   └─────────────────────────────────┴─→ extract → rewrite_query
+                                                                  │
+                                            ┌─────────────────────┴─────────────────────┐
+                                            ▼                                           ▼
+                                    geology_retrieve                              wellbore_retrieve
+                                            └──────────────────┬────────────────────────┘
+                                                               ▼
+                                                             grade ── low → retry both with expanded strategy
+                                                               │         (max one retry; failed evidence withheld)
+                                                               ▼
+                                            ┌──────────────────┴────────────────────────┐
+                                            ▼                                           ▼
+                                    geology_generate                             wellbore_generate
+                                            └──────────────────┬────────────────────────┘
+                                                               ▼
+                               aggregate → evaluate → hitl_gate → save_file_memory
+                                           ▲           │
+                                           └─ rewrite / reject
 
-两条分支在**同一个 superstep** 里并发执行（LangGraph 同步 ``invoke`` 也用
-线程池并发，实测两个 2s 节点总耗时 2.01s）。扇入是真屏障：aggregate 会等
-两条分支都写完才被触发一次（实测不等长的 1s/3s 分支，join 在 3.01s 执行且
-看到两份完整更新）。
+地质与井筒的检索阶段并行执行，``grade`` 是真屏障：它必须等两路 Top-K
+候选都返回后才会评判。通过评判（或一次替代检索后仍不足）才并行生成分支
+结论，随后 aggregate 等两路生成都完成才执行。低相关回路最多重检一次。
 
 两条硬约束（写错不会报"结果不对"，而是直接抛异常或静默丢数据）：
 
@@ -73,14 +79,15 @@ from core.config import (
 from core.state import AgentState
 from file_memory import ensure_files as ensure_memory_files
 from nodes.aggregate_node import aggregate_report
-from nodes.conditions import check_quality, route_memory
+from nodes.conditions import check_quality, route_after_retrieval_grade, route_memory
 from nodes.evaluate_node import evaluate_report
 from nodes.extract_node import extract_params
-from nodes.geology_node import geology_agent
+from nodes.geology_node import generate_geology, retrieve_geology
 from nodes.history_node import save_file_memory
 from nodes.hitl_node import hitl_gate, route_after_hitl
 from nodes.memory_node import inject_memory, memory_router, search_memory
-from nodes.wellbore_node import wellbore_agent
+from nodes.wellbore_node import generate_wellbore, retrieve_wellbore
+from nodes.query_nodes import grade_node, rewrite_node
 from utils.cost_model import compute_cost_estimation
 
 from utils.logging_setup import get_logger
@@ -100,9 +107,13 @@ workflow.add_node("memory_router", memory_router)
 workflow.add_node("search_memory", search_memory)
 workflow.add_node("inject_memory", inject_memory)
 workflow.add_node("extract", extract_params)
-# ─── 并行分支（同一 superstep 并发执行）───
-workflow.add_node("geology", geology_agent)
-workflow.add_node("wellbore", wellbore_agent)
+workflow.add_node("rewrite_query", rewrite_node)
+# ─── 并行检索 → Self-RAG 评判 → 并行生成 ───
+workflow.add_node("geology_retrieve", retrieve_geology)
+workflow.add_node("wellbore_retrieve", retrieve_wellbore)
+workflow.add_node("grade", grade_node)
+workflow.add_node("geology_generate", generate_geology)
+workflow.add_node("wellbore_generate", generate_wellbore)
 # ─── 扇入 ───
 workflow.add_node("aggregate", aggregate_report)
 workflow.add_node("evaluate", evaluate_report)
@@ -127,15 +138,18 @@ workflow.add_conditional_edges(
 workflow.add_edge("search_memory", "inject_memory")
 workflow.add_edge("inject_memory", "extract")
 
-# ★ 扇出：extract 同时触发两条分支
-# 一次 add_edge 一条，LangGraph 把同一源节点的多条出边视为并发触发 ——
-# 不是"先跑完 geology 再跑 wellbore"。
-workflow.add_edge("extract", "geology")
-workflow.add_edge("extract", "wellbore")
+# 重写只产出检索 query；保留原始 user_input / extracted_params 作为证据与回退。
+workflow.add_edge("extract", "rewrite_query")
 
-# ★ 扇入：两条分支都指向 aggregate（真屏障，等齐才执行一次）
-workflow.add_edge("geology", "aggregate")
-workflow.add_edge("wellbore", "aggregate")
+# ★ 并行检索 → Grader 真屏障：两路 Top-K 都回来后才评判。
+workflow.add_edge("rewrite_query", "geology_retrieve")
+workflow.add_edge("rewrite_query", "wellbore_retrieve")
+workflow.add_edge(["geology_retrieve", "wellbore_retrieve"], "grade")
+
+# 低相关时有界地回到两路检索（检索策略已切换为 expanded）；通过或耗尽后
+# 才并行生成。generate 节点对被拒证据会直接 abstain，不调用模型补写。
+workflow.add_conditional_edges("grade", route_after_retrieval_grade)
+workflow.add_edge(["geology_generate", "wellbore_generate"], "aggregate")
 
 # 汇总 → 评审
 workflow.add_edge("aggregate", "evaluate")
@@ -205,9 +219,12 @@ NODE_LABELS = {
     "search_memory": "检索个人长期记忆",
     "inject_memory": "整理记忆上下文",
     "extract": "提取 CCUS 关键参数",
-    # 两条并行分支：前端会看到这两个 label 几乎同时出现（真并发）
-    "geology": "地质分支：图谱检索断层 / 盖层",
-    "wellbore": "井筒分支：文献检索套管 / 压力异常",
+    "rewrite_query": "将问题重写为专业英文检索词",
+    "geology_retrieve": "地质分支：检索断层 / 盖层证据",
+    "wellbore_retrieve": "井筒分支：检索套管 / 压力异常证据",
+    "grade": "Self-RAG：评估 Top-K 证据相关性",
+    "geology_generate": "地质分支：基于通过评估的证据生成结论",
+    "wellbore_generate": "井筒分支：基于通过评估的证据生成结论",
     "aggregate": "汇总两路结论并成稿",
     "evaluate": "评审报告质量",
     "hitl_gate": "人工审核闸门",

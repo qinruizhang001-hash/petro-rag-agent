@@ -661,10 +661,13 @@ def main():
     check("报告包含 CO2 密度计算值（Function Calling）", "kg/m³" in report or "kg/m3" in report)
     check("评审分数达标（score >= 8）", final_state.get("score", 0) >= 8,
           f"score={final_state.get('score')}")
+    _retrieval_usage = final_state.get("token_usage", {})
+    _geo_usage = _retrieval_usage.get("retrieve_retry") or _retrieval_usage.get("retrieve", {})
     check("检索走的是 LightRAG 图谱引擎",
-          final_state.get("token_usage", {}).get("retrieve", {}).get("engine") == "lightrag")
-    check("检索到候选片段", final_state.get("token_usage", {})
-          .get("retrieve", {}).get("candidate_docs", 0) > 0)
+          _geo_usage.get("engine") == "lightrag")
+    check("检索到候选片段", _geo_usage.get("candidate_docs", 0) > 0)
+    check("Self-RAG 评判状态可审计",
+          final_state.get("retrieval_grade", {}).get("status") in {"passed", "exhausted", "unavailable"})
 
     # ─── 并行扇出 / 扇入 ─────────────────────────────
     # 这一段验证的不是"报告写得好不好"，而是"两条分支是否真的并发跑完并合流"。

@@ -45,6 +45,20 @@ def check_quality(state: AgentState):
         return "rewrite"
 
 
+def route_after_retrieval_grade(state: AgentState):
+    """Fan out to one bounded retry or to generation using graded evidence only."""
+    grade = state.get("retrieval_grade") or {}
+    if grade.get("status") == "retrying":
+        log.info(
+            "[Self-RAG] switching retrieval strategy to %s (retry %s/%s)",
+            state.get("retrieval_strategy", "expanded"),
+            state.get("retrieval_retry_count", 0),
+            grade.get("retry_limit", 1),
+        )
+        return ["geology_retrieve", "wellbore_retrieve"]
+    return ["geology_generate", "wellbore_generate"]
+
+
 def route_memory(state: AgentState):
     """
     Memory Router 的条件边：根据 need_memory 决定走哪条路。

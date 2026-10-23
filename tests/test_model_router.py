@@ -281,5 +281,21 @@ class TestEscalate(unittest.TestCase):
         self.assertEqual(escalate_complexity(prev, new)["mode"], "local")
 
 
+class TestLocalClientTimeouts(unittest.TestCase):
+    """本地客户端必须有明确的超时/重试上限。
+
+    OpenAI SDK 默认 600s × 3 次 = 一次卡住的生成能占住半小时，且日志里没有
+    任何异常。实测 Ollama 在 report_plan 阶段就那样静默卡死过（服务端
+    /api/ps 仍正常）。这条测试防的是"把显式配置悄悄改回默认值"。
+    """
+
+    def test_local_client_does_not_use_the_sdk_default_timeout(self):
+        from core import config
+
+        self.assertEqual(config.local_client.timeout, config.LOCAL_LLM_TIMEOUT)
+        self.assertLessEqual(config.local_client.timeout, 300)
+        self.assertLessEqual(config.local_client.max_retries, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
