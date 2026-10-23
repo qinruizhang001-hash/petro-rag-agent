@@ -28,9 +28,17 @@ CI 的 unit-core 能零安装地跑它。代价是两条压力公式各写了一
 """
 from __future__ import annotations
 
+import os
 import re
+from dataclasses import asdict, dataclass
 
-# ─── 物理常数（必须与 chart_tools 保持一致）───────────────
+# ─── 规则版本 ────────────────────────────────────────────
+# 报告里出现的每一个"安全/不安全"结论都可以追到这一版规则 + 这组参数。
+# 改任何数值或判定逻辑都必须同时改这个版本号 —— 否则同一份报告在不同时间
+# 跑出不同结论，而审计记录里看不出区别。
+RULES_VERSION = "2026.10-r1"
+
+# ─── 物理常数（默认值，必须与 chart_tools 保持一致）───────
 RHO_WATER = 1030.0          # kg/m³，含盐地层水
 G = 9.81                    # m/s²
 FRACTURE_RATIO = 1.5        # 破裂压力 / 静水压力
@@ -47,6 +55,112 @@ FRACTURE_VALUE_TOLERANCE = 0.25
 
 # 密度容差（简化状态方程 ρ = 1.9P/T，允许模型做四舍五入）
 DENSITY_TOLERANCE = 0.15
+
+
+@dataclass(frozen=True)
+class RuleParams:
+    """一组可配置的规则参数。
+
+    为什么要可配置：``ρ=1030`` / ``1.5×`` 这两个数是**行业惯例的取值**，不是
+    普适常数。渤海湾盆地的盐水密度、某个区块实测的破裂梯度，都应该由使用方
+    按自己的资料覆盖，而不是硬编码在代码里然后声称"物理规则说的"。
+    覆盖方式（环境变量，单位与默认值一致）：:
+
+        CCUS_RHO_WATER=1025  CCUS_FRACTURE_RATIO=1.7
+        CCUS_MIN_PLAUSIBLE_BAR=20  CCUS_MAX_PLAUSIBLE_BAR=1200
+
+    不管怎么覆盖，实际生效的值都会连同 ``RULES_VERSION`` 写进
+    ``physics_check.rules``，并在报告页显示。
+    """
+
+    rho_water: float = RHO_WATER
+    fracture_ratio: float = FRACTURE_RATIO
+    min_plausible_bar: float = MIN_PLAUSIBLE_BAR
+    max_plausible_bar: float = MAX_PLAUSIBLE_BAR
+    fracture_tolerance: float = FRACTURE_VALUE_TOLERANCE
+    density_tolerance: float = DENSITY_TOLERANCE
+
+
+# 每个参数的出处。写报告的人要能回答"这个 1.5 是哪儿来的"，
+# 否则"物理规则"只是另一种形式的魔法数。
+PARAMETER_SOURCES = {
+    "rho_water": {
+        "unit": "kg/m³",
+        "source": (
+            "含盐地层水密度。Batzle & Wang (1992) 的盐水密度模型在 250 bar / 80℃ "
+            "量级给出 1010–1040 kg/m³；本项目取 1030 作为代表值。"
+        ),
+    },
+    "fracture_ratio": {
+        "unit": "× 静水压力",
+        "source": (
+            "Hubbert & Willis (1957) 实测破裂梯度多在 0.5–1.0 psi/ft（典型 0.7 psi/ft "
+            "≈ 1.6× 静水）；工程实践常用 1.4–1.8× 静水（Zoback, Reservoir Geomechanics, "
+            "2007）。本项目取区间中值 1.5 作为默认，用 CCUS_FRACTURE_RATIO 覆盖。"
+        ),
+    },
+    "min_plausible_bar": {
+        "unit": "bar",
+        "source": "合理性下限：低于此值几乎一定是单位写错（kPa 当 bar）。",
+    },
+    "max_plausible_bar": {
+        "unit": "bar",
+        "source": "合理性上限：高于此值几乎一定是单位写错（MPa 当 bar）。",
+    },
+    "fracture_tolerance": {
+        "unit": "相对偏差",
+        "source": "覆盖 1.4–1.8× 静水的合法梯度区间（相对 1.5× 为 -7% / +20%）。",
+    },
+    "density_tolerance": {
+        "unit": "相对偏差",
+        "source": "简化状态方程 ρ=1.9P/T 的允许误差，容纳四舍五入。",
+    },
+}
+
+
+def load_rule_params(environ: dict | None = None) -> RuleParams:
+    """从环境变量读参数；读不到或非法就用默认值。
+
+    非法值**不静默吞掉**：写错一个 ``CCUS_FRACTURE_RATIO=15``（多打一个 0）
+    会让所有报告都被判成"超压"，所以这里对超出物理可能的取值直接回退默认，
+    并由调用方在 ``physics_check.rules`` 里看到实际生效值。
+    """
+    env = os.environ if environ is None else environ
+
+    def _num(key: str, default: float, lo: float, hi: float) -> float:
+        raw = (env.get(key) or "").strip()
+        if not raw:
+            return default
+        try:
+            value = float(raw)
+        except ValueError:
+            return default
+        return value if lo <= value <= hi else default
+
+    return RuleParams(
+        rho_water=_num("CCUS_RHO_WATER", RHO_WATER, 900.0, 1400.0),
+        fracture_ratio=_num("CCUS_FRACTURE_RATIO", FRACTURE_RATIO, 1.0, 3.0),
+        min_plausible_bar=_num("CCUS_MIN_PLAUSIBLE_BAR", MIN_PLAUSIBLE_BAR, 0.0, 500.0),
+        max_plausible_bar=_num("CCUS_MAX_PLAUSIBLE_BAR", MAX_PLAUSIBLE_BAR, 500.0, 5000.0),
+    )
+
+
+def rules_manifest(rules: RuleParams | None = None) -> dict:
+    """把生效的规则版本 + 参数 + 出处打成一份可写进报告的清单。"""
+    rules = rules or load_rule_params()
+    values = asdict(rules)
+    return {
+        "version": RULES_VERSION,
+        "parameters": {
+            key: {
+                "value": values[key],
+                "unit": PARAMETER_SOURCES.get(key, {}).get("unit", ""),
+                "source": PARAMETER_SOURCES.get(key, {}).get("source", ""),
+            }
+            for key in values
+        },
+    }
+
 
 _CN_NUM = r"(\d+(?:\.\d+)?)"
 
@@ -96,14 +210,16 @@ _SMOOTH_CLAIMS = (
 # ══════════════════════════════════════════════════════════
 # 压力公式
 # ══════════════════════════════════════════════════════════
-def hydrostatic_bar(depth_m: float) -> float:
+def hydrostatic_bar(depth_m: float, rules: RuleParams | None = None) -> float:
     """深度（m）→ 静水压力（bar）。1 bar = 1e5 Pa。"""
-    return RHO_WATER * G * float(depth_m) * BAR_PER_PA
+    rho = (rules or load_rule_params()).rho_water
+    return rho * G * float(depth_m) * BAR_PER_PA
 
 
-def fracture_bar(depth_m: float) -> float:
+def fracture_bar(depth_m: float, rules: RuleParams | None = None) -> float:
     """深度（m）→ 地层破裂压力（bar）。"""
-    return hydrostatic_bar(depth_m) * FRACTURE_RATIO
+    rules = rules or load_rule_params()
+    return hydrostatic_bar(depth_m, rules) * rules.fracture_ratio
 
 
 # ══════════════════════════════════════════════════════════
@@ -265,6 +381,7 @@ def evaluate_physics(
     report_text: str = "",
     user_input: str = "",
     params: dict | None = None,
+    rules: RuleParams | None = None,
 ) -> dict:
     """
     对一份报告做物理一致性校验，返回结构化结果。
@@ -278,11 +395,15 @@ def evaluate_physics(
           "violations": [{"code","severity","message"}],
           "checks": [{"code","ok","detail"}],
           "feedback": "给重写用的明确物理错误提示（仅 blocking 时非空）",
-          "summary": "一行人类可读结论"
+          "summary": "一行人类可读结论",
+          "rules_version": "2026.10-r1",
+          "rules": {"rho_water": {...value, unit, source}, ...},
         }
 
     ``params`` 用于测试时直接注入数值，跳过文本抽取。
+    ``rules`` 用于覆盖默认规则参数（见 ``RuleParams``）；不传则读环境变量。
     """
+    rules = rules or load_rule_params()
     extracted = dict(params) if params else extract_parameters(params_text, user_input)
     p_inj = extracted.get("injection_pressure_bar")
     depth = extracted.get("depth_m")
@@ -302,15 +423,15 @@ def evaluate_physics(
     if p_inj is None:
         check("injection_pressure_present", False, "参数中未提取到注入压力")
         return _result("unverifiable", extracted, {}, violations, checks,
-                       "未提取到注入压力，无法做物理一致性校验")
+                       "未提取到注入压力，无法做物理一致性校验", rules=rules)
 
     check("injection_pressure_present", True, f"{p_inj:.1f} bar")
 
-    if p_inj > MAX_PLAUSIBLE_BAR or p_inj < MIN_PLAUSIBLE_BAR:
+    if p_inj > rules.max_plausible_bar or p_inj < rules.min_plausible_bar:
         violation(
             "IMPLAUSIBLE_PRESSURE", "warning",
             f"注入压力 {p_inj:.1f} bar 超出合理区间 "
-            f"[{MIN_PLAUSIBLE_BAR:.0f}, {MAX_PLAUSIBLE_BAR:.0f}] bar，疑似单位错误"
+            f"[{rules.min_plausible_bar:.0f}, {rules.max_plausible_bar:.0f}] bar，疑似单位错误"
             f"（如把 MPa 写成 bar）",
         )
 
@@ -319,10 +440,10 @@ def evaluate_physics(
         # 深度缺失不是报告的错，只标 unverifiable，不阻断
         status = "warning" if violations else "unverifiable"
         return _result(status, extracted, {}, violations, checks,
-                       "未提供储层深度，无法校验注入压力与破裂压力的关系")
+                       "未提供储层深度，无法校验注入压力与破裂压力的关系", rules=rules)
 
-    p_h = hydrostatic_bar(depth)
-    p_frac = fracture_bar(depth)
+    p_h = hydrostatic_bar(depth, rules)
+    p_frac = fracture_bar(depth, rules)
     limits = {
         "hydrostatic_bar": round(p_h, 1),
         "fracture_bar": round(p_frac, 1),
@@ -377,13 +498,13 @@ def evaluate_physics(
     stated = extracted.get("fracture_bar_stated")
     if stated:
         diff = abs(stated - p_frac) / p_frac
-        check("fracture_value_consistent", diff <= FRACTURE_VALUE_TOLERANCE,
+        check("fracture_value_consistent", diff <= rules.fracture_tolerance,
               f"报告 {stated:.0f} bar vs 计算 {p_frac:.0f} bar（偏差 {diff*100:.0f}%）")
-        if diff > FRACTURE_VALUE_TOLERANCE:
+        if diff > rules.fracture_tolerance:
             violation(
                 "FRACTURE_VALUE_MISMATCH", "warning",
                 f"报告引用破裂压力 {stated:.0f} bar，按 {depth:.0f} m / "
-                f"{FRACTURE_RATIO}× 静水计算应为 {p_frac:.0f} bar，"
+                f"{rules.fracture_ratio:g}× 静水计算应为 {p_frac:.0f} bar，"
                 f"偏差 {diff*100:.0f}% 已超出合理梯度区间",
             )
 
@@ -394,9 +515,9 @@ def evaluate_physics(
             expected = 1.9 * p_inj / (temperature + 273.15)
             stated_density = float(m.group(1))
             diff = abs(stated_density - expected) / expected
-            check("density_consistent", diff <= DENSITY_TOLERANCE,
+            check("density_consistent", diff <= rules.density_tolerance,
                   f"报告 {stated_density:.2f} vs 计算 {expected:.2f} kg/m³")
-            if diff > DENSITY_TOLERANCE:
+            if diff > rules.density_tolerance:
                 violation(
                     "DENSITY_MISMATCH", "warning",
                     f"报告中的 CO2 密度 {stated_density:.2f} kg/m³ 与物理工具结果 "
@@ -411,13 +532,15 @@ def evaluate_physics(
     else:
         status = "pass"
 
-    feedback = _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict)
+    feedback = _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict, rules)
     summary = _build_summary(status, p_inj, depth, p_h, p_frac, verdict)
     return _result(status, extracted, limits, violations, checks, summary,
-                   feedback=feedback)
+                   feedback=feedback, rules=rules)
 
 
-def _result(status, params, limits, violations, checks, summary, feedback=""):
+def _result(status, params, limits, violations, checks, summary, feedback="",
+            rules: RuleParams | None = None):
+    manifest = rules_manifest(rules)
     return {
         "status": status,
         "blocking": any(v["severity"] == "blocking" for v in violations),
@@ -429,6 +552,9 @@ def _result(status, params, limits, violations, checks, summary, feedback=""):
         "checks": checks,
         "feedback": feedback,
         "summary": summary,
+        # 规则版本 + 生效参数 + 出处：报告页与审计记录都读这两个字段。
+        "rules_version": manifest["version"],
+        "rules": manifest["parameters"],
     }
 
 
@@ -458,7 +584,8 @@ def _build_summary(status, p_inj, depth, p_h, p_frac, verdict) -> str:
             f"[{p_h:.0f}, {p_frac:.0f}] bar 内")
 
 
-def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict) -> str:
+def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict,
+                    rules: RuleParams | None = None) -> str:
     """
     把 blocking 违规翻译成"下一版该怎么改"的指令。
 
@@ -468,6 +595,7 @@ def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict) -> str:
     blocking = [v for v in violations if v["severity"] == "blocking"]
     if not blocking:
         return ""
+    rules = rules or load_rule_params()
 
     lines = ["【物理一致性校验未通过 —— 必须重写】"]
     for v in blocking:
@@ -476,7 +604,7 @@ def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict) -> str:
     if verdict == "above_fracture" and depth:
         # 给出两条可执行路径：降压力，或换更深的储层
         max_ok_pressure = p_frac
-        min_ok_depth = p_inj / (RHO_WATER * G * BAR_PER_PA * FRACTURE_RATIO)
+        min_ok_depth = p_inj / (rules.rho_water * G * BAR_PER_PA * rules.fracture_ratio)
         lines.append(
             f"修正要求：明确写出注入压力已超过破裂压力 {p_frac:.0f} bar、"
             f"盖层存在压裂与 CO2 泄漏风险；并给出至少一条可执行措施 ——"
@@ -485,7 +613,7 @@ def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict) -> str:
         )
     elif verdict == "below_hydrostatic" and depth:
         min_ok_pressure = p_h
-        max_ok_depth = p_inj / (RHO_WATER * G * BAR_PER_PA)
+        max_ok_depth = p_inj / (rules.rho_water * G * BAR_PER_PA)
         lines.append(
             f"修正要求：明确写出注入压力低于地层压力 {p_h:.0f} bar、需要更高井口压力"
             f"（或压裂改造）才能有效注入；不得使用「注入顺畅」「压力充足」一类表述。"

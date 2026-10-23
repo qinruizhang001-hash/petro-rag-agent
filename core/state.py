@@ -122,6 +122,12 @@ class AgentState(TypedDict):
     cost_estimation: dict          # 本次任务的成本估算（人民币）
     # ─── 物理一致性校验（规则引擎，不是模型打分）───
     physics_check: dict            # {status, blocking, verdict, limits, violations, feedback}
+    # ─── 质量闸门（确定性判定，见 core/gates.py）───
+    # 报告到底过没过，只读这一个字段。早期实现靠"score>=8 或重写两次"隐式表达，
+    # 于是"重试用尽后的放行"和"真的达标"在状态里无法区分。
+    quality_gate: dict             # {status, score, threshold, physics_status, physics_blocking, reason, ...}
+    report_status: str             # "ok" | "failed"；失败态由 mark_failed 写入
+    draft_report: str              # 物理否决时被隔离的原始正文（可审计，不交付）
     # ─── 时间维度记忆（Temporal Knowledge）───
     # retrieve 节点产出。conflicts 是"同一井位 + 同一参数 + 不同时间 + 数值显著不同"
     # 的结构化列表；context 是注入给下游的硬指令原文（可审计）。

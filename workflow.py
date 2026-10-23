@@ -28,8 +28,9 @@ LangGraph 工作流定义与编译
                                             └──────────────────┬────────────────────────┘
                                                                ▼
                                aggregate → evaluate → hitl_gate → save_file_memory
-                                           ▲           │
-                                           └─ rewrite / reject
+                                           ▲       │     │
+                                           │       │     └─ fail → mark_failed → END
+                                           └───────┴─ rewrite / reject
 
 地质与井筒的检索阶段并行执行，``grade`` 是真屏障：它必须等两路 Top-K
 候选都返回后才会评判。通过评判（或一次替代检索后仍不足）才并行生成分支
@@ -82,6 +83,7 @@ from nodes.aggregate_node import aggregate_report
 from nodes.conditions import check_quality, route_after_retrieval_grade, route_memory
 from nodes.evaluate_node import evaluate_report
 from nodes.extract_node import extract_params
+from nodes.gate_node import mark_failed
 from nodes.geology_node import generate_geology, retrieve_geology
 from nodes.history_node import save_file_memory
 from nodes.hitl_node import hitl_gate, route_after_hitl
@@ -120,6 +122,8 @@ workflow.add_node("evaluate", evaluate_report)
 # 人类在环闸门：自动模式下自己放行并留痕，人工模式下被 interrupt_before 拦住
 workflow.add_node("hitl_gate", hitl_gate)
 workflow.add_node("save_file_memory", save_file_memory)
+# 质量闸门的失败出口：写失败状态、隔离物理否决的正文、不写历史记忆
+workflow.add_node("mark_failed", mark_failed)
 
 # 入口 → memory_router
 workflow.set_entry_point("memory_router")
@@ -163,7 +167,8 @@ workflow.add_conditional_edges(
     check_quality,
     {
         "pass": "hitl_gate",
-        "rewrite": "aggregate"
+        "rewrite": "aggregate",
+        "fail": "mark_failed",
     }
 )
 
@@ -177,8 +182,12 @@ workflow.add_conditional_edges(
     }
 )
 
-# 评审通过（或重试耗尽）→ 写入文件记忆 → 结束
+# 评审通过 → 写入文件记忆 → 结束
 workflow.add_edge("save_file_memory", END)
+
+# 评审失败（低分用尽重试 / 评审不可解析 / 物理否决用尽重试）→ 记录失败态 → 结束。
+# 刻意**不**经过 save_file_memory：被拒的报告不能成为后续评估的先验。
+workflow.add_edge("mark_failed", END)
 
 # ============================================================
 # 12. 初始化 Checkpoint 机制
@@ -229,6 +238,7 @@ NODE_LABELS = {
     "evaluate": "评审报告质量",
     "hitl_gate": "人工审核闸门",
     "save_file_memory": "写入项目历史记忆",
+    "mark_failed": "质量闸门失败：记录失败状态并隔离不合格正文",
 }
 
 

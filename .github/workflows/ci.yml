@@ -287,6 +287,8 @@ jobs:
             tests.test_context_pruner \
             tests.test_cost_model \
             tests.test_physics_rules \
+            tests.test_physics_audit \
+            tests.test_aggregate_split \
             tests.test_logging_setup \
             tests.test_text_cleaning \
             tests.test_entity_aliases \
@@ -298,6 +300,37 @@ jobs:
             tests.test_pressure_model \
             tests.test_temporal \
             tests.test_uq
+
+  unit-graph:
+    name: Unit tests · gate + whole-graph negative case
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：这一组只装 langgraph / openai / dotenv —— 不装 torch、
+      # 不装 chromadb、不需要 Ollama。tests/_graph_stubs.py 在 import 之前把
+      # 叶子模块（reranker / 向量库 / MCP / 图表）换成桩，因此这里跑的是
+      # **真实的 workflow.py 拓扑 + 真实的 physics_rules + 真实的闸门判定**。
+      #
+      # 为什么必须放在 push 路径上：闸门是"错了会出事"的那部分，它的负向回归
+      # 之前只存在于 e2e.yml（自建 runner、手动触发），结果连续几周没人跑。
+      - name: Install graph-only dependencies
+        run: python -m pip install --quiet -r requirements-graph.txt
+
+      - name: Show what this environment cannot load (should be torch/chromadb)
+        run: |
+          python - <<'PY'
+          import importlib.util as u
+          for mod in ("torch", "sentence_transformers", "chromadb"):
+              print(f"{mod:24} {'present' if u.find_spec(mod) else 'absent (expected)'}")
+          PY
+
+      - name: Run the hard gate + whole-graph negative test
+        run: python -m unittest -v tests.test_quality_gate tests.test_negative_gate
 
   unit-charts:
     name: Unit tests · chart tool

@@ -438,7 +438,21 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
                     unsafe_allow_html=True)
         return
 
-    st.success(f"✅ 评估完成（{done_.get('elapsed_s', '-')} 秒）")
+    # 质量闸门：失败态必须顶在最前面，且措辞要能让人停止使用这份报告。
+    # 以前"重试用尽"会走到这里并被渲染成 `st.success("评估完成")` ——
+    # 3 分的报告和 9 分的报告长得一模一样。
+    gate = done_.get("quality_gate") or {}
+    gate_failed = gate.get("status") == "failed"
+    if gate_failed:
+        st.error(
+            "⛔ 质量闸门判定失败：本次报告**不得作为工程依据**。\n\n"
+            f"- 状态：`{gate.get('status')}`\n"
+            f"- 原因：{gate.get('reason') or '未说明'}\n"
+            + ("- 正文已隔离（物理一致性校验未通过）\n"
+               if gate.get("quarantined") else "")
+        )
+    else:
+        st.success(f"✅ 评估完成（{done_.get('elapsed_s', '-')} 秒）")
 
     # 物理一致性校验：一票否决的结论必须顶在最前面，不能被折叠进详情
     physics = done_.get("physics_check") or {}
@@ -451,6 +465,31 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
     for v in physics.get("violations") or []:
         if v.get("severity") == "warning":
             st.warning(f"物理校验提示：{v.get('message')}")
+
+    # 规则版本与生效参数：报告里每个"安全/不安全"的结论都应该能追到这两个值。
+    # 以前它们硬编码在 utils/physics_rules.py 里，读者只能看到结论、看不到依据。
+    rules_meta = physics.get("rules") or {}
+    if physics.get("rules_version") and rules_meta:
+        st.caption(
+            f"物理规则版本 **{physics['rules_version']}** · "
+            + " · ".join(
+                f"{k} = {v.get('value')}{v.get('unit') or ''}"
+                for k, v in rules_meta.items()
+            )
+        )
+        with st.expander("规则参数出处（点开可核对）"):
+            st.dataframe(
+                [
+                    {
+                        "参数": k,
+                        "取值": v.get("value"),
+                        "单位": v.get("unit") or "",
+                        "出处": v.get("source") or "",
+                    }
+                    for k, v in rules_meta.items()
+                ],
+                hide_index=True,
+            )
 
     # ─── 时间维度冲突：与物理告警同级，必须顶在正文之前 ───
     # 这类问题最容易被读者忽略：报告里出现一个"最新"的压力值，看起来毫无异常，

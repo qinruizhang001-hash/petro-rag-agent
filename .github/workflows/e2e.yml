@@ -30,7 +30,9 @@ jobs:
       - name: Verify graph index exists
         run: test -d lightrag_storage || { echo "::error::Run graph_rag_test.py first"; exit 1; }
 
-      - name: Run 138-assertion E2E suite
+      # 断言数由套件自己打印（test_graph_rag_e2e.py 末尾的 Test summary），
+      # 不在 workflow 文案里写死一个会过期的数字。
+      - name: Run the E2E suite
         run: python test_graph_rag_e2e.py
 
       - name: Install RAGAS evaluation dependencies

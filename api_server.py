@@ -76,6 +76,7 @@ from workflow import (
 )
 from chart_tools import CHART_DIR
 from core.config import LOCAL_API_KEY, LOCAL_BASE_URL, LOCAL_MODEL
+from core.gates import is_failed
 
 from utils.logging_setup import get_logger
 
@@ -178,6 +179,22 @@ def _physics_of(values: dict) -> dict:
     return values.get("physics_check") or {}
 
 
+def _gate_of(values: dict) -> dict:
+    """质量闸门的对外视图。
+
+    为什么必须单独下发：``report`` 字段在失败时可能只有一段阻断说明
+    （物理否决会隔离正文），前端若只看"有没有报告"就会把它当成正常结果渲染。
+    ``status`` / ``reason`` / ``quarantined`` 三个字段让调用方一眼看出这份报告
+    能不能用，而不必去解析正文里的告示。
+    """
+    return values.get("quality_gate") or {}
+
+
+def _gate_status(values: dict) -> str:
+    """``success`` | ``failed``。失败态不允许伪装成 200 正常返回。"""
+    return "failed" if is_failed(_gate_of(values)) else "success"
+
+
 def _temporal_of(values: dict) -> dict:
     """
     时间维度记忆的对外视图。
@@ -233,7 +250,7 @@ def _human_review_of(values: dict) -> dict:
 def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
     return {
         "thread_id": thread_id,
-        "status": "awaiting_approval" if pending else "success",
+        "status": "awaiting_approval" if pending else _gate_status(values),
         "report": values.get("final_report", ""),
         "extracted_params": values.get("extracted_params", ""),
         "score": values.get("score"),
@@ -246,6 +263,8 @@ def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
         "uq": _uq_of(values),
         # ─── 物理一致性校验（规则引擎）───
         "physics_check": _physics_of(values),
+        # ─── 质量闸门（passed / rewrite / failed + 失败原因）───
+        "quality_gate": _gate_of(values),
         # ─── 人类在环 ───
         "human_review": _human_review_of(values),
         # ─── Token 经济学 ───
@@ -277,10 +296,11 @@ async def analyze_sync(request: ProjectRequest):
     try:
         final_state = await asyncio.to_thread(_run_agent, request.user_input, thread_id)
         return {
-            "status": "success",
+            "status": _gate_status(final_state),
             "report": final_state["final_report"],
             "extracted_params": final_state.get("extracted_params", ""),
-            "score": final_state.get("score", 10),
+            # 没有分数就是没有分数：以前默认 10，等于给"评审崩了"发一张满分证书。
+            "score": final_state.get("score"),
             "model_routing": final_state.get("model_routing", {}),
             "history_entry": final_state.get("history_entry", ""),
             "chart": final_state.get("chart_info", {}),
@@ -288,8 +308,9 @@ async def analyze_sync(request: ProjectRequest):
             # ─── 时间维度记忆 + 不确定性量化 ───
             "temporal": _temporal_of(final_state),
             "uq": _uq_of(final_state),
-            # ─── 物理一致性校验 + 人类在环 ───
+            # ─── 物理一致性校验 + 质量闸门 + 人类在环 ───
             "physics_check": _physics_of(final_state),
+            "quality_gate": _gate_of(final_state),
             "human_review": _human_review_of(final_state),
             # ─── Token 经济学 ───
             "cost_estimation": compute_cost_estimation(final_state),
@@ -425,8 +446,10 @@ async def _event_stream(user_input: str, thread_id: str):
                 # ─── 时间维度记忆 + 不确定性量化 ───
                 "temporal": _temporal_of(node_outputs),
                 "uq": _uq_of(node_outputs),
-                # ─── 物理一致性校验 + 人类在环 ───
+                # ─── 物理一致性校验 + 质量闸门 + 人类在环 ───
                 "physics_check": _physics_of(node_outputs),
+                "quality_gate": _gate_of(node_outputs),
+                "gate_status": _gate_status(node_outputs),
                 "human_review": _human_review_of(node_outputs),
                 # ─── 并行分支耗时（前端数据看板要用）───
                 # aggregate 已经把两条分支的时间戳算成 wall/serial/speedup，

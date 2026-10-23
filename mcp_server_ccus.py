@@ -140,6 +140,8 @@ def assess_injection_uncertainty(
         "scenario='injection'（默认）为井口 120 bar、远端 100 bar、初值 100 bar，"
         "是非平凡解；scenario='baseline' 是初值与两端恒为 100 bar 的退化算例，"
         "其解析解恒为 100 bar（保留用于对照）。"
+        "**定位：教学演示。** 边界条件与 D=0.1 m²/s 是示意值，未标定到任何实际"
+        "储层；输出不得用于安全/不安全判定，也不参与物理一致性校验。"
     ),
 )
 def predict_pressure_pinn(x: float, t: float, scenario: str = "injection") -> dict:
@@ -154,6 +156,10 @@ def predict_pressure_pinn(x: float, t: float, scenario: str = "injection") -> di
         "scenario": scenario,
         "model": "1-D PINN, 3-layer MLP (2-64-64-1), tanh",
         "pde": "dP/dt = D * d2P/dx2, D = 0.1 m^2/s",
+        # 定位声明随数值一起返回，而不是只写在 README 里：调用方（报告 / 前端）
+        # 拿到 109.95 bar 时，必须同时拿到"这是教学演示"这句话。
+        "usage_scope": "teaching-demo",
+        "not_for_safety_verdict": True,
     }
     if scenario == "injection":
         # 附上解析稳态解，让调用方能判断这个数离"物理上应该的答案"有多远。

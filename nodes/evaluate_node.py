@@ -22,17 +22,41 @@ Agent 4：评审员（规则化物理校验 + 模型打分）
 消失（原因见该函数的 docstring —— 实测中模型会把"没算过"读成"没通过"）。
 所以物理校验对评审 prompt 的影响是**有条件的**，而不是无脑追加一段文本。
 
-另外，解析失败时兜底 ``score = 10``（放行）——这个选择看起来危险，但反过来
-（默认 0 分）会让一次解析抖动触发两次无意义的重写，成本更高且结果更差。
-注意：**物理校验失败不走这个兜底**，它是一票否决。
+闸门是硬的（v2.1 起）
+--------------------
+早期版本在**解析失败**时兜底 ``score = 10``（放行），理由是"默认 0 分会触发两次
+无意义重写"。这个理由只算了成本，没算代价：一份解析失败的评审 + 一份超压的报告，
+在日志里看起来就是"10 分，通过"。实测中 Ollama 偶发返回空串（超时前被截断），
+于是"评审崩了"被记成"报告优秀"。
+
+现在解析失败 → ``judge_unparseable``，评审自己重试一次；仍失败就**阻断**，
+不写进通过分支。判定逻辑集中在 ``core/gates.py``（纯函数，可单测），
+本节点只负责产出 ``quality_gate`` 这个结构化结论 —— 报告里到底过没过、
+为什么没过，都从这一个字段读，不再靠日志考古。
+
+物理校验与模型分数的关系是**单向**的：物理否决先发生，此时**不调用模型**，
+模型分再高也覆盖不了它；反过来，模型只能压低分数，不能把物理否决改回来。
 """
 from __future__ import annotations
 
 import re
 
 from core.config import get_llm, llm_chat
+from core.gates import (
+    QUALITY_THRESHOLD,
+    STATUS_BLOCKED_PHYSICS,
+    STATUS_JUDGE_UNPARSEABLE,
+    STATUS_PASSED,
+    STATUS_REWRITE,
+    build_gate,
+)
 from core.state import AgentState
 from utils.logging_setup import get_logger, llm_extra
+from utils.probability_guard import (
+    UNSUPPORTED_PROBABILITY_SCORE_CAP,
+    strip_unsupported_probabilities,
+    unsupported_probabilities,
+)
 from utils.physics_rules import evaluate_physics, render_prompt_block
 from utils.tokens import record_llm_usage
 
@@ -56,77 +80,32 @@ def _budget(text: str, limit: int) -> str:
     return body[:limit].rstrip() + _TRUNCATION_MARK
 
 
+_SCORE_RE = re.compile(
+    r"(?:分数|评分|得分|score)\s*[：:＝=]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?", re.I
+)
+# 兜底：模型只回了一行 "8分" / "8/10"，没有"分数："前缀。
+_BARE_SCORE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(?:分|/\s*10)", re.M)
+
+
 def _parse_score(text: str) -> tuple[float, str] | None:
-    """从模型输出里解析 (分数, 评语)。解析不出来返回 None。"""
+    """从模型输出里解析 (分数, 评语)。解析不出来返回 None。
+
+    容忍度是刻意放宽的：``分数：8`` / ``评分: 8/10`` / ``Score: 8`` / ``8分``
+    都算解析成功。**放宽的是格式，不是结果** —— 解析不出分数时不再兜底放行，
+    而是走 ``judge_unparseable``（见 ``core.gates``）。7B 评审经常在
+    输出上限处被截断，只回一句"8 分"，把它判成失败会造成大量误伤。
+    """
     if not text:
         return None
-    m = re.search(r"分数[：:]\s*(\d+(?:\.\d+)?)", text)
+    m = _SCORE_RE.search(text) or _BARE_SCORE_RE.search(text)
     if not m:
         return None
     score = float(m.group(1))
+    if not 0.0 <= score <= 10.0:
+        return None                     # 11 分/88 分是解析到了别的数字，不是分数
     f = re.search(r"评语[：:]\s*(.+)", text, re.DOTALL)
     feedback = f.group(1).strip() if f else text.strip()
     return score, feedback
-
-
-# 「概率 … 12%」——只盯概率断言，不去管"含水饱和度 12%"这类普通数值。
-_PROBABILITY_CLAIM = re.compile(r"(?:概率|比例|占比)[^。；\n]{0,14}?(\d+(?:\.\d+)?)\s*%")
-_ANY_PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
-
-# 编造概率的扣分上限。定得比"重写阈值"低，是为了让这类报告一定被打回，
-# 而不是靠提示词求模型自觉 —— 实测 7B 会照着示例编 5 个百分数。
-UNSUPPORTED_PROBABILITY_SCORE_CAP = 4.0
-_SENTENCE_END = re.compile(r"(?<=[。！？!?])")
-
-
-def unsupported_probabilities(report: str, evidence: str) -> list[str]:
-    """报告里出现、但证据/工具结果里没有的概率/比例断言。
-
-    RAGAS 的 Faithfulness 正是被这类断言拉低的：报告写「断层活化风险概率
-    12%（100 次蒙特卡洛模拟）」，而全流程只算过密度和压力曲线，12% 无处可查。
-    这里用确定性规则先拦一遍，比让模型自查可靠。
-
-    「比例」也在拦截范围内：只匹配「概率」时，报告改写成「压力累积达到破裂
-    压力的比例为 95%」就绕过了守卫，而 95% 同样是凭空来的（实测忠实度 0.545）。
-    """
-    allowed = set(_ANY_PERCENT.findall(evidence or ""))
-    claims: list[str] = []
-    for match in _PROBABILITY_CLAIM.finditer(report or ""):
-        if match.group(1) not in allowed:
-            claims.append(match.group(0).strip())
-    return claims
-
-
-def strip_unsupported_probabilities(report: str, evidence: str) -> tuple[str, list[str]]:
-    """把无法溯源的百分比连同它所在的整句一起删掉。
-
-    只扣分等于承认"这段文字不该发出去"，却照样把它发给用户：实测某次重写
-    预算耗尽后，一份带 5 个编造概率的报告被强制放行，RAGAS 忠实度 0.000。
-    扣分能推动重写，但推动失败时必须有人动手删，那个人只能是代码。
-
-    删**整句**而不是把数字替换成「该风险未做概率量化」，是因为替换文本本身
-    就是一句证据支持不了的新陈述：实测一份报告被替换出 11 处「（该风险未做
-    概率量化）」，Faithfulness 里这些句子全部判为无依据 —— 修幻觉的代码
-    反而在制造无法溯源的句子。整句删掉不留残句。
-    """
-    claims = unsupported_probabilities(report, evidence)
-    if not claims:
-        return report, []
-    unsupported = set(claims)
-    kept: list[str] = []
-    for sentence in _SENTENCE_END.split(report):
-        if not sentence.strip():
-            continue
-        offending = [
-            match.group(0).strip()
-            for match in _PROBABILITY_CLAIM.finditer(sentence)
-            if match.group(0).strip() in unsupported
-        ]
-        if offending:
-            continue
-        kept.append(sentence)
-    cleaned = "".join(kept).strip()
-    return cleaned, claims
 
 
 def evaluate_report(state: AgentState):
@@ -150,11 +129,24 @@ def evaluate_report(state: AgentState):
 
     if physics.get("blocking"):
         # 一票否决：不打模型分，直接打回。省一次调用，也避免模型"审美"压过物理。
+        # 返回的 gate 状态是 blocked_physics —— 它在 core.gates.next_action 里
+        # 只能变成 rewrite 或 fail，永远不可能变成 pass。
         log.warning("[Agent 4] 物理矛盾 → 判定 0 分，打回重写")
         return {
             "score": 0.0,
             "feedback": physics["feedback"],
             "physics_check": physics,
+            "quality_gate": build_gate(
+                status=STATUS_BLOCKED_PHYSICS,
+                score=0.0,
+                physics=physics,
+                judge_status="skipped",
+                reason=physics.get("summary") or "物理一致性校验未通过",
+                detail="；".join(
+                    v["message"] for v in physics.get("violations") or []
+                    if v["severity"] == "blocking"
+                ),
+            ),
         }
 
     # ══════════════════════════════════════════════════════
@@ -192,14 +184,48 @@ def evaluate_report(state: AgentState):
         temperature=0.0,
     )
     result = response.choices[0].message.content or ""
+    usage = record_llm_usage(state, "evaluate", response, model, tier)
 
     parsed = _parse_score(result)
     if parsed is None:
-        # 解析抖动 → 放行。理由见模块 docstring：默认 0 分会触发两次无意义重写。
-        score, feedback = 10.0, result
-        log.warning(f"[Agent 4] 评审输出无法解析，按 10 分放行：{result[:80]}")
-    else:
-        score, feedback = parsed
+        # 一次重试，只为了让**评审自己**把格式说清楚，不是为了让分数变好看。
+        # 重试仍失败 → judge_unparseable（阻断），不再有"默认 10 分放行"。
+        log.warning(f"[Agent 4] 评审输出无法解析（首次）：{result[:120]!r} → 重试一次")
+        retry_prompt = prompt + (
+            "\n\n上次的输出无法解析。本次只允许输出两行，不要任何其它文字：\n"
+            "分数：<0-10 的数字>\n评语：<一句话>"
+        )
+        response = llm_chat(
+            "evaluate",
+            messages=[{"role": "user", "content": retry_prompt}],
+            temperature=0.0,
+        )
+        result = response.choices[0].message.content or ""
+        usage = record_llm_usage({**state, **usage}, "evaluate_retry", response, model, tier)
+        parsed = _parse_score(result)
+
+    if parsed is None:
+        log.error(f"[Agent 4] 评审两次都无法解析 → 阻断（judge_unparseable）：{result[:120]!r}")
+        return {
+            "score": 0.0,
+            "feedback": (
+                "评审模型两次输出都无法解析出分数，本次报告按未通过处理。"
+                "请检查评审模型的输出上限（--judge-max-tokens / num_predict）是否够用。"
+            ),
+            "physics_check": physics,
+            "unsupported_probabilities": [],
+            "quality_gate": build_gate(
+                status=STATUS_JUDGE_UNPARSEABLE,
+                score=0.0,
+                physics=physics,
+                judge_status="unparseable",
+                reason="评审输出无法解析出 0-10 的分数（已重试一次）",
+                detail=(result or "")[:200],
+            ),
+            **usage,
+        }
+
+    score, feedback = parsed
 
     # 数值级告警不阻断流程，但必须让下一轮（或用户）看见
     warnings = [v["message"] for v in (physics.get("violations") or [])
@@ -237,10 +263,25 @@ def evaluate_report(state: AgentState):
         f"[Agent 4] 当前得分：{score:g} 分 | 评语：{feedback[:120]}",
         extra=llm_extra(model, tier),
     )
+
+    passed = score >= QUALITY_THRESHOLD
+    gate = build_gate(
+        status=STATUS_PASSED if passed else STATUS_REWRITE,
+        score=score,
+        physics=physics,
+        reason=(
+            f"评审得分 {score:g} ≥ 阈值 {QUALITY_THRESHOLD:g}"
+            if passed else
+            f"评审得分 {score:g} < 阈值 {QUALITY_THRESHOLD:g}，需重写"
+        ),
+        detail=feedback[:400],
+    )
+    log.info(f"[Gate] {gate['status']} · {gate['reason']}")
     return {
         "score": score,
         "feedback": feedback,
         "physics_check": physics,
         "unsupported_probabilities": fabricated,
-        **record_llm_usage(state, "evaluate", response, model, tier),
+        "quality_gate": gate,
+        **usage,
     }
