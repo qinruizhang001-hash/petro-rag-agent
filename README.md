@@ -349,7 +349,16 @@ If all you want is to verify the **gate** rather than run an assessment, skip st
 <!-- 中文注释：2026-10-19 的三次 Deploy 全红，原因不是代码。这里记录诊断依据与现在的行为，
      避免下一个人从"红的"直接推断"部署逻辑坏了"。 -->
 
-Deploy runs #1–#3 (commits `4f62ac3`, `94dac2f`, `18c8f63`) all failed at the same step, **~10 seconds after checkout**. That timing is the diagnosis: `deploy.sh` cannot fail that fast. Its own preflight (`docker`, `git`, `curl`, RAM, Ollama, models, reranker weights) either exits within a second with a named missing item, or it proceeds into `docker build`, which takes minutes. Ten seconds means the SSH connection itself never carried a command — the `SSH_HOST` / `SSH_USERNAME` / `SSH_PRIVATE_KEY` secrets were not configured for this repository.
+Deploy runs #1–#3 (commits `4f62ac3`, `94dac2f`, `18c8f63`) all failed at the same step, and the logs say the same sentence three times:
+
+```
+2026-10-19T15:33:46.4736826Z 2026/10/19 15:33:46 Error: missing server host
+2026-10-19T15:48:36.2330622Z 2026/10/19 15:48:36 Error: missing server host
+2026-10-19T15:57:30.0073567Z 2026/10/19 15:57:30 Error: missing server host
+##[error]Process completed with exit code 1.
+```
+
+Three seconds after checkout, before any SSH handshake. The step dump confirms why: `INPUT_HOST`, `INPUT_USERNAME` and `INPUT_KEY` are all empty strings — the `SSH_HOST` / `SSH_USERNAME` / `SSH_PRIVATE_KEY` secrets were never configured for this repository. Nothing was wrong with `deploy.sh`, the server, or the Docker build; the workflow simply had nowhere to connect. (The timing was the first clue — `deploy.sh` cannot fail that fast — but the log line is the proof, and it is the same line in all three runs.)
 
 The old workflow had no way to say that. Every push to `main` produced a red X identical to a genuine deployment failure, so the red X stopped carrying information.
 
