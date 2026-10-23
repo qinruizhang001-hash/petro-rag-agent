@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **569 unit tests run in CI on every push** | 512 stdlib-only · 41 chart · 16 gate/graph; the E2E suite is self-hosted and prints its own count |
+| 3 | **569 unit tests run in CI on every push** | 436 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI, 100 runs |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**569 unit tests run in CI on every push** (512 stdlib-only · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**569 unit tests run in CI on every push** (436 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -407,7 +407,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **569 unit tests run in CI** (512 stdlib-only · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **569 unit tests run in CI** (436 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -2167,7 +2167,7 @@ Ran 637 tests in 7.869s
 OK
 ```
 
-Thirty-one suites (`tests/`). CI runs 569 of them; the rest need torch/chromadb/Ollama and run locally or on the self-hosted runner:
+Thirty-one suites (`tests/`). CI runs 569 of those tests; the rest need torch/chromadb/Ollama and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
