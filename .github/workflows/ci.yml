@@ -311,6 +311,7 @@ jobs:
             tests.test_aggregate_split \
             tests.test_lineage \
             tests.test_corpus_scope \
+            tests.test_repair_partial \
             tests.test_logging_setup \
             tests.test_text_cleaning \
             tests.test_entity_aliases \
