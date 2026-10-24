@@ -74,9 +74,9 @@ CHUNK_OVERLAP = 150
 #
 # 保留在目录里、只在入库时跳过，而不是删文件：语料是输入，删了就再也
 # 说不清当初为什么排除了它。排除理由写在这里，可审计。
-EXCLUDED_PAPERS = {
-    "ccus4.pdf": "实际内容是 NOMA 上行功率控制（电信），与 CCUS 无关",
-}
+# 语料范围（含排除清单）定义在 utils/corpus.py —— 审计脚本必须用同一份，
+# 否则覆盖率的分母和分子来自两个不同的语料定义。
+from utils.corpus import EXCLUDED_PAPERS  # noqa: E402
 
 
 def log(msg: str) -> None:

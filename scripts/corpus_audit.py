@@ -55,6 +55,9 @@ GRAPH_STATE = os.path.join(DOCS_DIR, "graph_ingest_state.json")
 GRAPHML = os.path.join(LIGHTRAG_DIR, "graph_chunk_entity_relation.graphml")
 AUDIT_JSON = os.path.join(PROJECT_ROOT, "docs", "corpus-audit.json")
 
+# 语料范围与入库侧共用一份定义（utils/corpus.py 只依赖标准库）
+from utils.corpus import exclusion_reason, is_excluded  # noqa: E402
+
 # 摄取脚本里的默认预算。写死会漂移，所以运行时从 argparse 定义里读。
 INGEST_SCRIPT = os.path.join(PROJECT_ROOT, "ingest_ccus_batch.py")
 
@@ -62,20 +65,40 @@ INGEST_SCRIPT = os.path.join(PROJECT_ROOT, "ingest_ccus_batch.py")
 # ─── 一、语料：可抽取 vs 已入库 ─────────────────────────────
 
 
-def _extractable_chars(pdf_path: str) -> tuple[int, int]:
-    """返回 (页数, 可抽取字符数)。抽不出来时返回 (0, 0)。"""
+def _extractable_chars(pdf_path: str) -> tuple[int, int, int]:
+    """
+    返回 ``(页数, 原始可抽取字符, 清洗后正文字符)``；抽不出来时返回 ``(0, 0, 0)``。
+
+    两个字符数都必须有，因为它们是不同的量：
+
+    - **原始**是 ``page.get_text()`` 之和，包含参考文献、页码、页眉页脚；
+    - **清洗后**是 ``clean_pdf_text`` 的输出，即真正喂给建图的正文。
+
+    覆盖率只能用后者做分母。曾经用前者，于是 ``ccus_auto_01.pdf`` 显示
+    "119,868 / 161,877 = 74%" —— 那 26% 是**已经被主动剥掉的参考文献**，
+    不是漏喂的内容。分母错了，95% 的阈值就永远达不到，指标也就废了。
+    """
     try:
         import pymupdf  # 新版包名
     except ImportError:  # pragma: no cover - 老版本回退
         try:
             import fitz as pymupdf  # type: ignore
         except ImportError:
-            return 0, 0
+            return 0, 0, 0
     try:
         with pymupdf.open(pdf_path) as doc:
-            return doc.page_count, sum(len(p.get_text()) for p in doc)
+            raw = "".join(p.get_text() for p in doc)
+            pages = doc.page_count
     except Exception:
-        return 0, 0
+        return 0, 0, 0
+
+    from utils.text_cleaning import clean_pdf_text
+
+    try:
+        clean = clean_pdf_text(raw)
+    except Exception:
+        clean = raw
+    return pages, len(raw), len(clean)
 
 
 def load_graph_state() -> dict:
@@ -91,9 +114,16 @@ def load_graph_state() -> dict:
 def corpus_coverage() -> dict:
     state = load_graph_state()
     rows = []
+    excluded = []
     for path in sorted(glob.glob(os.path.join(DOCS_DIR, "*.pdf"))):
         name = os.path.basename(path)
-        pages, extractable = _extractable_chars(path)
+        # 分母必须和入库侧用同一份语料定义。曾用 glob("*.pdf") 把 ccus4.pdf
+        # （电信 NOMA，故意不入库）算进去，覆盖率因此永远显示 96.9% ——
+        # 一个恒定差 3% 的指标没人会追，也就没人能发现它掉到 6% 时同样安静。
+        if is_excluded(name):
+            excluded.append({"file": name, "reason": exclusion_reason(name)})
+            continue
+        pages, raw_chars, clean_chars = _extractable_chars(path)
         rec = state.get(name) or {}
         ingested = int(rec.get("chars") or 0)
         seconds = rec.get("seconds")
@@ -101,9 +131,12 @@ def corpus_coverage() -> dict:
             {
                 "file": name,
                 "pages": pages,
-                "extractable": extractable,
+                "extractable": clean_chars,
+                "raw_chars": raw_chars,
                 "ingested": ingested,
-                "coverage": round(ingested / extractable, 4) if extractable else 0.0,
+                # 分母是**清洗后正文**：参考文献、页码本来就不该进图，
+                # 用原始字符做分母会把"主动剥掉的 22%"算成漏喂。
+                "coverage": round(ingested / clean_chars, 4) if clean_chars else 0.0,
                 "seconds": seconds,
                 # 本机实测吞吐（chars/s）。None 表示这篇没在状态文件里。
                 "chars_per_sec": round(ingested / seconds, 1) if seconds else None,
@@ -111,14 +144,17 @@ def corpus_coverage() -> dict:
             }
         )
     tot_ex = sum(r["extractable"] for r in rows)
+    tot_raw = sum(r["raw_chars"] for r in rows)
     tot_in = sum(r["ingested"] for r in rows)
     tot_s = sum(r["seconds"] for r in rows if r["seconds"])
     return {
         "files": rows,
+        "excluded": excluded,
         "files_total": len(rows),
         "files_in_graph": sum(1 for r in rows if r["in_graph"]),
         "pages_total": sum(r["pages"] for r in rows),
         "extractable_total": tot_ex,
+        "raw_total": tot_raw,
         "ingested_total": tot_in,
         "coverage": round(tot_in / tot_ex, 4) if tot_ex else 0.0,
         "extract_seconds_total": round(tot_s, 1),
@@ -309,7 +345,7 @@ def render(a: dict) -> str:
     lines.append("═" * 78)
     lines.append("语料覆盖率")
     lines.append("═" * 78)
-    lines.append(f"{'文件':22} {'页':>4} {'可抽取':>9} {'已入库':>8} {'覆盖':>7} {'秒':>6}")
+    lines.append(f"{'文件':22} {'页':>4} {'正文':>9} {'已入库':>8} {'覆盖':>7} {'秒':>6}")
     for r in cov["files"]:
         lines.append(
             f"{r['file']:22} {r['pages']:>4} {r['extractable']:>9,} "
@@ -325,6 +361,15 @@ def render(a: dict) -> str:
         f"  在库论文 {cov['files_in_graph']}/{cov['files_total']} 篇 · "
         f"实测吞吐 {cov['sec_per_1000_chars']} 秒/千字符"
     )
+    lines.append(
+        f"  分母口径：清洗后正文 {cov['extractable_total']:,} 字符"
+        f"（原始可抽取 {cov['raw_total']:,}，"
+        f"剥掉参考文献/页码等 {1 - cov['extractable_total'] / cov['raw_total']:.1%}）"
+        if cov.get("raw_total")
+        else f"  分母口径：清洗后正文 {cov['extractable_total']:,} 字符"
+    )
+    for ex in cov.get("excluded", []):
+        lines.append(f"  排除 {ex['file']}：{ex['reason']}（不计入分母）")
 
     lines.append("")
     lines.append("═" * 78)
