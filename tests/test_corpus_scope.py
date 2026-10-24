@@ -7,6 +7,7 @@
 （电信 NOMA，与 CCUS 无关）一直算在分母里，覆盖率永远显示 96.9%。
 恒定差 3% 的指标没人会追，所以真掉到 6% 时它也照样安静。
 """
+import glob
 import os
 import sys
 import unittest
@@ -42,11 +43,17 @@ class CorpusScopeTests(unittest.TestCase):
 
     def test_excluded_files_actually_exist(self):
         """
-        排除清单里的文件名必须真实存在。
+        排除清单里的文件名必须真实存在（**语料在场时**）。
 
         否则一个拼写错误就会让分母悄悄变小 —— 覆盖率反而"变好"，
         而且没有任何报错。这是最隐蔽的一类指标腐化。
+
+        ``ccus_docs/*.pdf`` 在 .gitignore 里（语料不进仓库），所以 CI 上没有
+        这些文件，这条检查只能在本地/部署侧生效。跳过而不是改断言：
+        把"文件存在"换成"字符串非空"就等于什么都没测。
         """
+        if not glob.glob(os.path.join(DOCS_DIR, "*.pdf")):
+            self.skipTest("语料 PDF 不在仓库里（ccus_docs/*.pdf 已 gitignore），仅本地校验")
         for name in EXCLUDED_PAPERS:
             self.assertTrue(
                 os.path.exists(os.path.join(DOCS_DIR, name)),
