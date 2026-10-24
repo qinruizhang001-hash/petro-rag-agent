@@ -450,8 +450,8 @@ def reset_graph_storage() -> None:
 
 
 def sync_graph(items: list[dict], budget: int, force: bool = False) -> dict:
-    """把每篇论文的前 ``budget`` 字符喂给 LightRAG 建图。"""
-    from utils.text_cleaning import clean_pdf_text, select_graph_text, strip_front_matter
+    """把每篇论文喂给 LightRAG 建图。``budget <= 0`` 表示全文（默认）。"""
+    from utils.text_cleaning import clean_pdf_text, graph_text, strip_front_matter
 
     log("  正在初始化 LightRAG（加载图谱存储 + 后台 event loop）...")
     from lightrag_retriever import insert_text
@@ -459,6 +459,8 @@ def sync_graph(items: list[dict], budget: int, force: bool = False) -> dict:
     state = load_graph_state()
     before = graph_stats()
     log(f"  建图前：{before['nodes']} 节点 / {before['edges']} 边")
+    log("  喂入模式：" + ("全文（覆盖率优先）" if budget <= 0
+                        else f"前 {budget} 字符（限流，覆盖率会显著下降）"))
 
     done, skipped, failed = 0, 0, 0
     for i, it in enumerate(items, 1):
@@ -471,7 +473,9 @@ def sync_graph(items: list[dict], budget: int, force: bool = False) -> dict:
 
         # 先去首页的作者/单位/地址块，**再**取预算。
         # 顺序反了的话，被删掉的单位行会先占掉预算，正文反而少喂几十上百字。
-        body = select_graph_text(strip_front_matter(text), budget)
+        # 预算为 0 = 全文：这里必须用 graph_text 而不是 select_graph_text，
+        # 后者的零预算语义是"空"（它只负责切一段），直接调会静默建出空图。
+        body = graph_text(strip_front_matter(text), budget)
         # 标题单独前置：实体抽取需要知道"这篇讲的是什么"，否则摘要里的
         # 代词式表述（this study / the reservoir）抽不出可复用的节点。
         payload = f"Title: {it['title']}\n\n{body}"
@@ -531,8 +535,9 @@ def print_stats() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CCUS 文献批量入库")
-    ap.add_argument("--graph-budget", type=int, default=4000,
-                    help="每篇论文喂给知识图谱的字符数（默认 4000）")
+    ap.add_argument("--graph-budget", type=int, default=0,
+                    help="每篇论文喂给知识图谱的字符数；0 = 全文（默认）。"
+                         "限流只适合快速小样，会让覆盖率掉到个位数")
     ap.add_argument("--limit", type=int, default=0, help="只处理前 N 篇（小样验证）")
     ap.add_argument("--no-originals", action="store_true", help="不处理原有 ccus1-5.pdf")
     ap.add_argument("--skip-chroma", action="store_true")
@@ -587,7 +592,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ② LightRAG
     if not args.skip_graph:
-        log(f"\n[2/2] 扩充知识图谱（每篇前 {args.graph_budget} 字符）...")
+        mode = "全文" if args.graph_budget <= 0 else f"每篇前 {args.graph_budget} 字符"
+        log(f"\n[2/2] 扩充知识图谱（{mode}）...")
         try:
             summary["graph"] = sync_graph(items, args.graph_budget, force=args.force_graph)
             g = summary["graph"]

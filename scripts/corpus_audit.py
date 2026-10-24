@@ -27,7 +27,12 @@
     python scripts/corpus_audit.py --json     # 只输出 JSON（给 CI / 报告用）
     python scripts/corpus_audit.py --write    # 同时写 docs/corpus-audit.json
 
-退出码恒为 0：这是诊断工具，不是门禁。要门禁请用 coverage_gate 里的阈值。
+退出码：默认恒为 0（诊断工具）。加 ``--check`` 才变成门禁：覆盖率、
+血缘可追溯率、实体数三项任一不达标就退出 1，用于**重建之后**的自检。
+
+不能放进 CI：``lightrag_storage/`` 在 .gitignore 里（几十 MB 的抽取产物
+不该进 git），托管 runner 上没有可审的数据。所以这是本地/部署侧的门禁，
+不是 push 门禁。
 """
 from __future__ import annotations
 
@@ -395,6 +400,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="语料覆盖率与图谱健康度审计")
     ap.add_argument("--json", action="store_true", help="只输出 JSON")
     ap.add_argument("--write", action="store_true", help=f"同时写入 {AUDIT_JSON}")
+    ap.add_argument("--check", action="store_true",
+                    help="按阈值判定（覆盖率/血缘/实体数），不达标退出 1")
+    ap.add_argument("--min-coverage", type=float, default=0.95)
+    ap.add_argument("--min-lineage", type=float, default=1.0)
+    ap.add_argument("--min-entities", type=int, default=1000)
     args = ap.parse_args()
 
     a = audit()
@@ -405,6 +415,32 @@ def main() -> int:
         if not args.json:
             print(f"[written] {AUDIT_JSON}\n")
     print(json.dumps(a, ensure_ascii=False, indent=2) if args.json else render(a))
+
+    if not args.check:
+        return 0
+
+    # 三项各自对应一类"不会报错但会静默降质"的失败：
+    # 覆盖率低 = 建图被限流（曾经 6.2%）；血缘低 = 报告无法回溯到 PDF；
+    # 实体太少 = 抽取大面积失败，但流程照样返回成功。
+    checks = [
+        ("覆盖率", a["corpus"]["coverage"], args.min_coverage, "≥"),
+        ("血缘可追溯率", a["lineage"].get("traceable_ratio", 0.0), args.min_lineage, "≥"),
+        ("实体数", a["graph"].get("nodes", 0), args.min_entities, "≥"),
+    ]
+    failed = []
+    print("\n" + "─" * 78)
+    for name, got, want, op in checks:
+        ok = got >= want
+        shown = f"{got:.1%}" if isinstance(got, float) and got <= 1 else f"{got:,}"
+        target = f"{want:.0%}" if isinstance(want, float) and want <= 1 else f"{want:,}"
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {shown} (要求 {op} {target})")
+        if not ok:
+            failed.append(name)
+    print("─" * 78)
+    if failed:
+        print(f"❌ 未达标：{'、'.join(failed)}")
+        return 1
+    print("✅ 全部达标")
     return 0
 
 

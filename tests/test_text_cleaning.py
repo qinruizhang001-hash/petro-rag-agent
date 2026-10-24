@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.text_cleaning import (
     chunk_text,
     clean_pdf_text,
+    graph_text,
     select_graph_text,
     strip_front_matter,
     strip_references,
@@ -175,6 +176,44 @@ class TestSelectGraphText(unittest.TestCase):
     def test_no_sentence_boundary_still_cuts(self):
         out = select_graph_text("y" * 1000, 100)
         self.assertEqual(len(out), 100)
+
+
+class TestGraphText(unittest.TestCase):
+    """
+    入库脚本喂多少字进图，是这次知识库只有 6.2% 覆盖率的直接原因。
+
+    历史事故：``sync_graph`` 直接调 ``select_graph_text(text, budget)``，
+    而 ``--graph-budget 0`` 在那里的语义是"空串"，于是"全文"被读成"什么都不喂"。
+    不会报错，只会建出一个只有标题的空图 —— 正是最难发现的那类 bug。
+    """
+
+    def test_zero_budget_means_full_text_not_empty(self):
+        text = "a" * 5000
+        self.assertEqual(graph_text(text, 0), text)
+
+    def test_negative_budget_also_means_full_text(self):
+        # 负数不该被理解成"倒着切"，只该被理解成"不设上限"。
+        text = "b" * 5000
+        self.assertEqual(graph_text(text, -1), text)
+
+    def test_explicit_budget_still_truncates(self):
+        out = graph_text("First sentence. Second sentence. " + "x" * 900, 120)
+        self.assertLessEqual(len(out), 120)
+        self.assertTrue(out.endswith("."))
+
+    def test_short_text_passes_through_unchanged(self):
+        self.assertEqual(graph_text("short", 4000), "short")
+
+    def test_two_zero_semantics_are_deliberately_opposite(self):
+        """
+        锁住这个反直觉的设计：select_graph_text(0) == ""，graph_text(0) == 全文。
+
+        合并成一个函数就必须二选一，而两种读法都有人会写错。分开且各自有
+        测试钉住，比"写个注释提醒一下"可靠。
+        """
+        text = "c" * 100
+        self.assertEqual(select_graph_text(text, 0), "")
+        self.assertEqual(graph_text(text, 0), text)
 
 
 class TestStripFrontMatter(unittest.TestCase):
