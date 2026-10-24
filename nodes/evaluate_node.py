@@ -22,31 +22,87 @@ Agent 4：评审员（规则化物理校验 + 模型打分）
 消失（原因见该函数的 docstring —— 实测中模型会把"没算过"读成"没通过"）。
 所以物理校验对评审 prompt 的影响是**有条件的**，而不是无脑追加一段文本。
 
-另外，解析失败时兜底 ``score = 10``（放行）——这个选择看起来危险，但反过来
-（默认 0 分）会让一次解析抖动触发两次无意义的重写，成本更高且结果更差。
-注意：**物理校验失败不走这个兜底**，它是一票否决。
+闸门是硬的（v2.1 起）
+--------------------
+早期版本在**解析失败**时兜底 ``score = 10``（放行），理由是"默认 0 分会触发两次
+无意义重写"。这个理由只算了成本，没算代价：一份解析失败的评审 + 一份超压的报告，
+在日志里看起来就是"10 分，通过"。实测中 Ollama 偶发返回空串（超时前被截断），
+于是"评审崩了"被记成"报告优秀"。
+
+现在解析失败 → ``judge_unparseable``，评审自己重试一次；仍失败就**阻断**，
+不写进通过分支。判定逻辑集中在 ``core/gates.py``（纯函数，可单测），
+本节点只负责产出 ``quality_gate`` 这个结构化结论 —— 报告里到底过没过、
+为什么没过，都从这一个字段读，不再靠日志考古。
+
+物理校验与模型分数的关系是**单向**的：物理否决先发生，此时**不调用模型**，
+模型分再高也覆盖不了它；反过来，模型只能压低分数，不能把物理否决改回来。
 """
 from __future__ import annotations
 
 import re
 
 from core.config import get_llm, llm_chat
+from core.gates import (
+    QUALITY_THRESHOLD,
+    STATUS_BLOCKED_PHYSICS,
+    STATUS_JUDGE_UNPARSEABLE,
+    STATUS_PASSED,
+    STATUS_REWRITE,
+    build_gate,
+)
 from core.state import AgentState
 from utils.logging_setup import get_logger, llm_extra
+from utils.probability_guard import (
+    UNSUPPORTED_PROBABILITY_SCORE_CAP,
+    strip_unsupported_probabilities,
+    unsupported_probabilities,
+)
 from utils.physics_rules import evaluate_physics, render_prompt_block
 from utils.tokens import record_llm_usage
 
 log = get_logger(__name__)
 
+# 评审 prompt 里同时装【检索证据】和【整篇报告】，两段原本都没有上限。
+# 本地默认模型（qwen2.5，4096 窗口）实测被撑爆：某次 evaluate 请求
+# 4097 tokens → HTTP 400 → 整个 case 直接判失败，RAGAS 只能记 0 分。
+# 这里按字符给两段各设预算：正常长度（证据 ≤1500 字、报告 ≤3000 字）完全
+# 不受影响，只有超长报告会被截断，且截断处写进 prompt，评审自己知道。
+EVAL_EVIDENCE_CHARS = 1500
+EVAL_REPORT_CHARS = 3000
+_TRUNCATION_MARK = "\n…（以下内容超出评审预算，已截断）"
+
+
+def _budget(text: str, limit: int) -> str:
+    """把一段文本压到字符预算内；超长时保留开头并显式标注截断。"""
+    body = (text or "").strip()
+    if len(body) <= limit:
+        return body
+    return body[:limit].rstrip() + _TRUNCATION_MARK
+
+
+_SCORE_RE = re.compile(
+    r"(?:分数|评分|得分|score)\s*[：:＝=]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?", re.I
+)
+# 兜底：模型只回了一行 "8分" / "8/10"，没有"分数："前缀。
+_BARE_SCORE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(?:分|/\s*10)", re.M)
+
 
 def _parse_score(text: str) -> tuple[float, str] | None:
-    """从模型输出里解析 (分数, 评语)。解析不出来返回 None。"""
+    """从模型输出里解析 (分数, 评语)。解析不出来返回 None。
+
+    容忍度是刻意放宽的：``分数：8`` / ``评分: 8/10`` / ``Score: 8`` / ``8分``
+    都算解析成功。**放宽的是格式，不是结果** —— 解析不出分数时不再兜底放行，
+    而是走 ``judge_unparseable``（见 ``core.gates``）。7B 评审经常在
+    输出上限处被截断，只回一句"8 分"，把它判成失败会造成大量误伤。
+    """
     if not text:
         return None
-    m = re.search(r"分数[：:]\s*(\d+(?:\.\d+)?)", text)
+    m = _SCORE_RE.search(text) or _BARE_SCORE_RE.search(text)
     if not m:
         return None
     score = float(m.group(1))
+    if not 0.0 <= score <= 10.0:
+        return None                     # 11 分/88 分是解析到了别的数字，不是分数
     f = re.search(r"评语[：:]\s*(.+)", text, re.DOTALL)
     feedback = f.group(1).strip() if f else text.strip()
     return score, feedback
@@ -73,11 +129,24 @@ def evaluate_report(state: AgentState):
 
     if physics.get("blocking"):
         # 一票否决：不打模型分，直接打回。省一次调用，也避免模型"审美"压过物理。
+        # 返回的 gate 状态是 blocked_physics —— 它在 core.gates.next_action 里
+        # 只能变成 rewrite 或 fail，永远不可能变成 pass。
         log.warning("[Agent 4] 物理矛盾 → 判定 0 分，打回重写")
         return {
             "score": 0.0,
             "feedback": physics["feedback"],
             "physics_check": physics,
+            "quality_gate": build_gate(
+                status=STATUS_BLOCKED_PHYSICS,
+                score=0.0,
+                physics=physics,
+                judge_status="skipped",
+                reason=physics.get("summary") or "物理一致性校验未通过",
+                detail="；".join(
+                    v["message"] for v in physics.get("violations") or []
+                    if v["severity"] == "blocking"
+                ),
+            ),
         }
 
     # ══════════════════════════════════════════════════════
@@ -101,8 +170,8 @@ def evaluate_report(state: AgentState):
     prompt = f"""你是一个严格的CCUS学术评审员。请根据【检索到的文献】，评估【AI生成的回答】的质量。
 {physics_part}
 【用户问题】：{state['user_input']}
-【检索到的文献】：{state['retrieved_knowledge']}
-【AI生成的回答】：{state['final_report']}
+【检索到的文献】：{_budget(state.get('retrieved_knowledge', ''), EVAL_EVIDENCE_CHARS)}
+【AI生成的回答】：{_budget(state.get('final_report', ''), EVAL_REPORT_CHARS)}
 
 {extra_rule}请严格按以下格式输出，不要输出任何其他内容：
 分数：[0-10的整数]
@@ -115,14 +184,48 @@ def evaluate_report(state: AgentState):
         temperature=0.0,
     )
     result = response.choices[0].message.content or ""
+    usage = record_llm_usage(state, "evaluate", response, model, tier)
 
     parsed = _parse_score(result)
     if parsed is None:
-        # 解析抖动 → 放行。理由见模块 docstring：默认 0 分会触发两次无意义重写。
-        score, feedback = 10.0, result
-        log.warning(f"[Agent 4] 评审输出无法解析，按 10 分放行：{result[:80]}")
-    else:
-        score, feedback = parsed
+        # 一次重试，只为了让**评审自己**把格式说清楚，不是为了让分数变好看。
+        # 重试仍失败 → judge_unparseable（阻断），不再有"默认 10 分放行"。
+        log.warning(f"[Agent 4] 评审输出无法解析（首次）：{result[:120]!r} → 重试一次")
+        retry_prompt = prompt + (
+            "\n\n上次的输出无法解析。本次只允许输出两行，不要任何其它文字：\n"
+            "分数：<0-10 的数字>\n评语：<一句话>"
+        )
+        response = llm_chat(
+            "evaluate",
+            messages=[{"role": "user", "content": retry_prompt}],
+            temperature=0.0,
+        )
+        result = response.choices[0].message.content or ""
+        usage = record_llm_usage({**state, **usage}, "evaluate_retry", response, model, tier)
+        parsed = _parse_score(result)
+
+    if parsed is None:
+        log.error(f"[Agent 4] 评审两次都无法解析 → 阻断（judge_unparseable）：{result[:120]!r}")
+        return {
+            "score": 0.0,
+            "feedback": (
+                "评审模型两次输出都无法解析出分数，本次报告按未通过处理。"
+                "请检查评审模型的输出上限（--judge-max-tokens / num_predict）是否够用。"
+            ),
+            "physics_check": physics,
+            "unsupported_probabilities": [],
+            "quality_gate": build_gate(
+                status=STATUS_JUDGE_UNPARSEABLE,
+                score=0.0,
+                physics=physics,
+                judge_status="unparseable",
+                reason="评审输出无法解析出 0-10 的分数（已重试一次）",
+                detail=(result or "")[:200],
+            ),
+            **usage,
+        }
+
+    score, feedback = parsed
 
     # 数值级告警不阻断流程，但必须让下一轮（或用户）看见
     warnings = [v["message"] for v in (physics.get("violations") or [])
@@ -130,13 +233,55 @@ def evaluate_report(state: AgentState):
     if warnings:
         feedback = f"{feedback}\n（物理校验提示：{'；'.join(warnings)}）"
 
+    # ══════════════════════════════════════════════════════
+    # ③ 规则层：概率可溯源（确定性，扣分打回）
+    # ══════════════════════════════════════════════════════
+    # RAGAS 评估实测：一份报告写了 5 个"XX 风险概率 12%/8%/5%/15%/10%
+    # （100 次蒙特卡洛模拟）"，而整条流程只算过密度和压力曲线 —— 这 5 个数字
+    # 一个都无处可查，忠实度因此掉到 0.095。模型是被提示词里的数字示例带偏的，
+    # 改提示词能减轻，但不能指望 7B 每次都照做，所以这里用代码兜底。
+    evidence = " ".join(
+        [
+            str(state.get("retrieved_knowledge", "")),
+            " ".join(str(fact) for fact in (state.get("tool_facts") or [])),
+        ]
+    )
+    fabricated = unsupported_probabilities(state.get("final_report", ""), evidence)
+    if fabricated:
+        capped = min(score, UNSUPPORTED_PROBABILITY_SCORE_CAP)
+        log.warning(
+            f"[Agent 4] {len(fabricated)} 处概率无法溯源 → 分数上限 "
+            f"{UNSUPPORTED_PROBABILITY_SCORE_CAP:g}（原 {score:g}）：{fabricated[:3]}"
+        )
+        feedback = (
+            f"{feedback}\n（概率溯源校验：以下概率在检索证据与工具结果中都找不到，"
+            f"必须整句删掉（不要改写成「未做量化」，那也是一句无依据的话）：{'；'.join(fabricated)}）"
+        )
+        score = capped
+
     log.info(
         f"[Agent 4] 当前得分：{score:g} 分 | 评语：{feedback[:120]}",
         extra=llm_extra(model, tier),
     )
+
+    passed = score >= QUALITY_THRESHOLD
+    gate = build_gate(
+        status=STATUS_PASSED if passed else STATUS_REWRITE,
+        score=score,
+        physics=physics,
+        reason=(
+            f"评审得分 {score:g} ≥ 阈值 {QUALITY_THRESHOLD:g}"
+            if passed else
+            f"评审得分 {score:g} < 阈值 {QUALITY_THRESHOLD:g}，需重写"
+        ),
+        detail=feedback[:400],
+    )
+    log.info(f"[Gate] {gate['status']} · {gate['reason']}")
     return {
         "score": score,
         "feedback": feedback,
         "physics_check": physics,
-        **record_llm_usage(state, "evaluate", response, model, tier),
+        "unsupported_probabilities": fabricated,
+        "quality_gate": gate,
+        **usage,
     }

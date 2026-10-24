@@ -1,0 +1,14 @@
+# 质量闸门 / 整图负向测试的最小依赖。
+#
+# 这**不是**运行项目的依赖（见 requirements.txt）。它只覆盖
+# `tests/test_quality_gate.py` 与 `tests/test_negative_gate.py`：
+# 这两个测试验证的是"报告能不能出门"，而不是检索质量，所以
+# torch（2 GB）、sentence-transformers、chromadb、Ollama 全都不需要 ——
+# 叶子模块由 tests/_graph_stubs.py 在 import 之前换成桩。
+#
+# 装完之后可以直接跑：
+#   python -m unittest -v tests.test_quality_gate tests.test_negative_gate
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=2.0.0
+openai>=1.30.0
+python-dotenv>=1.0.0

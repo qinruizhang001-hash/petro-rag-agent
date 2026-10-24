@@ -16,7 +16,7 @@ Fan-in 节点。上游是 ``geology`` 与 ``wellbore`` 两条并行分支，Lang
 
 为什么降级说明要**用代码追加**而不是交给模型
 --------------------------------------------
-"如果地质模块挂了，报告里必须写'地质模块检索超时，请人工复核'"这条要求，
+"如果地质模块没有可用证据，报告里必须提醒人工复核"这条要求，
 交给模型就是在赌它照做。实测本地 7B 模型对"缺失模块"这类元信息极不敏感：
 prompt 里写了它也可能只字不提，而这类遗漏恰恰是最危险的 ——
 读者会把"没写"理解成"没风险"。所以这里用代码在报告末尾追加一段
@@ -44,12 +44,20 @@ from file_memory import (
     history_needs_compression,
 )
 from memory.memory_manager import save_memory
-from tools.physics_tools import co2_density_uq, injection_risk_uq
-from utils.branch_merge import (
-    compose_branch_inputs,
-    degradation_block,
-    parallel_timing_of,
+from nodes.aggregate_finalize import finalize_report
+from nodes.aggregate_prompt import build_materials, build_system_prompt
+from nodes.aggregate_support import (
+    TOOL_POLICY,
+    chart_payload,
+    example_args,
+    extract_depth,
+    extract_pressure_temperature,
+    get_client_specs,
+    strip_tool_json,
+    uq_payload,
 )
+from tools.physics_tools import co2_density_uq, injection_risk_uq
+from utils.branch_merge import compose_branch_inputs, parallel_timing_of
 from utils.pinn_query import extract_pinn_query
 from utils.tokens import record_llm_usage, record_usage_payload
 
@@ -93,9 +101,14 @@ def _call_pinn(x, t, scenario: str = "injection") -> dict:
         "t_days": t_f,
         "pressure_bar": p,
         "scenario": payload.get("scenario", scenario),
+        # 教学演示的定位必须跟着数值走：报告正文里出现 109.95 bar 时，
+        # 同一句话里就要有"这不是油藏依据"。
+        "usage_scope": payload.get("usage_scope", "teaching-demo"),
+        "not_for_safety_verdict": bool(payload.get("not_for_safety_verdict", True)),
         "text": (
             f"距井口 {x_f:g} m、注入 {t_f:g} 天后地层压力 = {p:.2f} bar"
-            f"（一维扩散方程 PINN 数值解，D = 0.1 m²/s，{scenario} 边界条件）"
+            f"（一维扩散方程 PINN 数值解，D = 0.1 m²/s，{scenario} 边界条件；"
+            f"该模型为教学演示，边界条件未标定到实际储层，不参与安全/不安全判定）"
         ),
     }
     if payload.get("analytic_steady_state_bar") is not None:
@@ -163,7 +176,7 @@ def _call_density(pressure_bar, temperature_celsius) -> dict | None:
 def _plan_prompt_tools() -> str:
     """从 MCP Server 动态生成"可用工具"清单，客户端不硬编码工具名。
 
-    为什么还要 ``_TOOL_HINTS`` 这一层：Server 的 description 是给**外部**
+    为什么还要 ``TOOL_HINTS`` 这一层：Server 的 description 是给**外部**
     客户端（Cursor / Claude Desktop）看的通用说明，而这一阶段需要的是"本节点
     什么时候该调它"。两者不冲突，但职责不同，所以这里补一句上下文相关的提示。
 
@@ -183,170 +196,17 @@ def _plan_prompt_tools() -> str:
     lines, examples = [], []
     for spec in specs:
         name = spec["name"]
-        if name in _TOOL_POLICY["skip_in_planner"]:
+        if name in TOOL_POLICY["skip_in_planner"]:
             continue
-        hint = _TOOL_HINTS.get(name) or spec.get("description", "")
+        hint = TOOL_HINTS.get(name) or spec.get("description", "")
         lines.append(f"{len(lines) + 1}. `{name}` —— {hint}")
-        args = _example_args(spec)
+        args = example_args(spec)
         if args:
             examples.append(json.dumps({"tool": name, **args}, ensure_ascii=False))
 
     body = "\n".join(lines)
     blocks = "\n".join(f"```json\n{ex}\n```" for ex in examples)
     return f"{body}\n\n只输出 json 代码块，每个工具一个，不要输出任何解释或正文。\n{blocks}"
-
-
-def _example_args(spec: dict) -> dict:
-    """按 schema 造一个示例参数，缺省值优先用领域里说得通的数字。"""
-    out = {}
-    for key in spec.get("required") or []:
-        if key in _EXAMPLE_VALUES:
-            out[key] = _EXAMPLE_VALUES[key]
-            continue
-        kind = (spec.get("properties", {}).get(key) or {}).get("type")
-        out[key] = 0.0 if kind == "number" else (0 if kind == "integer" else "…")
-    return out
-
-
-def get_client_specs() -> list[dict]:
-    """取 MCP 工具清单（薄封装，便于测试替换）。"""
-    from mcp_client_ccus import get_client
-
-    return get_client().list_tools()
-
-
-# 规划器里出现的工具提示：讲"什么时候调"，不是"这个工具是什么"
-_TOOL_HINTS = {
-    "get_co2_density": (
-        "参数中出现注入压力和温度时调用，不要自己口算密度。"
-        "返回的是均值 + 90% 置信区间，报告里必须把区间一起写出来。"
-    ),
-    "predict_pressure_pinn": (
-        "当问题问的是\"距井口 X 米处、注入 T 天后的压力\"时调用，"
-        "由物理信息神经网络解一维扩散方程给出数值，"
-        "**不要自己推算压力随距离/时间的衰减**。x 单位米（0~100），"
-        "t 单位天（0~30）。"
-    ),
-}
-
-# 示例值只用于让 7B 看懂参数形状；真实参数一律从用户输入里重新抽取，
-# 不采用模型给的数字（见 dispatch 里的接地守卫）。
-_EXAMPLE_VALUES = {
-    "pressure_bar": 250,
-    "temperature_celsius": 80,
-    "x": 50,
-    "t": 10,
-    "query": "断层活化与注入压力的关系",
-}
-
-_TOOL_POLICY = {
-    "skip_in_planner": {
-        "query_ccus_graph",
-        # 注入风险的概率分布是**确定性触发**的：只要参数里有深度和压力就一定要算，
-        # 不能交给 7B 决定"这次要不要评估不确定性"。不确定性量化是报告的固定项，
-        # 不是可选工具 —— 交给模型规划，等于让它自己决定要不要诚实。
-        "assess_injection_uncertainty",
-    }
-}
-
-
-def _extract_pressure_temperature(params: str) -> tuple[float | None, float | None]:
-    """
-    从参数提取结果中抓取压力 / 温度数值。
-
-    这是 Function Calling 的**确定性兜底**：模型有时会认为"信息已够"
-    而跳过工具调用，直接凭参数写出报告。此时数值就变成了模型的推测。
-    用正则兜住 P/T，保证密度值一定来自物理工具而非语言模型。
-    """
-    p_match = re.search(r"(?:压力|pressure)[^\d\-]{0,15}(\d+(?:\.\d+)?)", params or "", re.I)
-    t_match = re.search(r"(?:温度|temperature)[^\d\-]{0,15}(\d+(?:\.\d+)?)", params or "", re.I)
-    p_val = float(p_match.group(1)) if p_match else None
-    t_val = float(t_match.group(1)) if t_match else None
-    return p_val, t_val
-
-
-def _extract_depth(params: str) -> float | None:
-    """
-    从参数里抓储层深度（m）。抓不到返回 None，由 chart_tools 用默认值并标注"估算"。
-
-    兼容 "深度 3000 m" / "埋深：2500米" / "depth 2000 m" 等写法。
-    """
-    m = re.search(
-        r"(?:埋深|深度|depth)[^\d\-]{0,12}(\d+(?:\.\d+)?)\s*(?:m|米|meters?)?",
-        params or "", re.I,
-    )
-    if not m:
-        return None
-    try:
-        val = float(m.group(1))
-    except ValueError:
-        return None
-    # 明显不合理（如把 3000 写成 3）就丢掉，交给默认值
-    return val if 100 <= val <= 8000 else None
-
-
-def _chart_payload(result: dict | None) -> dict:
-    """把图表工具结果裁成可 JSON 序列化的精简结构（推前端 + 写状态）。"""
-    if not result or result.get("status") != "ok":
-        return {}
-    keep = (
-        "path", "rel_path", "url_path", "summary", "verdict", "verdict_text",
-        "depth_m", "injection_pressure_bar", "fracture_bar_at_depth",
-        "hydrostatic_bar_at_depth", "admissible_depth_min_m",
-        "admissible_depth_max_m", "depth_assumed",
-    )
-    return {k: result.get(k) for k in keep if k in result}
-
-
-def _uq_payload(uq: dict | None) -> dict:
-    """
-    把不确定性量化结果裁成可 JSON 序列化的结构。
-
-    保留 ``samples``（100 个浮点，约 1 KB）：前端画分布直方图要靠它。
-    只给 mean/p5/p95 的话，看板上只能显示三个数字，"分布"这件事就丢了 ——
-    而分布恰恰是 UQ 唯一比点估计多出来的信息。
-    """
-    if not uq:
-        return {}
-    keep = (
-        "mean", "p5", "p50", "p95", "std", "cv", "n", "rel_sigma", "unit",
-        "text", "nominal", "ci_level", "probabilities", "counts",
-        "verdict", "verdict_label", "depth_m", "injection_pressure_bar",
-    )
-    out: dict = {}
-    for key in ("density", "injection"):
-        item = uq.get(key) or {}
-        if not item:
-            continue
-        # MCP 路径返回的是原始工具输出，里面不一定有 cv，但一定有 std+mean。
-        if item.get("cv") is None and item.get("std") is not None and item.get("mean"):
-            item = dict(item)
-            item["cv"] = item["std"] / item["mean"]
-        slim = {k: item.get(k) for k in keep if item.get(k) is not None}
-        samples = item.get("samples")
-        if samples:
-            slim["samples"] = [round(float(v), 4) for v in samples]
-        out[key] = slim
-    return out
-
-
-_TOOL_FENCE = re.compile(r"```(?:json)?\s*\{.*?\}\s*```", re.DOTALL)
-
-
-def strip_tool_json(text: str) -> str:
-    """
-    去掉正文里残留的工具 JSON 代码块。
-
-    即便 prompt 明确禁止，模型仍可能把 ```json``` 混进终稿。这类内容一旦
-    流到前端，用户看到的就是一串带花括号的机器指令 —— 属于"看起来像 bug"的
-    输出，必须在入库/展示前清掉。
-    """
-    if not text:
-        return ""
-    cleaned = _TOOL_FENCE.sub("", text)
-    # 清理因删除而产生的多余空行（保留段落间的单个空行）
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
 
 
 SUMMARY_PROMPT = """你是一名 CCUS 项目档案管理员。下面是该项目的历次评估记录（旧记录）。
@@ -472,69 +332,9 @@ def aggregate_report(state: AgentState, config=None):
     # 所有流式调用共用的 token 推送通道（SSE 用；invoke 时为 None）
     sink = (config or {}).get("configurable", {}).get("token_sink")
 
-    # ─── System Prompt：角色 + 长期文件记忆 + 写作硬约束 ───
-    system_prompt = f"""你是一个资深的CCUS首席工程师，负责撰写 CO2 地质封存项目的风险评估报告。
-
-{file_memory_block if file_memory_block else "（暂无文件记忆）"}
-
-【写作硬性约束】：
-1. 如果知识库中没有相关记录，必须直接输出"知识库中无相关记录"。
-2. 必须遵循上面「用户画像」中的报告风格偏好（结论先行、分点陈述、数值落地）。
-3. **禁止使用"综上所述""总而言之""总的来说"等总结性套话**，直接分点陈述。
-4. 如果本次场景与「历史评估记录」中的某次相近，应显式做纵向对比
-   （例如"相比上次 250bar/80℃ 的评估，本次压力更高，断层活化风险上升"）。
-5. 请分点列出：1. 主要地质封存风险 2. 主要井筒风险 3. 缓解与监测建议。
-6. **绝对不要输出 JSON、工具指令或图片 Markdown 路径**，只写正文。
-7. 下面给的是**两条并行分支各自产出的结论**（地质 / 井筒）。你的任务是
-   **融合**而不是复述：保留两段中的全部数值与判断，去掉重复表述，
-   按上面的 1/2/3 结构重新组织。**不要新增两段里没有的结论。**
-8. **结论必须是概率性的，不是绝对的。** 凡是来自【不确定性量化结果】的数值，
-   必须写成「均值 + 90% 置信区间」的形式（如"密度 1.35 kg/m³，
-   90% 置信区间 1.28–1.42"），**禁止只给单一数值**，也禁止写成
-   "约为""大约"这类模糊措辞 —— 前者隐瞒了不确定性，后者没有信息量。
-9. 风险判断必须带概率（如"压裂风险概率 12%（100 次蒙特卡洛）"），
-   不要用"存在一定风险""需密切关注"这类无法证伪的表述。
-10. 如果【时间维度提示】里给出了冲突数据，必须采用**最新时间戳**的数值，
-   并显式说明引用了哪个时间点、与旧数据差多少；禁止取平均或隐去旧值。"""
-
-    # ─── 本次任务的材料（两个阶段共用）───
-    # 注意：这里不再拼 state["retrieved_knowledge"]。扇出之后，注入给下游的
-    # 是两条分支**已经消化过的结论**（各 150~250 字），而不是原始片段 ——
-    # 这正是并行架构省 token 的地方：原始证据只进分支的 prompt，不进终稿的。
-    degraded_hint = ""
-    if branch["degraded"]:
-        degraded_hint = (
-            "\n【数据完整性警告】：本次缺失以下分支，"
-            "请在报告开头用一句话说明结论不完整、需人工复核：\n"
-            + "\n".join(f"- {m}" for m in branch["missing"])
-            + "\n"
-        )
-
-    # ─── 时间维度冲突：只注入结构化摘要，不重放整段检索结果 ───
-    # retrieve 节点已经把完整提示块拼进了 retrieved_knowledge，但终稿刻意
-    # 不再读那一整段（省 token）。冲突只有几条，单独带进来代价极小，
-    # 而漏掉它会让"优先采用最新数据"这条约束在终稿阶段彻底消失。
-    temporal_block = ""
-    conflicts = state.get("temporal_conflicts") or []
-    if conflicts:
-        lines = ["\n【时间维度：检测到同一对象在不同时间点的冲突数据】"]
-        for c in conflicts[:5]:
-            lines.append(
-                f"- {c['message']} → **以 {c['newer']['timestamp']} 的 "
-                f"{c['newer']['display']} 为准**"
-            )
-        lines.append("（禁止取平均；必须说明差异幅度与可能原因）\n")
-        temporal_block = "\n".join(lines)
-
-    materials = f"""【提取的 CCUS 参数】：{state['extracted_params']}
-【地质分支结论（LightRAG 图谱证据）】：
-{branch['geology']}
-
-【井筒分支结论（ChromaDB 文献证据）】：
-{branch['wellbore']}
-{degraded_hint}{temporal_block}
-{personal_context}
-【上一版报告的修改意见】：{state.get('feedback', '无')}"""
+    # ─── Prompt 组装：纯函数，见 nodes/aggregate_prompt.py ───
+    system_prompt = build_system_prompt(file_memory_block)
+    materials = build_materials(state, branch, personal_context)
 
     # ══════════════════════════════════════════════════════
     # Phase A：工具规划（短输出、非流式）
@@ -556,15 +356,29 @@ def aggregate_report(state: AgentState, config=None):
         {"role": "user", "content": plan_prompt},
     ]
     _, plan_model, plan_tier, _ = get_llm("report_plan")
-    plan_resp = llm_chat("report_plan", messages=plan_msgs, temperature=0.0)
-    state_update = record_llm_usage(
-        {**state, **compress_update}, "report_plan", plan_resp, plan_model, plan_tier
-    )
+    try:
+        plan_resp = llm_chat("report_plan", messages=plan_msgs, temperature=0.0)
+    except Exception as exc:
+        # 工具规划是**可选项**：它只决定要不要额外算几个数值（密度、压力曲线、
+        # PINN），报告本身不依赖它。本地 Ollama 实测会在这个阶段整段不吐 token
+        # （服务端 /api/ps 仍正常），客户端超时后如果继续上抛，一次卡顿就会把
+        # 整条 case 拖成失败 —— 降级成"不调用任何工具"显然更划算。
+        log.warning(
+            f"  [Warning] 工具规划失败（{type(exc).__name__}: {exc}）→ 本次不调用任何工具，直接写报告"
+        )
+        plan_resp = None
+    if plan_resp is None:
+        state_update = {}
+    else:
+        state_update = record_llm_usage(
+            {**state, **compress_update}, "report_plan", plan_resp, plan_model, plan_tier
+        )
     usage_state = {**state, **compress_update, **state_update}
 
     # 扫描**所有** json 代码块（一份报告可能同时要密度和图）
     tool_requests = []
-    for block in re.findall(r'```json\s*(\{.*?\})\s*```', plan_resp.choices[0].message.content or "", re.DOTALL):
+    plan_text = (plan_resp.choices[0].message.content or "") if plan_resp else ""
+    for block in re.findall(r'```json\s*(\{.*?\})\s*```', plan_text, re.DOTALL):
         try:
             data = json.loads(block)
         except Exception as e:
@@ -583,7 +397,7 @@ def aggregate_report(state: AgentState, config=None):
         if name == "get_co2_density":
             # 压力/温度一律从提取出的参数里重新取，不采用模型给的数字：
             # 规划 prompt 里有 {"pressure_bar": 250, ...} 的示例，7B 会照抄。
-            p_arg, t_arg = _extract_pressure_temperature(state.get("extracted_params", ""))
+            p_arg, t_arg = extract_pressure_temperature(state.get("extracted_params", ""))
             p_arg = req.get("pressure_bar") if p_arg is None else p_arg
             t_arg = req.get("temperature_celsius") if t_arg is None else t_arg
             if p_arg is None or t_arg is None:
@@ -630,7 +444,7 @@ def aggregate_report(state: AgentState, config=None):
     # 本地 7B 模型在上下文变丰富后会"觉得自己能算"，从而跳过工具调用，
     # 于是密度变成模型口算值 —— 这会直接破坏"数值不可幻觉"的核心承诺。
     # 因此不让它靠自觉：参数里有 P/T 就必须有工具结果。
-    p_val, t_val = _extract_pressure_temperature(state.get("extracted_params", ""))
+    p_val, t_val = extract_pressure_temperature(state.get("extracted_params", ""))
     if density_result is None and p_val is not None and t_val is not None:
         log.info("  [System] 模型未规划密度计算，但参数含压力/温度 → 确定性兜底")
         density_result = _call_density(p_val, t_val)
@@ -639,7 +453,7 @@ def aggregate_report(state: AgentState, config=None):
     # 这一块和密度/图表兜底同一个理由，但更强：UQ 不是"锦上添花的工具"，
     # 而是报告的**固定组成部分**。交给 7B 决定要不要评估不确定性，
     # 它几乎总会在"信息已经够了"的时候跳过 —— 而恰恰是那种自信最危险。
-    depth_val = _extract_depth(state.get("extracted_params", ""))
+    depth_val = extract_depth(state.get("extracted_params", ""))
     uq_summary: dict = {}
     if density_result and density_result.get("mean") is not None:
         uq_summary["density"] = {
@@ -672,7 +486,7 @@ def aggregate_report(state: AgentState, config=None):
         # 推给前端：UQ 面板不必等报告写完
         if sink is not None:
             try:
-                sink({"type": "uq", "uq": _uq_payload(uq_summary)})
+                sink({"type": "uq", "uq": uq_payload(uq_summary)})
             except Exception:
                 pass
 
@@ -693,7 +507,7 @@ def aggregate_report(state: AgentState, config=None):
 
     # 图表同理：报告没有配图会显得业余，且输入几乎总能从参数推出。
     if chart_result is None or chart_result.get("status") != "ok":
-        depth_val = _extract_depth(state.get("extracted_params", ""))
+        depth_val = extract_depth(state.get("extracted_params", ""))
         log.info("  [System] 模型未规划图表 → 确定性兜底绘图")
         try:
             chart_result = generate_pressure_curve(depth_val, p_val)
@@ -722,7 +536,7 @@ def aggregate_report(state: AgentState, config=None):
         # 立刻推给前端：用户不用等报告写完就能看到图
         if sink is not None:
             try:
-                sink({"type": "chart", "chart": _chart_payload(chart_result)})
+                sink({"type": "chart", "chart": chart_payload(chart_result)})
             except Exception:
                 pass
 
@@ -800,63 +614,27 @@ def aggregate_report(state: AgentState, config=None):
         estimated=streamed.usage_estimated,
     )
 
-    # ─── 数值兜底：工具算出来的数不能"没写进报告"───────────
-    # 模型偶尔会漏掉注入的数值。数值来自工具是核心承诺，漏了就等于没算，
-    # 所以这里补一行显式数值，而不是让它自生自灭。
-    #
-    # v1.6 起判据从"均值出现过吗"改成"**区间上界**出现过吗"：
-    # 模型很容易只抄一个 1.35 就交差，而"1.35"恰恰是这次改造要消灭的
-    # 那种伪确定性。上界没出现，说明区间没写进去。
-    if density_result and density_result.get("mean") is not None and density_result.get("p95") is not None:
-        mean_txt = f"{density_result['mean']:.2f}"
-        hi_txt = f"{density_result['p95']:.2f}"
-        if hi_txt not in report_text:
-            log.info(
-                f"  [System] 报告缺少密度置信区间（上界 {hi_txt} 未出现）"
-                f" → 追加概率性结论"
-            )
-            report_text = report_text.rstrip() + (
-                f"\n\n> **CO2 密度（概率性结论）**：{density_result['text']}。"
-                f"均值 {mean_txt} kg/m³ 不是唯一可能值，"
-                f"上述区间覆盖 90% 的模拟结果。"
-            )
-
-    # ─── 注入风险概率兜底：同上，模型倾向于只写"有风险/无风险" ───
-    injection_uq = uq_summary.get("injection") or {}
-    if injection_uq.get("text"):
-        labels = ("注入可行", "压裂风险", "压力不足")
-        if not any(lbl in report_text for lbl in labels):
-            log.info("  [System] 报告缺少注入风险概率 → 追加概率性结论")
-            report_text = report_text.rstrip() + (
-                f"\n\n> **注入风险（概率性结论）**：{injection_uq['text']}。"
-                f"概率来自 100 次蒙特卡洛抽样，不是主观判断。"
-            )
-
-    # ─── PINN 数值兜底：与密度同理，工具算了但没写进报告就等于没算 ───
-    # 实测本地 7B 会忽略 facts_block 里"必须写进正文"的指令（报告里只字未提
-    # 109.95 bar），所以这里和密度一样由代码补。判断依据是数值本身是否出现，
-    # 而不是"模型有没有提到压力" —— 后者无法可靠判断。
-    if pinn_result is not None:
-        pnum = f"{pinn_result['pressure_bar']:.2f}"
-        if pnum not in report_text:
-            log.info(f"  [System] 报告未包含 PINN 预测 {pnum} bar → 追加数值说明")
-            report_text = report_text.rstrip() + f"\n\n> {pinn_result['text']}。"
-
-    # ─── 降级说明：代码追加，不依赖模型照做 ────────────────
-    # 这段必须放在图片引用**之前**吗？不必 —— 但要放在正文之后、且保证唯一。
-    # 重写轮次（feedback 非空）会重新生成本节点，所以这里每次都重新追加，
-    # 不会因为上一轮的追加而重复（report_text 是本轮模型输出，不含旧尾巴）。
-    note = degradation_block(branch)
-    if note:
-        report_text = report_text.rstrip() + f"\n\n{note}\n"
-
-    # ─── 报告末尾补齐图片引用（代码保证，不靠模型自觉）──────
-    # 报告本体存 Markdown 相对路径，便于归档与其它消费者；
-    # 前端用 chart 事件里的真实路径调 st.image，不会重复渲染。
-    if chart_ok:
-        ref = f"![地层压力随深度变化曲线]({chart_result['rel_path']})"
-        if chart_result["rel_path"] not in report_text:
-            report_text = report_text.rstrip() + f"\n\n{ref}\n"
+    # ─── 收尾：数值兜底 / 降级说明 / 图表引用 / 概率溯源 ───
+    # 全部是确定性文本变换，见 nodes/aggregate_finalize.py
+    probability_source = " ".join(
+        [
+            str(state.get("geology_evidence") or ""),
+            str(state.get("wellbore_evidence") or ""),
+            str(graph_extra or ""),
+            str(state.get("retrieved_knowledge") or ""),
+            " ".join(str(fact) for fact in tool_facts),
+        ]
+    )
+    report_text, stripped_probabilities = finalize_report(
+        report_text,
+        density_result=density_result,
+        uq_summary=uq_summary,
+        pinn_result=pinn_result,
+        branch=branch,
+        chart_result=chart_result,
+        chart_ok=chart_ok,
+        probability_source=probability_source,
+    )
 
     # ─── 自动保存报告到个人长期记忆 ───────────────────────
     if not state.get("feedback"):
@@ -891,6 +669,12 @@ def aggregate_report(state: AgentState, config=None):
     return {
         "final_report": report_text,
         "retrieved_knowledge": merged_evidence,
+        # 地质分支降级时补取的图谱片段：它确实进了报告 Prompt，因此必须能被
+        # 审计（API / UI / RAGAS 评估都要能看到模型实际依据了什么）。
+        "supplemental_evidence": graph_extra,
+        # 确定性工具结果（密度 / 压力曲线 / PINN / 注入风险）同样进了 Prompt，
+        # 报告里复述这些数值是有依据的，不该在忠实度评估里被算成"编造"。
+        "tool_facts": list(tool_facts),
         "parallel_timing": timing,
         "branch_merge": {
             "degraded": branch["degraded"],
@@ -901,11 +685,11 @@ def aggregate_report(state: AgentState, config=None):
         },
         "retry_count": current_retry + 1,
         "file_memory_context": file_memory_block,
-        "chart_info": _chart_payload(chart_result) if chart_ok else {},
+        "chart_info": chart_payload(chart_result) if chart_ok else {},
         "pinn_prediction": pinn_result or {},
         # 不确定性量化结果：结构化字段，供 API / 前端 / 评审直接消费。
         # 报告正文里那段话是模型转述，可能被漏写；这个字段才是数值的可靠来源。
-        "uq_summary": _uq_payload(uq_summary),
+        "uq_summary": uq_payload(uq_summary),
         **compress_update,
         **state_update,
     }

@@ -1,0 +1,57 @@
+{
+  "experiment": "建图边际产出：同一篇论文，预算 4000 vs 全文",
+  "pdf": "ccus_auto_16.pdf",
+  "extractable_chars": 9210,
+  "runs": {
+    "budget_4000": {
+      "pdf": "ccus_auto_16.pdf",
+      "budget": 4000,
+      "extractable_chars": 9210,
+      "payload_chars": 3995,
+      "workdir": "(removed)",
+      "seconds": 39.6,
+      "ok": true,
+      "nodes": 14,
+      "edges": 13,
+      "components": 1,
+      "isolated": 0,
+      "largest": 14,
+      "nodes_per_1000_chars": 3.5,
+      "edges_per_1000_chars": 3.25,
+      "isolated_ratio": 0.0
+    },
+    "full_text": {
+      "pdf": "ccus_auto_16.pdf",
+      "budget": 0,
+      "extractable_chars": 9210,
+      "payload_chars": 9180,
+      "workdir": "(removed)",
+      "seconds": 68.1,
+      "ok": true,
+      "nodes": 33,
+      "edges": 32,
+      "components": 6,
+      "isolated": 4,
+      "largest": 27,
+      "nodes_per_1000_chars": 3.59,
+      "edges_per_1000_chars": 3.49,
+      "isolated_ratio": 0.1212
+    }
+  },
+  "ratios": {
+    "chars": 2.3,
+    "seconds": 1.72,
+    "nodes": 2.36,
+    "edges": 2.46,
+    "node_density_ratio": 1.026
+  },
+  "marginal": {
+    "sec_per_1000_chars": 5.5,
+    "nodes_per_1000_chars": 3.66
+  },
+  "notes": [
+    "实体密度几乎不衰减（3.50 → 3.59 / 千字符），说明截断丢弃的是等密度知识，不是低价值尾段。",
+    "时间增长慢于字符增长（1.72x vs 2.30x），因为每个进程约 25s 的初始化是固定开销。",
+    "孤立节点占比从 0% 升到 12%、连通分量 1 → 6：覆盖面变大后，边缘实体更不容易挂到主图上。"
+  ]
+}

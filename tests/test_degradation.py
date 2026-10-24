@@ -4,8 +4,8 @@
 ``tests/test_branch_merge.py`` 只证明了 ``compose_branch_inputs`` /
 ``degradation_block`` 这两个纯函数的行为。但需求里"极其重要"的那条是：
 
-    如果 geology_agent 报错挂了，状态里没有 geology_report，
-    系统不能崩，而是要在**最终报告里**写"地质模块检索超时，请人工复核"，
+    如果地质分支报错挂了，状态里没有 geology_report，
+    系统不能崩，而是要在**最终报告里**写"地质模块未能提供可用证据，请人工复核"，
     并基于井筒的数据继续生成。
 
 "最终报告里"这四个字，纯函数测试证明不了 —— 从 ``degradation_block()``
@@ -56,15 +56,15 @@ except Exception as exc:  # noqa: BLE001 — import 期异常只意味着"环境
     HAVE_AGG, AGG_ERR = False, f"{type(exc).__name__}: {exc}"
 
 try:
-    from nodes.geology_node import geology_agent
+    from nodes.geology_node import generate_geology
 
     HAVE_GEO, GEO_ERR = True, ""
 except Exception as exc:  # noqa: BLE001
     HAVE_GEO, GEO_ERR = False, f"{type(exc).__name__}: {exc}"
 
 
-GEOLOGY_FALLBACK = "地质模块检索超时，请人工复核"
-WELLBORE_FALLBACK = "井筒模块检索超时，请人工复核"
+GEOLOGY_FALLBACK = "地质模块未能提供可用证据，请人工复核"
+WELLBORE_FALLBACK = "井筒模块未能提供可用证据，请人工复核"
 
 WELLBORE_TEXT = (
     "井筒风险评估：环空带压达 12 MPa，超过 API RP 90 一级阈值；"
@@ -192,13 +192,28 @@ def _prompt_text(messages: list[dict]) -> str:
 
 @unittest.skipUnless(HAVE_GEO, f"缺少 lightrag / sentence-transformers（{GEO_ERR}）")
 class TestGeologyBranchFailure(unittest.TestCase):
-    """分支层：异常必须变成状态，而不是冒到 LangGraph 里。"""
+    """分支层：异常必须变成状态，而不是冒到 LangGraph 里。
+
+    扇出之后检索和生成拆成了两个节点，这里测的是**生成**这一半：证据已被
+    Grader 接受，但模型调用失败。检索失败由 ``retrieve_geology`` 自己接住。
+    """
+
+    def _accepted(self, **over) -> dict:
+        base = _state(
+            geology_evidence="断层证据：F1 断层距注入井 800 m",
+            geology_status={"ok": True, "started_at": 1.0},
+            retrieval_grade={"geology": {"accepted": True, "score": 0.9}},
+        )
+        base.update(over)
+        return base
 
     def test_branch_returns_instead_of_raising(self):
-        """检索超时时 geology_agent 正常返回，把错误写进 geology_status。"""
-        with patch("nodes.geology_node.retrieve_knowledge",
+        """生成超时时 generate_geology 正常返回，把错误写进 geology_status。"""
+        with patch("nodes.geology_node.should_search", return_value="no_search"), \
+             patch("nodes.geology_node.get_llm", return_value=(None, "qwen2.5", "local", "")), \
+             patch("nodes.geology_node.call_with_retry",
                    side_effect=TimeoutError("LightRAG 检索超时 120s")):
-            out = geology_agent(_state())
+            out = generate_geology(self._accepted())
 
         self.assertIsInstance(out, dict)
         self.assertEqual(out["geology_report"], "", "失败分支不得产出结论文本")
@@ -208,20 +223,19 @@ class TestGeologyBranchFailure(unittest.TestCase):
         self.assertIn("elapsed_s", out["geology_status"])
         self.assertGreaterEqual(out["geology_status"]["elapsed_s"], 0.0)
 
-    def test_llm_failure_also_degrades(self):
-        """检索成功但生成失败（限流重试耗尽）同样走降级，而不是抛异常。"""
-        with patch("nodes.geology_node.retrieve_knowledge",
-                   return_value={"retrieved_knowledge": "断层证据：F1 断层距注入井 800 m"}), \
-             patch("nodes.geology_node.should_search", return_value="no_search"), \
-             patch("nodes.geology_node.call_with_retry",
-                   side_effect=RuntimeError("RateLimitError: 429 after 3 attempts")):
-            out = geology_agent(_state())
+    def test_rejected_evidence_never_reaches_the_model(self):
+        """Grader 没放行 → 一次模型调用都不该发生。"""
+        state = self._accepted(
+            retrieval_grade={"geology": {"accepted": False, "score": 0.2,
+                                         "reason": "off-topic snippets"}}
+        )
+        with patch("nodes.geology_node.call_with_retry") as call:
+            out = generate_geology(state)
 
+        call.assert_not_called()
         self.assertEqual(out["geology_report"], "")
         self.assertFalse(out["geology_status"]["ok"])
-        self.assertIn("429", out["geology_status"]["error"])
-        # 证据仍然被保留：失败的是生成，不是检索
-        self.assertIn("F1 断层", out["geology_evidence"])
+        self.assertIn("off-topic snippets", out["geology_status"]["error"])
 
 
 @unittest.skipUnless(HAVE_AGG, f"缺少 openai / matplotlib（{AGG_ERR}）")
@@ -246,7 +260,7 @@ class TestAggregateDegradation(unittest.TestCase):
 
         report = out["final_report"]
         self.assertIn(GEOLOGY_FALLBACK, report,
-                      "最终报告里必须逐字出现「地质模块检索超时，请人工复核」")
+                      "最终报告里必须逐字出现「地质模块未能提供可用证据，请人工复核」")
         # 这条要求不能只是一句孤立的话：必须说明"没写 ≠ 没风险"
         self.assertIn("数据完整性提示", report)
         self.assertIn("不代表该维度无风险", report)

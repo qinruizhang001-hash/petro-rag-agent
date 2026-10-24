@@ -237,14 +237,20 @@ class TestFormatting(unittest.TestCase):
     def test_zero(self):
         self.assertEqual(format_cny(0), "0.00")
 
-    def test_caption_matches_requested_wording(self):
+    def test_caption_states_the_counterfactual_instead_of_claiming_savings(self):
+        # 措辞必须把"反事实"写在脸上：基线是把同一批 token 按云端列表价重算的
+        # 估算，不是任何客户的真实账单。写成"已为你节省"会让人以为存在一笔
+        # 可以报销的差额 —— 我们并不知道对方的采购价。
         est = estimate_cost(usage(
             extract={"prompt_tokens": 10000, "completion_tokens": 0,
                      "model": "qwen2.5", "tier": "local"},
         ))
         text = caption_text(est)
         self.assertTrue(text.startswith("本次评估预估成本：¥"), text)
-        self.assertIn("已为你节省 ¥", text)
+        self.assertIn("列表价", text)
+        self.assertIn("反事实", text)
+        self.assertIn("不是真实账单", text)
+        self.assertNotIn("已为你节省", text)
 
     def test_caption_without_saving(self):
         est = {"stages_priced": 1, "total_cny": 0.002, "saved_cny": 0}

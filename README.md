@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-533%20unit%20%C2%B7%20196%20e2e-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-585%20unit-brightgreen">
 </p>
 
 ---
@@ -87,8 +87,8 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 | | Highlight | The number |
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
-| 2 | **Dynamic model routing** | **¥0.00287** per assessment, **93 %** below all-cloud |
-| 3 | **171 end-to-end assertions** through the real HTTP path | 171 PASS / 0 FAIL, 667 s, plus 517 unit tests |
+| 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
+| 3 | **585 unit tests run in CI on every push** | 452 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI, 100 runs |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -107,7 +107,7 @@ Two more that fail just as quietly, on the frontend side: the WebSocket `Upgrade
 
 The payoff is structural, not cosmetic: the browser sees **one origin**, so CORS stops being a thing to configure and cannot be configured wrong. 8000 and 8501 are bound to loopback and exist only for debugging — `curl 127.0.0.1:8000/health` when you cannot tell whether the frontend died or nginx forwarded wrong.
 
-### 2. 93 % off the bill, and the report does not get worse
+### 2. 93 % below an all-cloud counterfactual — and the report does not get worse
 
 Routing is per stage, not per system (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`). The escalation rule is deliberately conservative: **short input *and* the knowledge base actually matched** — measured relevance `0.9947 ≥ 0.05`, not a keyword guess. Extraction, retrieval, reranking, physics validation and scoring never leave the machine; only the prose that a human will read goes to a paid model.
 
@@ -117,7 +117,9 @@ A full assessment, measured end to end:
 |---|---|---|
 | Tokens | 15.4k | 15.4k |
 | Cost | ≈¥0.041 | **¥0.00287** |
-| Saved | — | **93 %** |
+| Difference vs that counterfactual | — | **93 % lower** |
+
+**What this table is not:** it is not a bill, and it is not a claim that this system saves an operator money. The baseline is the same token count priced at public list price — we do not know anyone's contract price, cache discount, or volume terms, so there is no real "saving" to report, only a computable counterfactual. The dashboard caption says exactly that, and a unit test pins the wording.
 
 Three honest caveats, because a cost table that flatters itself is worthless:
 
@@ -127,11 +129,11 @@ Three honest caveats, because a cost table that flatters itself is worthless:
 
 Parallelism is the other half of the latency story: the geology branch (139.94 s) and the wellbore branch (21.77 s) run in the same superstep, so wall-clock is 139.94 s instead of the 161.71 s serial sum — **1.16×** for free, because the graph is a fan-out and not a queue.
 
-### 3. 171 assertions through the real HTTP path — including the ones that prove nothing is fake
+### 3. End-to-end assertions through the real HTTP path — including the ones that prove nothing is fake
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**171 PASS / 0 FAIL in 667 s**, alongside **442 offline unit tests** (412 of them run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
+**585 unit tests run in CI on every push** (452 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -259,6 +261,116 @@ curl -s http://localhost:8080/api/health | python -m json.tool
 
 ---
 
+---
+
+## Quality gate — hard, not advisory (v2.1)
+
+<!-- 中文注释：这一节回答"报告到底能不能出门"。旧实现的三个软闸门（解析失败默认 10 分、
+     重试两次强制放行、模型分覆盖物理否决）已经全部删除，这里记录的是**当前**语义。 -->
+
+A report leaves this system only through one gate. The gate has three exits, and **no fourth one**:
+
+| Gate status | Meaning | What happens |
+|---|---|---|
+| `passed` | reviewer score ≥ 8 **and** no blocking physics violation | → HITL gate → history memory → END |
+| `rewrite` / `blocked_physics` | below threshold, or the report contradicts the pressure limits | → back to `aggregate`, at most 2 rewrites |
+| `failed` | budget exhausted, judge unparseable, or physics veto unresolved | → `mark_failed` → END, `status: failed` |
+
+Three behaviours that used to be soft and are now hard:
+
+1. **An unparseable judge is a failure, not a 10/10.** The reviewer retries once with a stricter format instruction; if it still returns nothing scoreable, the gate status is `judge_unparseable` and the report is blocked. Previously it defaulted to `score = 10` and passed — a truncated Ollama response and an excellent report were indistinguishable in the logs.
+2. **Running out of rewrites is a failure, not a pass.** `retry_count >= 2` used to force the `pass` branch with a warning in the log. The API still returned 200 and the report still went into history memory. Now the third exit writes `quality_gate.status = failed`, sets `report_status = failed`, and skips `save_file_memory` — a rejected report must not become a prior for the next assessment.
+3. **A physics veto cannot be outvoted.** When `utils/physics_rules.py` finds a blocking contradiction, the reviewer model is not even called for a score, so no amount of good prose can rescue it. In the reverse direction the model can only lower the score, never raise a physics failure back to a pass.
+
+When the veto is a physics contradiction, the body is **quarantined**: `final_report` keeps only the blocking banner, and the original draft moves to `draft_report` for audit. A report that says "injection is smooth, risk is controllable" while `P_inj > P_frac` must not be delivered in any form — not even with a warning stapled to the top.
+
+Everything above is readable from one field. `quality_gate` is in the state, in the API response (`/api/analyze/sync`, the SSE `done` event, `/api/review/{tid}`), and in the UI as a red banner that replaces the green "assessment complete" line.
+
+### Reproduce the block in 30 seconds
+
+```bash
+pip install -r requirements-graph.txt          # langgraph + openai + dotenv, no torch
+python -m unittest -v tests.test_negative_gate
+```
+
+That test runs the **real graph** from `workflow.py` (real `evaluate`, real `physics_rules`, real conditional edges) with a mocked LLM that writes "injection is smooth, risk controllable" for a 400 bar / 2500 m case. It asserts the run ends with `status: failed`, that the body is quarantined, and that the delivered text contains none of "风险可控 / 注入顺畅 / 可通过验收". A control case at 300 bar / 2500 m passes through the same graph, so the test cannot be satisfied by blocking everything.
+
+It is part of the `unit-graph` job in `ci.yml`, i.e. it runs on **every push**. The previous version of this test lived only in `e2e.yml` (self-hosted, manual trigger) and consequently ran approximately never.
+
+### Physics rules are auditable
+
+`physics_check` now carries `rules_version` (`2026.10-r1`) and `rules`: every parameter with its value, unit and source. `ρ = 1030 kg/m³` cites Batzle & Wang (1992); `1.5 × hydrostatic` cites Hubbert & Willis (1957) and the 1.4–1.8× practice range, with the default taken as the midpoint. The UI prints the version under the physics banner and puts the full table behind an expander.
+
+They are also **overridable** — `CCUS_RHO_WATER`, `CCUS_FRACTURE_RATIO`, `CCUS_MIN_PLAUSIBLE_BAR`, `CCUS_MAX_PLAUSIBLE_BAR` — because a basin's brine density is a local fact, not a constant. Out-of-range values fall back to the default rather than silently turning every report into a violation (`CCUS_FRACTURE_RATIO=15` is a typo, not a policy). A unit test asserts that changing the ratio actually changes the verdict, so the parameters cannot become decorative.
+
+The 1-D PINN is marked **teaching demo** in three places — the MCP tool description, the payload (`usage_scope: teaching-demo`, `not_for_safety_verdict: true`), and the sentence the report quotes. It does not participate in the safety verdict, and `tests/test_physics_audit.py` asserts that `utils/physics_rules.py` never mentions it.
+
+---
+
+## 30 minutes to a first assessment
+
+<!-- 中文注释：给"刚 clone 下来、什么都没有"的人一条可执行路径。
+     重点是每一步失败时**看到什么**，而不是假装依赖不存在。 -->
+
+Nothing in this repo ships the 2.2 GB reranker or a vector store. That is deliberate (they are data, not code), and it means a fresh clone cannot start the server until you supply them. Start by asking what is actually missing:
+
+```bash
+python scripts/preflight.py
+```
+
+```
+[OK  ] python                    3.13.15（需要 ≥ 3.10）
+[OK  ] reranker                  model.safetensors，2.1 GB
+[FAIL] ollama                    http://127.0.0.1:11434 不可达（<urlopen error ...>）
+[FAIL] ollama:qwen2.5            未找到（现有：无）
+[FAIL] chroma                    目录不存在：.../chroma_petro
+[WARN] lightrag                  未建图谱（lightrag_storage/ 不存在）
+```
+
+Each `FAIL` prints the exact command that fixes it. The exit code is 1 only for blocking items, so it can gate a script.
+
+| # | Step | Time | If you skip it |
+|---|---|---|---|
+| 1 | `python -m venv .venv && pip install -r requirements.txt` | ~5 min | nothing imports |
+| 2 | `ollama pull qwen2.5` (and `nomic-embed-text`) | ~10 min | `APIConnectionError` / `model not found` |
+| 3 | `python -c "from huggingface_hub import snapshot_download as s; s('BAAI/bge-reranker-v2-m3', local_dir='models/bge-reranker-v2-m3')"` | ~10 min | `OSError: Unrecognized processing class` at import — the backend dies before serving |
+| 4 | `python workflow.py` | ~2 min | — |
+
+**Step 4 works without a knowledge base.** With an empty `chroma_petro/` and no `lightrag_storage/`, both retrieval branches degrade, the report says so in a code-appended data-completeness note, and the physics gate still runs on your parameters. That is the honest minimum: you get a real report with real numbers and an explicit "this part has no evidence", not a fabricated one.
+
+To make retrieval real, put PDFs in `ccus_docs/` and run `python ingest_ccus_batch.py` (and `python graph_rag_test.py` for the graph index). The PDFs are not in git — 18 arXiv papers are 125 MB and each carries its own licence.
+
+If all you want is to verify the **gate** rather than run an assessment, skip steps 1–4 entirely: `pip install -r requirements-graph.txt` plus `python -m unittest tests.test_negative_gate` takes about 90 seconds and needs no model at all.
+
+---
+
+## Deployment: what was actually broken
+
+<!-- 中文注释：2026-10-19 的三次 Deploy 全红，原因不是代码。这里记录诊断依据与现在的行为，
+     避免下一个人从"红的"直接推断"部署逻辑坏了"。 -->
+
+Deploy runs #1–#3 (commits `4f62ac3`, `94dac2f`, `18c8f63`) all failed at the same step, and the logs say the same sentence three times:
+
+```
+2026-10-19T15:33:46.4736826Z 2026/10/19 15:33:46 Error: missing server host
+2026-10-19T15:48:36.2330622Z 2026/10/19 15:48:36 Error: missing server host
+2026-10-19T15:57:30.0073567Z 2026/10/19 15:57:30 Error: missing server host
+##[error]Process completed with exit code 1.
+```
+
+Three seconds after checkout, before any SSH handshake. The step dump confirms why: `INPUT_HOST`, `INPUT_USERNAME` and `INPUT_KEY` are all empty strings — the `SSH_HOST` / `SSH_USERNAME` / `SSH_PRIVATE_KEY` secrets were never configured for this repository. Nothing was wrong with `deploy.sh`, the server, or the Docker build; the workflow simply had nowhere to connect. (The timing was the first clue — `deploy.sh` cannot fail that fast — but the log line is the proof, and it is the same line in all three runs.)
+
+The old workflow had no way to say that. Every push to `main` produced a red X identical to a genuine deployment failure, so the red X stopped carrying information.
+
+Current behaviour, in two jobs:
+
+* `config-check` — reads the three secrets. All present → `configured=true`. **None** present → the deploy job is skipped, and the job summary states in bold that nothing was deployed ("this is not a successful deployment, it is a repository without a deploy target"). **Partially** configured → the job fails, because that is a real misconfiguration and skipping it would hide a typo.
+* `deploy` — runs only when `configured=true`, and on failure prints the last 40 lines of `/var/log/ccus-deploy.log` from the server, so the Actions page shows the actual reason instead of `exit code 1`.
+
+There is no public demo URL: this system needs a GPU-hosted 7B model and a 2.2 GB reranker per worker, and the repository has no hosted instance behind it. The supported path is the 30-minute local one above, which `scripts/preflight.py` verifies step by step.
+
+---
+
 ## 🚀 Key Achievements
 
 <!-- 中文注释：四条硬指标。每一条都能在本仓库内用脚本复现，审计记录在 docs/graph-normalization.json，
@@ -304,7 +416,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **171 end-to-end assertions pass** through the real HTTP path, alongside 442 offline unit tests (412 of which run in CI: 371 stdlib-only, 41 that need matplotlib/plotly to actually build the figures).
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **585 unit tests run in CI** (452 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -339,7 +451,7 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 ![CCUS assessment console](docs/ui-console.png)
 
-**Console — dashboard tab.** The same run's economics: wall-clock **1.9 min**, **15.4k** tokens, **¥0.00287**, **93 %** saved against an all-cloud run. The timing bars show why the fan-out exists — the geology branch's 71 s and the wellbore branch's 14 s overlap, so wall-clock (1.2 min) is shorter than the serial sum (1.4 min), a **1.20×** speedup. Below, token spend per stage, split input/output, with every cost row re-derivable from the price table:
+**Console — dashboard tab.** The same run's economics: wall-clock **1.9 min**, **15.4k** tokens, **¥0.00287**, **93 %** below the all-cloud list-price counterfactual. The timing bars show why the fan-out exists — the geology branch's 71 s and the wellbore branch's 14 s overlap, so wall-clock (1.2 min) is shorter than the serial sum (1.4 min), a **1.20×** speedup. Below, token spend per stage, split input/output, with every cost row re-derivable from the price table:
 
 ![Run dashboard](docs/ui-dashboard.png)
 
@@ -361,6 +473,7 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 | Layer | Runs on | Why it lives there |
 |---|---|---|
 | Parameter extraction (Agent 1) | **Local** Ollama · Qwen2.5 | Raw project descriptions may contain commercially sensitive well/reservoir data; extraction is structured and short, a 7B model is enough |
+| Query rewriting + Self-RAG grading | **Local-only** Ollama · Qwen2.5 | Rewriter and grader stay on-device; rejected local or optional web evidence is withheld from generation |
 | Graph retrieval + reranking (geology branch) | **Local** LightRAG + bge-reranker | The corpus and the query never need to leave the machine |
 | Vector retrieval (wellbore branch) | **Local** ChromaDB | Same reason; and it is a 20 ms embedding lookup, not a network call |
 | Physics validation (Agent 4, rule layer) | **Local** pure Python | Determinism beats intelligence here — see [Physics-consistency gate](#physics-consistency-gate) |
@@ -369,7 +482,11 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 | **Branch conclusions + final synthesis** | **Cloud** via gateway (DeepSeek by default) | Long-form engineering prose is exactly where model quality shows. These are the only steps worth paying for |
 | Human approval (HITL gate) | **Human** | A safety-critical conclusion should not be auto-approved |
 
-Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), so "which side of the line a step sits on" is a config change, not a code change. If the cloud is unreachable or unconfigured, the branch and report stages degrade to the local model and the degradation is recorded in `model_routing` — it is never silent.
+Everything is per-stage configurable (`ROUTE_<STAGE>=local|cloud|cloud:provider/model`), except `query_rewrite` and `grade`, which are hard-pinned to the local Ollama model so raw questions and retrieved snippets never leave the machine. If the cloud is unreachable or unconfigured, the branch and report stages degrade to the local model and the degradation is recorded in `model_routing` — it is never silent.
+
+Before generation, `rewrite_query` creates separate English technical search queries for geology and wellbore while preserving the original question and extracted parameters. Each retrieval branch returns its Top-K candidates to the local `grade` node, which judges the two branches in **two separate calls** — one branch per prompt, against its own rewritten query. That split is deliberate: a single combined prompt made the 7B grader score wellbore snippets against the whole question ("cement degradation does not answer the pressure-management question"), so a legitimate branch was rejected purely because the question happened to be geological. Evidence is also budgeted per call (1200 characters per snippet, 2000 per branch) because the local model's 4096-token window is smaller than four raw Chroma chunks, and a `400 context size exceeded` used to withhold *every* branch at once.
+
+A relevance score below `SELF_RAG_MIN_SCORE` (default `0.55`) triggers one bounded alternate pass: LightRAG switches from `hybrid` to `mix`, while ChromaDB expands the query and candidate pool. If evidence still fails grading—or that branch's grader is unavailable—only that branch abstains and its rejected snippets are withheld from report generation; the other branch keeps its evidence. One rule overrides all of that: **at least one branch's evidence always reaches the generator.** Withholding both looks like the cautious choice and is the opposite — a report with zero evidence can only be written from model memory, which is precisely the hallucination Self-RAG exists to prevent, and leaves RAGAS nothing to check claims against. When nothing passes, the higher-scored branch is kept and `retrieval_grade.fallback_domain` records which one, so the degradation stays visible instead of silent. Optional Tavily results are graded separately by the same local-only evaluator before they can be added to the geology prompt. Set `SELF_RAG_MIN_SCORE` in `.env` to tune the acceptance threshold.
 
 ```mermaid
 flowchart TD
@@ -385,18 +502,19 @@ flowchart TD
 
     FM --> EX["Agent 1 · Parameter Extraction<br/>LOCAL"]
 
-    EX -->|"fan-out<br/>(same superstep)"| GEO["Geology branch<br/>faults · caprock"]
-    EX -->|"fan-out<br/>(same superstep)"| WB["Wellbore branch<br/>corrosion · pressure"]
+    EX --> RW["Query rewrite<br/>English technical terms · LOCAL"]
+    RW --> GEO_R["Geology retrieval<br/>LightRAG + rerank · Top-2"]
+    RW --> WB_R["Wellbore retrieval<br/>ChromaDB · Top-4"]
 
-    GEO --> LR["LightRAG GraphRAG<br/>389 entities · 400 relations<br/>84 components · main 244"]
-    LR --> RR["bge-reranker-v2-m3<br/>rerank → Top-2"]
-    RR --> GS["Geology conclusion<br/>CLOUD"]
+    GEO_R --> GR["Self-RAG Grader<br/>relevance + sufficiency · LOCAL"]
+    WB_R --> GR
+    GR -->|"low score · one retry"| GEO_R
+    GR -->|"low score · one retry"| WB_R
+    GR -->|"pass or retry exhausted"| GEO_G["Geology conclusion<br/>accepted evidence only"]
+    GR -->|"pass or retry exhausted"| WB_G["Wellbore conclusion<br/>accepted evidence only"]
 
-    WB --> CH["ChromaDB<br/>raw chunks · Top-4"]
-    CH --> WS["Wellbore conclusion<br/>CLOUD"]
-
-    GS -->|"fan-in<br/>(barrier)"| AG["Aggregate<br/>defensive merge"]
-    WS -->|"fan-in<br/>(barrier)"| AG
+    GEO_G -->|"fan-in<br/>(barrier)"| AG["Aggregate<br/>defensive merge"]
+    WB_G -->|"fan-in<br/>(barrier)"| AG
 
     AG --> PLAN["Phase A · Tool planning<br/>(short, non-streamed, LOCAL)"]
     PLAN --> FC["Function Calling<br/>CO2 density · pressure curve · PINN"]
@@ -412,10 +530,14 @@ flowchart TD
     HM --> OUT["Final Report"]
 
     EX -.-> LOCAL["Local LLM<br/>Ollama · Qwen2.5"]
+    RW -.-> LOCAL
+    GR -.-> LOCAL
     EV -.-> LOCAL
     RP2 ==>|"cloud route"| CLOUD["Cloud LLM<br/>DeepSeek via gateway"]
+    GEO_G -.-> CLOUD
+    WB_G -.-> CLOUD
     HM -.-> LOCAL
-    LR -.-> EMB["Embeddings<br/>nomic-embed-text · 768-d"]
+    GEO_R -.-> EMB["Embeddings<br/>nomic-embed-text · 768-d"]
     LG -.-> CKPT["SqliteSaver<br/>checkpointing"]
 
     RP2 -.->|"token deltas"| API
@@ -532,7 +654,7 @@ If a branch produces nothing, `aggregate` still writes a report — but the miss
 ```
 > ⚠️ **数据完整性提示**：本次报告未能获得全部分支的证据，
 > 以下模块失败，其结论**不代表该维度无风险**，请人工复核：
-> - 地质模块检索超时，请人工复核（原因：TimeoutError: read timed out）
+> - 地质模块未能提供可用证据，请人工复核（原因：Self-RAG 相关性不足）
 ```
 
 The wording matters: without "不代表该维度无风险", a reader interprets a missing section as *no risk* — the most dangerous possible misreading of a safety report. `utils/branch_merge.py` owns this logic as pure functions, so all four combinations (both ok / geology down / wellbore down / both down) are unit-tested without a model.
@@ -1671,7 +1793,7 @@ Every response now carries `cost_estimation`, computed from per-stage token coun
 Local inference is **not** priced at zero. At roughly 60 tok/s and 250 W, one million output tokens is about 1.16 kWh ≈ ¥0.7 — the same order of magnitude as the numbers above. Modelling it as zero would make "saved" look better than it is.
 
 ```
-本次评估预估成本：¥0.0160（已为你节省 ¥0.0181）
+本次评估预估成本：¥0.0160（若全部走云端列表价约 ¥0.0341，差额 ¥0.0181 是反事实估算，不是真实账单）
 ```
 
 Three definitions that make the saving figure meaningful instead of decorative:
@@ -1709,7 +1831,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, bounded reflection (`score ≥ 8` or `retry_count ≥ 2`), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **442 offline unit tests**, and a **171-assertion** end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **585 unit tests run in CI**, and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1771,8 +1893,9 @@ petro-rag-agent/
 ├── nodes/
 │   ├── memory_node.py        # memory_router → search_memory → inject_memory
 │   ├── extract_node.py       # Agent 1: parameter extraction + complexity decision
-│   ├── geology_node.py       # fan-out L: LightRAG → rerank → geology conclusion (never raises)
-│   ├── wellbore_node.py      # fan-out R: ChromaDB → wellbore conclusion (never raises)
+│   ├── query_nodes.py        # local English query rewrite + Self-RAG evidence grader
+│   ├── geology_node.py       # LightRAG retrieval / graded-evidence geology conclusion
+│   ├── wellbore_node.py      # ChromaDB retrieval / graded-evidence wellbore conclusion
 │   ├── retrieve_node.py      # Graph retrieval used by the geology branch (rerank + pruning)
 │   ├── aggregate_node.py     # fan-in: defensive merge → tool planning → one streamed report
 │   ├── evaluate_node.py      # Agent 4: physics rules first, then model scoring
@@ -1820,7 +1943,7 @@ petro-rag-agent/
 ├── render_graph_svg.py       # Render the graphml into docs/knowledge-graph.svg
 ├── bench_parallel.py         # Run one workflow, print measured fan-out speedup
 ├── models/                   # PINN weights (*.pt, ~18 KB each) + loss curves (*.png)
-├── test_graph_rag_e2e.py     # End-to-end regression suite (171 assertions)
+├── test_graph_rag_e2e.py     # End-to-end regression suite (self-hosted; prints its own count)
 ├── tests/
 │   ├── test_fragment_builder.py   # Offline unit tests (retrieval fragments)
 │   ├── test_file_memory.py        # Offline unit tests (memory bounds & IO)
@@ -1985,7 +2108,7 @@ data: {"type":"done","score":9,"elapsed_s":73.7,"cost_estimation":{...}, ...}
     "saved_cny": 0.017217,
     "saved_pct": 0.9254,
     "baseline_model": "deepseek-chat",
-    "caption": "本次评估预估成本：¥0.0014（已为你节省 ¥0.0172）",
+    "caption": "本次评估预估成本：¥0.0014（若全部走云端列表价约 ¥0.0186，差额 ¥0.0172 是反事实估算，不是真实账单）",
     "breakdown": [
       { "stage": "extract", "tier": "local", "model": "qwen2.5",
         "input_tokens": 320, "output_tokens": 180, "cny": 0.000176,
@@ -2049,11 +2172,11 @@ python -m unittest discover -s tests -v
 ```
 
 ```
-Ran 442 tests in 8.226s
+Ran 653 tests in 9.341s
 OK
 ```
 
-Twenty suites:
+Thirty-one suites (`tests/`). CI runs 585 of those tests; the rest need torch/chromadb/Ollama and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2085,7 +2208,7 @@ python test_graph_rag_e2e.py
 The suite verifies Ollama availability, model presence, graph storage integrity, retrieval fragment quality, full workflow execution, report grounding (density value present), reviewer score, and that retrieval is served by the LightRAG engine — plus the token-economics paths: a 7 000-character context is compressed by the real local model through three chunks, the routing decision is checked against the tier actually used, and every cost row is re-derived from the price table rather than trusted.
 
 ```
-Test summary: 171 PASS / 0 FAIL   (667 s — several workflow runs in one suite,
+Test summary: PASS / 0 FAIL   (~11 min — several workflow runs in one suite,
                                    each fanning out into two retrieval branches;
                                    the spread across runs is rerank-candidate variance,
                                    see the latency note above)
@@ -2114,6 +2237,80 @@ Step 8 is the newest: it drives the physics rules as pure functions (a case that
 
 Step 6 brings up the API server **inside the test process** when nothing is listening on port 8000 (it reuses an already-running one if there is). That is not a shortcut around the HTTP path — the request still goes over a real socket and the SSE frames are parsed from the wire — it exists because `bge-reranker-v2-m3` needs ~3.95 GB of commit and a second process holding its own copy gets killed by the OS mid-request (`ConnectionReset` / segfault, with no traceback anywhere). Sharing the loaded model keeps the extra commit near zero.
 
+### RAGAS Golden Set quality gate
+
+The self-hosted E2E workflow also runs `eval_ragas.py` against the ten source-grounded questions in `eval/golden_set.json`. It executes the production LangGraph, scores each final report with RAGAS Faithfulness and Answer Relevancy, and blocks the workflow when mean Faithfulness is below **0.8**. Faithfulness receives only the evidence actually retrieved for that run; the Golden Set reference contexts are provenance annotations, not substitute evidence. Evaluation history and self-evolution writes are isolated in a temporary directory. The runner needs the built LightRAG graph and a reachable local Ollama model.
+
+What counts as a context is deliberately narrow — only what the generator was actually given: the two graded branch evidences, the graph fragments `aggregate` adds when the geology branch degrades, and the deterministic tool facts (CO₂ density, pressure curve, PINN, injection-risk distribution). Counting the tool results matters: a report that repeats `650 kg/m³` is quoting a computed fact, not inventing one, and omitting it would mark grounded numbers as hallucination.
+
+```bash
+python -m pip install -r requirements-eval.txt
+
+# Faithfulness sends every context plus the whole report to the judge, which does
+# not fit Ollama's default 4096-token window (measured: 5387 tokens, HTTP 400).
+# Build a same-weights variant with a larger window — only num_ctx changes.
+printf 'FROM %s\nPARAMETER num_ctx 16384\n' "${LOCAL_MODEL:-qwen2.5}" > /tmp/Modelfile.judge
+ollama create qwen2.5-16k -f /tmp/Modelfile.judge
+
+RAGAS_JUDGE_MODEL=qwen2.5-16k \
+  python eval_ragas.py --threshold 0.8 --output eval/ragas_report.json
+```
+
+Two operational notes, both learned the hard way on this machine. A local Ollama stream can stall mid-generation without raising — one run sat idle for 25 minutes while the server still answered `/api/ps` — so every question runs under a `--case-timeout` (default 900 s) watchdog that terminates the process with exit code **3** instead of occupying the runner forever. The stall itself is now bounded earlier: `core/config.py` gives the local client `timeout=180 s, max_retries=1` (`LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_RETRIES`) instead of the SDK's 600 s × 3, so a frozen generation raises `APITimeoutError` and lets the node degrade, rather than silently eating half an hour. The watchdog stays as the last resort, because a thread cannot be cancelled. And a full pass is slow: each question fans out into two retrieval branches, may retry once with expanded retrieval, then gets scored by two RAGAS metrics on the same local model.
+
+If the judge silently loses its window (a `faithfulness` of exactly `0.0` next to a non-zero `answer_relevancy`), the script prints an explicit `::warning::` naming the affected cases instead of letting the gate report a bare zero. The mirror image — `answer_relevancy` of exactly `0.0` next to a grounded report — gets its own warning: the judge regenerated an empty question, which RAGAS turns into NaN. (It can no longer be the noncommittal flag; that path is removed below.)
+
+Two judge-side failure modes were measured on one saved sample (case 1, a 2 121-character report) instead of guessed, and both are fixed in the harness:
+
+- **The cap is about output room, not context window.** RAGAS ships `max_tokens=1024`. At 1024 and even at 2048 the statement decomposition is cut off, instructor raises `IncompleteOutputException`, and `raise_exceptions=False` turns that into NaN → `0.0`. The same sample scores **0.976** at `--judge-max-tokens 4096`, which is now the default.
+- **Answer Relevancy hides two assumptions.** The metric multiplies the whole score by `int(not noncommittal)`, and the 7B judge labelled a report full of explicit probabilities as `noncommittal=1` — a flat `0.000` for a perfectly relevant answer. Its few-shot examples are also English, so it regenerated the Chinese question in English, and Chroma's English-only `all-MiniLM-L6-v2` then scored the correct answer at `0.444` cosine instead of `0.973`. `_build_judge_llms` therefore builds **two** judge instances: Faithfulness and Answer Relevancy get separate calibrations, and the relevancy one pins the noncommittal definition and requires the regenerated question to be written in Chinese. With it, the same sample scores **0.973**.
+
+The JSON score report is a runtime artifact (ignored by Git); the E2E workflow uploads it even when the quality gate fails.
+
+The gate paid for itself on its first full pass: case 2 died with `BadRequestError: request (4097 tokens) exceeds the available context size (4096)`. The cause was not RAGAS at all — `evaluate_node` pasted the *entire* retrieved evidence and the *entire* report into its review prompt with no budget, so any long report crashed the reviewer and took the whole case down with it. Both sections are now capped (`EVAL_EVIDENCE_CHARS` 1 500, `EVAL_REPORT_CHARS` 3 000) with the cut marked inside the prompt, so a normal report is reviewed verbatim and only an oversized one is trimmed. That is the point of scoring the production graph instead of a fixture: it finds the 400s a unit test never would.
+
+The second full pass found the other half of the same class of bug. A `report_plan` call stalled — the server kept answering `/api/ps`, no token ever arrived — and because the local client had the SDK default 600 s × 3, the case sat there until the watchdog killed the *whole process*. Two changes came out of that: the local client now has an explicit `timeout=180 s, max_retries=1`, and `aggregate` treats tool planning as what it actually is — optional. If that one call fails, the report is still written without computed tool numbers instead of the case failing. A stuck optional step should cost you a chart, not a report.
+
+The third pass exposed the watchdog's own blind spot: killing the process took the seven already-finished cases with it, because results only lived in memory. Every case is now appended to `<output>.partial.jsonl` the moment it finishes, the watchdog writes a partial report from that checkpoint before `os._exit(3)`, and `--resume` picks up where it stopped:
+
+```bash
+python eval_ragas.py --resume --judge-model qwen2.5-16k   # after a watchdog abort
+```
+
+Without `--resume` the checkpoint is deleted at startup, so a CI run can never silently reuse last run's answers. `--case-timeout` defaults to 1 200 s: one 360 s stall plus a forced rewrite is a legitimate 15-minute case, and calling that "hung" wastes more time than it saves.
+
+#### What the gate says right now: 0.562, blocked
+
+The fifth complete pass scored mean Faithfulness **0.562** and Answer Relevancy **0.566**, and the gate blocks:
+
+| case | Faithfulness | Answer Relevancy | evidence given |
+|---|---|---|---|
+| ccus-01 | 0.091 | 0.941 | 2 280 chars |
+| ccus-02 | 0.778 | 0.276 | 2 000 |
+| ccus-03 | 0.952 | 0.861 | 6 529 |
+| ccus-04 | 0.105 | 0.477 | 1 405 |
+| ccus-05 | 0.100 | 0.396 | 1 074 |
+| ccus-06 | 0.727 | 0.550 | 3 799 |
+| ccus-07 | 0.941 | 0.643 | 7 717 |
+| ccus-08 | 0.214 | 0.390 | 2 394 |
+| ccus-09 | 0.786 | 0.713 | 8 912 |
+| ccus-10 | 0.923 | 0.409 | 8 852 |
+
+The number fell from 0.754 on the previous pass and the reports did not get worse — the *measurement* got honest. Three judge-side defects were inflating it, and each one was found by reading the statements and verdicts rather than the score:
+
+- **Statement decomposition looped.** On `ccus-09` the 7B emitted the same two sentences about CO₂ density for 6 610 characters, hit the output cap mid-array, and instructor raised `IncompleteOutputException`. `raise_exceptions=False` turned that into NaN → `0.000` for a report that had scored 0.889 the pass before. A 16 k window did not help; the output was not truncated by the window, it was *degenerate*. `_calibrate_faithfulness_prompt` now forbids repetition and caps the list at 25 statements — the case scores **0.786**.
+- **Answer Relevancy measured candour, not relevance.** RAGAS multiplies the score by `int(not noncommittal)`, and the judge labelled four fully grounded reports noncommittal because they say "图谱证据未覆盖具体的突破压力值". That sentence is *required*: the pipeline deletes invented percentages so a missing quantity gets named instead of guessed. `_build_answer_relevancy` drops the flag and reports the mean cosine similarity itself.
+- **The guard was manufacturing unsupported sentences.** Replacing a fabricated percentage with "（该风险未做概率量化）" inserts a claim no evidence can support; one report accumulated 11 of them and every one was judged unfaithful. `strip_unsupported_probabilities()` now deletes the whole sentence instead of rewriting it.
+
+What is left is not measurement. `ccus-04` asks what salt precipitation does to pore throats and permeability, and the retrieved graph evidence answers exactly that ("self-enhancing halite growth obstructs flow-controlling pore throats", "40±15% internal porosity"). The report instead discusses fault reactivation, caprock integrity and wellbore cement — the generic risk template — and never mentions pore throats once. Faithfulness 0.105 is the correct verdict on that report; so is 0.100 for `ccus-05`, which states 40 MPa / 25 MPa / 30 MPa thresholds that appear in no context. The reports are template-shaped, and the gate is now sharp enough to say so.
+
+The fifth pass also found two more harness defects:
+
+- **A cloud client survived isolation.** `_prepare_isolated_agent_environment` cleared `CLOUD_API_KEY`, but environment variables are read once at `core.config` import. Any runner that imported a node module first — a probe script, an IDE, a test — had already built a live cloud client, so a case that escalated on complexity hit a dead endpoint and died with `APIConnectionError` *during report generation*. `_pin_loaded_routing_to_local()` now rewrites the already-imported module: cloud client dropped, routing table rebuilt from the pinned `ROUTE_*` values.
+- **Self-RAG could withhold everything.** When both branches failed grading after the retry, all evidence was dropped — which reads as caution and is the opposite: a report with no evidence can only be written from model memory, the exact failure Self-RAG exists to prevent, and it leaves Faithfulness nothing to measure against. At least one branch now always reaches the generator; when nothing passes, the higher-scored branch is kept and `retrieval_grade.fallback_domain` records the compromise.
+
+So the gate is red on purpose, and the remaining work is generation quality — making the report answer the question that was asked and only with what was retrieved — not the measurement.
+
 ### MCP round-trip — requires the reranker, runs locally
 
 ```bash
@@ -2128,7 +2325,7 @@ Two scripts rather than one, because "the tool is broken" and "the transport is 
 | Workflow | Trigger | Scope |
 |---|---|---|
 | `ci.yml` | every push / PR | byte-compile, secret scan, offline unit tests across Python 3.10–3.12, package-boundary guard, **no-`print()` guard**, **MCP-wire guard**, container-file guard, frontend-backend contract check |
-| `e2e.yml` | manual (`workflow_dispatch`) | full 171-assertion pipeline on a self-hosted runner with Ollama |
+| `e2e.yml` | manual (`workflow_dispatch`) | full pipeline on a self-hosted runner with Ollama (the suite prints its own assertion count) |
 
 <!-- 中文注释：CI 故意分成两层——托管 runner 跑不起 7B 模型，所以 E2E 只在自建 runner 上手动触发；这样 badge 永远是绿的，同时重型验证仍然存在。 -->
 
@@ -2150,6 +2347,14 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
      把"还没做"和"做不到"分开写，读者才知道哪些是工程量、哪些是能力边界。 -->
 
 ### What this system is not, yet
+
+**The single largest limitation is not in the model — it is the ingestion budget.** `ingest_ccus_batch.py` used to feed LightRAG only the first `--graph-budget` characters of each paper (default 4,000), so the graph was built from **8.1 % of the feedable text**: 91,421 characters ingested out of 1,131,236 (references and page numbers are already stripped, which removes 23 % of the raw 1,467,291). Measured by `python scripts/corpus_audit.py`, snapshot in `docs/corpus-audit.json`. Every "the knowledge base is too small" objection is downstream of that one number, and the fix is machine time rather than more papers: an isolated A/B on a single paper shows entity density stays flat when the budget goes from 4,000 characters to full text (3.50 → 3.59 entities per 1,000 characters), so the truncation was discarding equal-density knowledge, not a low-value tail.
+
+Two numbers here were wrong in an earlier draft of this section and are corrected: the ratio was quoted as 6.2 % because the denominator was raw page text (including the reference lists we deliberately strip), and full coverage was estimated at 2–3 hours from a 5.5 s/1,000-char *marginal* rate measured on one short paper. The end-to-end rate on a real 120,000-character paper is **14.8 s per 1,000 characters**, so a full rebuild of this 22-paper corpus is about **4 hours**. The default is now full text; truncation has to be asked for.
+
+**Document lineage was 0 % traceable until this week.** All 23 documents carried `file_path = unknown_source` because `insert_text` never passed `file_paths`, so no sentence in any report could be traced back to a PDF. Fixed in code and pinned by `tests/test_lineage.py`; existing data keeps the old value until the next re-ingest.
+
+`docs/gap-register.md` records these two findings plus 15 other claims from review — each with a verdict (factual error / already known / real gap / research topic), the evidence, and what it would cost to close.
 
 **The graph is now a network, but only just — and it took normalisation, not more papers, to get there.** The honest trajectory, all measured on the same corpus:
 
@@ -2190,7 +2395,8 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - **One corpus file was off-topic and had been since the beginning.** `ccus4.pdf` is *"Deep Q-Learning-Driven Power Control for Enhanced NOMA User Performance"* — a telecommunications paper about uplink power control, not CCUS. It contributed `Base Station`, `Cell-Center User`, `UAV-relay` and similar nodes, and because almost every paper "shares" them they made the graph look more connected than it was. It is now listed in `EXCLUDED_PAPERS` in `ingest_ccus_batch.py` with the reason, and skipped at ingest time rather than deleted from disk — the corpus is an input, and an exclusion nobody can audit is indistinguishable from a bug. **The ChromaDB collection still contains its chunks**; they are off-topic enough that they never rank near the top, but they are there.
 - **The corpus was selected by keyword scoring, not by citation impact.** `fetch_ccus_papers.py` ranks by term presence and recency. It cannot tell a landmark paper from a mediocre one, and it has no notion of which venues matter. Treat the corpus as "relevant and recent", not "authoritative".
 - **Text extraction quality depends on the PDF's text layer.** PyMuPDF is used first because pypdf silently returns `actiontostabilizeatmosphericconcentrations` for some files (words positioned individually rather than separated by space glyphs). That class of failure is invisible downstream — the embedding model happily embeds nonsense. Where even PyMuPDF produces a poor layer (scans, complex two-column layouts), the chunks are degraded and nothing flags it.
-- **A report can still ship below the quality threshold.** Reflection is bounded at two rewrites; if the score is still under 8 the report is released anyway. That exit is now logged as a **warning** ("强制放行, 结论质量未达阈值") rather than "报告达标", because conflating "it passed" with "we gave up" makes the logs untrustworthy. In other words the model score is a **quality signal**, not a gate — only the physics check can veto.
+- **A failed report is still returned as text, just not as a deliverable.** Reflection is bounded at two rewrites; if the score is still under 8 the run ends with `quality_gate.status = failed` and `report_status = failed`, and the body is returned behind a blocking banner (quarantined entirely when the veto was physical). Nothing downstream treats it as approved — `save_file_memory` is skipped, the API says `status: failed`, the UI shows a red banner instead of "assessment complete" — but a caller that only reads `report` will still see prose. The structured field is the contract; the text is not.
+- **The quality threshold is a model score, and model scores are noisy.** 8/10 from a 7B reviewer is a quality signal with maybe ±1 of variance; the physics gate is the only part that is deterministic. This is why the physics veto runs first and cannot be outvoted, and why the RAGAS golden set exists as an independent measurement of faithfulness rather than trusting the reviewer's own score.
 - **A verdict the gate could not compute is never shown to the reviewer.** When the parameters are insufficient the gate's block is omitted from the review prompt entirely, instead of being passed along as "unverifiable". This is deliberate (an empty verdict reads as a failed check to a small model, and cost a healthy report 4 points before it was fixed), but it means the reviewer's score for sparse inputs is based on the literature and the report alone — the "no physics check was possible" fact lives in `physics_check` for the human, not in the scoring.
 - **The gate's claim detection is regex-based.** It handles direction and negation, but a creative sentence ("the caprock would only fail under conditions this project does not reach") reads as an acknowledgment. The model layer is the backstop — which is exactly why the gate runs *first* and the model *second*.
 - **The API runs a single worker.** Concurrent requests are not supported: a second worker would load a second copy of the 2.3 GB reranker, the same memory ceiling documented in the Testing section.

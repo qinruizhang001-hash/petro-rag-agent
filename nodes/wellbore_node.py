@@ -1,5 +1,5 @@
 """
-井筒分支（wellbore_agent）：套管腐蚀 / 压力异常
+井筒分支：检索（retrieve_wellbore）+ 生成（generate_wellbore），套管腐蚀 / 压力异常
 ==============================================
 并行扇出的右分支。结构与地质分支对称，但**检索的是另一个库**：
 
@@ -68,37 +68,96 @@ def _build_query(state: AgentState) -> str:
     return f"{base}\n{WELLBORE_KEYWORDS}".strip()
 
 
-def wellbore_agent(state: AgentState) -> dict:
-    """并行右分支：ChromaDB 检索 + 井筒结论生成。永不抛异常。"""
+def retrieve_wellbore(state: AgentState) -> dict:
+    """只召回井筒 Top-K；Grader 判定相关性前不触发结论生成。"""
     t0 = time.perf_counter()
-    t_epoch = time.time()   # 墙钟时间戳：跨分支比较用（perf_counter 的起点不可跨节点比）
-    log.info("\n[Wellbore] 井筒分支启动：ChromaDB 原文检索（套管 / 压力异常）...")
+    started = time.time()
+    strategy = state.get("retrieval_strategy") or "primary"
+    params = (state.get("extracted_params") or "").strip()
+    original = (state.get("user_input") or "").strip()
+    rewritten = (state.get("wellbore_query") or "").strip()
+    if strategy == "expanded":
+        query = "\n".join(part for part in (
+            original, params, rewritten,
+            "well integrity casing corrosion cement sheath annular pressure "
+            "CO2 injection thermal stress sustained casing pressure",
+            WELLBORE_KEYWORDS,
+        ) if part)
+        top_k = min(max(WELLBORE_TOP_K * 2, WELLBORE_TOP_K), 8)
+        usage_stage = "chroma_retrieve_retry"
+    else:
+        query = "\n".join(part for part in (
+            rewritten or "CO2 storage wellbore integrity casing cement annular pressure",
+            params, original, WELLBORE_KEYWORDS,
+        ) if part)
+        top_k = WELLBORE_TOP_K
+        usage_stage = "chroma_retrieve"
 
-    evidence = ""
-    update: dict = {}
     try:
-        # ─── ① 向量检索（Chroma 已按相似度排序，不再 rerank）───
-        query = _build_query(state)
-        docs = retrieve_documents(query, k=WELLBORE_TOP_K)
+        docs = retrieve_documents(query, k=top_k)
         evidence = "\n\n".join(docs)
-        log.info(f"  [Wellbore] ChromaDB 返回 {len(docs)} 个切片")
-
-        update = {
-            "token_usage": merge_token_usage(
-                state,
-                "chroma_retrieve",
-                {
-                    "query_tokens": count_tokens(query),
-                    "candidate_docs": len(docs),
-                    "candidate_tokens": sum(count_tokens(d) for d in docs),
-                    "injected_context_tokens": count_tokens(evidence),
-                    "top_k": len(docs),
-                    "engine": "chromadb",
-                },
-            ),
+        usage = merge_token_usage(
+            state,
+            usage_stage,
+            {
+                "query": query,
+                "query_tokens": count_tokens(query),
+                "candidate_docs": len(docs),
+                "candidate_tokens": sum(count_tokens(doc) for doc in docs),
+                "injected_context_tokens": count_tokens(evidence),
+                "top_k": len(docs),
+                "engine": "chromadb",
+                "retrieval_strategy": strategy,
+            },
+        )
+        status = {
+            "ok": bool(docs), "started_at": round(started, 3),
+            "ended_at": round(time.time(), 3),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+            "engine": "chromadb", "candidates": len(docs),
+            "retrieval_strategy": strategy, "top_k": top_k,
+            "error": "" if docs else "ChromaDB 未召回候选片段",
+        }
+        return {
+            "token_usage": usage,
+            "wellbore_evidence": evidence,
+            "wellbore_candidates": [{"text": doc} for doc in docs],
+            "wellbore_status": status,
+        }
+    except Exception as exc:  # noqa: BLE001 — parallel retrieval must degrade to state
+        elapsed = time.perf_counter() - t0
+        log.error("[Wellbore Retrieve] %s: %s", type(exc).__name__, exc)
+        return {
+            "wellbore_evidence": "", "wellbore_candidates": [],
+            "wellbore_status": {
+                "ok": False, "started_at": round(started, 3),
+                "ended_at": round(time.time(), 3), "elapsed_s": round(elapsed, 2),
+                "engine": "chromadb", "candidates": 0,
+                "retrieval_strategy": strategy, "top_k": top_k,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
         }
 
-        # ─── ② 生成井筒结论（带指数退避重试）───
+
+def generate_wellbore(state: AgentState) -> dict:
+    """仅使用 Self-RAG 接受的井筒证据生成结论。"""
+    t0 = time.perf_counter()
+    status = dict(state.get("wellbore_status") or {})
+    grade = (state.get("retrieval_grade") or {}).get("wellbore") or {}
+    if not grade.get("accepted"):
+        error = grade.get("reason") or "Self-RAG 未接受井筒证据"
+        status.update({
+            "ok": False, "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "grading_error": f"井筒证据未通过相关性评估，已阻止无依据生成：{error}",
+        })
+        if not status.get("error"):
+            status["error"] = status["grading_error"]
+        return {"wellbore_report": "", "wellbore_status": status}
+
+    evidence = (state.get("wellbore_evidence") or "").strip()
+    try:
         mode = state.get("complexity_mode") or "cloud"
         _, model, tier, _ = get_llm("wellbore", mode)
         resp = call_with_retry(
@@ -116,44 +175,25 @@ def wellbore_agent(state: AgentState) -> dict:
             label="wellbore 段生成",
         )
         segment = (resp.choices[0].message.content or "").strip()
-        update = {
-            **update,
-            **record_llm_usage({**state, **update}, "wellbore", resp, model, tier),
-        }
-
-        elapsed = time.perf_counter() - t0
-        log.info(f"  [Wellbore] ✅ 完成（{elapsed:.1f}s，{len(segment)} 字）")
+        status.update({
+            "ok": bool(segment), "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "chars": len(segment), "error": "" if segment else "模型返回空内容",
+        })
         return {
-            **update,
+            **record_llm_usage(state, "wellbore", resp, model, tier),
             "wellbore_report": segment,
             "wellbore_evidence": evidence,
-            "wellbore_status": {
-                "ok": bool(segment),
-                "started_at": round(t_epoch, 3),
-                "ended_at": round(time.time(), 3),
-                "elapsed_s": round(elapsed, 2),
-                "chars": len(segment),
-                "engine": "chromadb",
-                "candidates": len(docs),
-                "error": "" if segment else "模型返回空内容",
-            },
+            "wellbore_status": status,
         }
-
-    except Exception as exc:  # noqa: BLE001 — 分支必须降级而不是中断整张图
-        elapsed = time.perf_counter() - t0
-        log.error(f"  [Wellbore] ❌ 分支失败（{elapsed:.1f}s）：{type(exc).__name__}: {exc}")
-        return {
-            **update,
-            "wellbore_report": "",
-            "wellbore_evidence": evidence,
-            "wellbore_status": {
-                "ok": False,
-                "started_at": round(t_epoch, 3),
-                "ended_at": round(time.time(), 3),
-                "elapsed_s": round(elapsed, 2),
-                "chars": 0,
-                "engine": "chromadb",
-                "candidates": 0,
-                "error": f"{type(exc).__name__}: {exc}",
-            },
-        }
+    except Exception as exc:  # noqa: BLE001 — preserve branch degradation contract
+        status.update({
+            "ok": False, "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "chars": 0, "error": f"{type(exc).__name__}: {exc}",
+        })
+        log.error("[Wellbore Generate] %s: %s", type(exc).__name__, exc)
+        return {"wellbore_report": "", "wellbore_evidence": evidence,
+                "wellbore_status": status}

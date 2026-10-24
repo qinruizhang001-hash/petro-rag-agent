@@ -23,9 +23,10 @@ API 响应里，注释是唯一的文档。
    而分支各自的产物（``geology_report`` / ``wellbore_report``）用**独立字段**，
    从结构上就不存在覆盖问题 —— 这比给一个共享字段写合并规则更可靠。
 2. **reducer 只对"可以合并"的字段成立**。``token_usage`` 是
-   ``{stage: payload}``，两条分支写的是不同的 stage（``retrieve`` /
-   ``chroma_retrieve``），浅合并即可；如果哪天两个分支写同一个 stage，
-   后写的会覆盖先写的，这一点必须靠 stage 命名区分来保证。
+   ``{stage: payload}``，并行分支写不同 stage；合并后从各 stage 的真实
+   ``total_tokens`` 重算 ``llm_total_tokens``，不能直接采用任一分支的标量总数。
+   如果哪天两个分支写同一个 stage，后写的 payload 会覆盖先写的，必须靠
+   stage 命名区分来保证。
 
 ``final_report`` 仍然存在且仍是唯一对外契约：aggregate 节点负责把两段结论
 合成它，API / 前端 / 评审 / 历史记忆全都只读这一个字段。
@@ -36,18 +37,32 @@ from typing import Annotated, TypedDict
 
 
 def merge_dict(left: dict | None, right: dict | None) -> dict:
-    """并行分支写 dict 字段时的合并器：浅合并，右值优先。
+    """Merge parallel dict updates and recompute the aggregate LLM token count.
 
-    用于 ``token_usage`` / ``model_routing``。两者都是
-    ``{key: payload}`` 的扁平结构，且两条并行分支写的 key 不同
-    （见模块文档），因此浅合并既够用也不会丢数据。
+    ``token_usage`` and ``model_routing`` share this reducer. Stage keys are
+    branch-specific, so right-biased shallow merging preserves each result. The
+    scalar ``llm_total_tokens`` is not branch-specific: summing or choosing either
+    branch value would be wrong because each branch starts from the same snapshot.
+    Recompute it from the merged per-stage LLM payloads instead.
     """
-    return {**(left or {}), **(right or {})}
+    merged = {**(left or {}), **(right or {})}
+    if "llm_total_tokens" in merged:
+        merged["llm_total_tokens"] = sum(
+            int(payload.get("total_tokens") or 0)
+            for key, payload in merged.items()
+            if key != "llm_total_tokens" and isinstance(payload, dict)
+        )
+    return merged
 
 
 class AgentState(TypedDict):
     user_input: str
     extracted_params: str
+    # Query rewriting preserves the original question and creates branch-specific
+    # English search terms; these are not evidence and must never replace user_input.
+    geology_query: str
+    wellbore_query: str
+    query_rewrite_status: dict
     retrieved_knowledge: str
     final_report: str
     score: float
@@ -59,8 +74,15 @@ class AgentState(TypedDict):
     # 两种结局都是丢数据）。独立字段让"谁写了什么"在状态里永远可分辨。
     geology_report: str            # geology 分支：断层 / 盖层风险评估片段
     wellbore_report: str           # wellbore 分支：井筒腐蚀 / 压力异常评估片段
-    geology_evidence: str          # geology 分支实际注入 Prompt 的图谱证据
-    wellbore_evidence: str         # wellbore 分支实际注入 Prompt 的向量库证据
+    geology_evidence: str          # 通过 Self-RAG 评估后注入 Prompt 的图谱证据
+    wellbore_evidence: str         # 通过 Self-RAG 评估后注入 Prompt 的向量库证据
+    supplemental_evidence: str     # 地质分支降级时 aggregate 补取的图谱片段（同样进入 Prompt）
+    tool_facts: list               # 注入报告 Prompt 的确定性工具结果（密度 / 压力曲线 / PINN / 风险概率）
+    geology_candidates: list        # Grader 评判的地质 Top-K 原始片段
+    wellbore_candidates: list       # Grader 评判的井筒 Top-K 原始片段
+    retrieval_grade: dict           # Self-RAG 的分支相关性评分与重试状态
+    retrieval_retry_count: int      # 有界的替代检索次数（最多一次）
+    retrieval_strategy: str         # primary | expanded
     geology_status: dict           # {ok, elapsed_s, error, engine, candidates, top_score}
     wellbore_status: dict          # {ok, elapsed_s, error, engine, candidates}
     parallel_timing: dict          # {geology_s, wellbore_s, wall_s, serial_s, speedup, ...}
@@ -100,6 +122,12 @@ class AgentState(TypedDict):
     cost_estimation: dict          # 本次任务的成本估算（人民币）
     # ─── 物理一致性校验（规则引擎，不是模型打分）───
     physics_check: dict            # {status, blocking, verdict, limits, violations, feedback}
+    # ─── 质量闸门（确定性判定，见 core/gates.py）───
+    # 报告到底过没过，只读这一个字段。早期实现靠"score>=8 或重写两次"隐式表达，
+    # 于是"重试用尽后的放行"和"真的达标"在状态里无法区分。
+    quality_gate: dict             # {status, score, threshold, physics_status, physics_blocking, reason, ...}
+    report_status: str             # "ok" | "failed"；失败态由 mark_failed 写入
+    draft_report: str              # 物理否决时被隔离的原始正文（可审计，不交付）
     # ─── 时间维度记忆（Temporal Knowledge）───
     # retrieve 节点产出。conflicts 是"同一井位 + 同一参数 + 不同时间 + 数值显著不同"
     # 的结构化列表；context 是注入给下游的硬指令原文（可审计）。

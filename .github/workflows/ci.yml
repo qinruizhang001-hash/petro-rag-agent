@@ -84,6 +84,25 @@ jobs:
           fi
           echo "No print() in the runtime path."
 
+      - name: Guard the import cost of config (no reranker on the config path)
+        run: |
+          set -e
+          # 中文注释：core.config 只读环境变量、建 OpenAI 客户端，不该为了
+          # 一个"tiktoken 缺席时的兜底 tokenizer"就在 import 期加载 2.2 GB 的
+          # CrossEncoder。utils/tokens 曾经这么干过，后果有两层：
+          #   · 任何 `from core.config import ...` 都要等模型加载完；
+          #   · 无 torch 的环境（CI、干净 clone）里 config 直接不可导入，
+          #     连带 test_model_router / test_evaluate_budget 一起变红，
+          #     而红的原因与它们要测的东西毫无关系。
+          # 现在改成按需导入，这条检查防它悄悄退回去。
+          # 注意必须锚定行首：函数内的按需导入是**正确写法**，
+          # 宽松匹配会把它一起判成违规（这个坑第一次写就踩了）。
+          if grep -nE '^(from|import)[[:space:]]+core\.reranker' utils/tokens.py; then
+            echo "::error::utils/tokens.py must import core.reranker lazily (only when tiktoken is absent)"
+            exit 1
+          fi
+          echo "Config path is free of the reranker."
+
       - name: Guard the MCP wire
         run: |
           set -e
@@ -268,22 +287,30 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 路由解析 /
+      # 中文注释：这几个模块纯标准库（片段构建 / 文件记忆 / 状态定义 / 路由解析 /
       # 上下文压缩 / 成本核算 / 物理规则 / 日志配置 / 文本清洗 /
       # 实体别名归并 / 图谱连通性分析 / 并行分支合并降级 / 退避重试 /
       # PINN 问句抽取 / 经验库解析与排序 / 时间维度冲突检测 /
       # 蒙特卡洛不确定性量化），故意**不装** requirements.txt，
       # 保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
+      #
+      # 反例（2026-10 踩过）：把 test_eval_ragas / test_evaluate_budget 塞进来，
+      # 这个 job 立刻在三个 Python 版本上全红 —— 前者要 ragas + numpy，
+      # 后者经 core.config 拉 openai + dotenv。需要三方包的测试请放 unit-deps。
       - name: Run offline unit tests
         run: |
           python -m unittest -v \
             tests.test_fragment_builder \
             tests.test_file_memory \
-            tests.test_model_router \
+            tests.test_state \
             tests.test_context_pruner \
             tests.test_cost_model \
             tests.test_physics_rules \
+            tests.test_physics_audit \
+            tests.test_aggregate_split \
+            tests.test_lineage \
+            tests.test_corpus_scope \
             tests.test_logging_setup \
             tests.test_text_cleaning \
             tests.test_entity_aliases \
@@ -295,6 +322,80 @@ jobs:
             tests.test_pressure_model \
             tests.test_temporal \
             tests.test_uq
+
+  unit-deps:
+    name: Unit tests · eval & config (real deps, no torch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：这一组测的是"真的会 import 三方包"的模块，但**仍然不需要 torch**：
+      # - test_model_router    → core.config 建 OpenAI 客户端（要 openai + dotenv）
+      # - test_evaluate_budget → nodes.evaluate_node → core.config（同上），
+      #                          并用 tiktoken 做真实的 token 预算核算
+      # - test_eval_ragas      → eval_ragas 的评判校准（要 ragas + numpy）
+      #
+      # 为什么它们不能待在 unit-core：那个 job 的契约是"零三方包"，
+      # 一旦混进来，3.10/3.11/3.12 三个版本会一起变红，而且红的原因
+      # 与核心逻辑无关，只会掩盖真正的回归。
+      #
+      # 为什么不需要 torch：utils/tokens 曾经在模块顶层 import core.reranker，
+      # 于是"读个配置"也要加载 2.2 GB 的 CrossEncoder。现在 reranker 只在
+      # tiktoken 缺席时按需导入，这条链路才得以在没有模型的机器上跑通。
+      - name: Install evaluation and client dependencies
+        run: |
+          python -m pip install --quiet python-dotenv openai tiktoken numpy
+          python -m pip install --quiet -r requirements-eval.txt
+
+      - name: Confirm this environment has no torch (the point of this job)
+        run: |
+          python - <<'PY'
+          import importlib.util as u
+          for mod in ("torch", "sentence_transformers", "chromadb"):
+              print(f"{mod:24} {'present' if u.find_spec(mod) else 'absent (expected)'}")
+          PY
+
+      - name: Run dependency-backed unit tests
+        run: |
+          python -m unittest -v \
+            tests.test_model_router \
+            tests.test_evaluate_budget \
+            tests.test_eval_ragas
+
+  unit-graph:
+    name: Unit tests · gate + whole-graph negative case
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：这一组只装 langgraph / openai / dotenv —— 不装 torch、
+      # 不装 chromadb、不需要 Ollama。tests/_graph_stubs.py 在 import 之前把
+      # 叶子模块（reranker / 向量库 / MCP / 图表）换成桩，因此这里跑的是
+      # **真实的 workflow.py 拓扑 + 真实的 physics_rules + 真实的闸门判定**。
+      #
+      # 为什么必须放在 push 路径上：闸门是"错了会出事"的那部分，它的负向回归
+      # 之前只存在于 e2e.yml（自建 runner、手动触发），结果连续几周没人跑。
+      - name: Install graph-only dependencies
+        run: python -m pip install --quiet -r requirements-graph.txt
+
+      - name: Show what this environment cannot load (should be torch/chromadb)
+        run: |
+          python - <<'PY'
+          import importlib.util as u
+          for mod in ("torch", "sentence_transformers", "chromadb"):
+              print(f"{mod:24} {'present' if u.find_spec(mod) else 'absent (expected)'}")
+          PY
+
+      - name: Run the hard gate + whole-graph negative test
+        run: python -m unittest -v tests.test_quality_gate tests.test_negative_gate
 
   unit-charts:
     name: Unit tests · chart tool

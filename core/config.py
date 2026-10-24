@@ -50,6 +50,17 @@ LOCAL_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
 LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5")
 
+# 本地调用的超时与重试，**必须显式给**。
+#
+# OpenAI SDK 默认 timeout=600s、max_retries=2，意味着一次卡住的生成最长会
+# 占住 600×3=1800 秒（30 分钟）。实测确实发生过：Ollama 在 report_plan
+# 阶段不再吐 token，但 /api/ps 仍显示模型已加载、健康检查也正常，客户端就
+# 一直干等 —— UI 和 API 请求一起僵死，日志里什么都看不到。
+# 180s 对本机最长的一次生成（~1k token 报告，25s）有 7 倍余量；超时后由
+# 节点自己的降级/重试逻辑接管，比无声僵死好得多。
+LOCAL_LLM_TIMEOUT = float(os.getenv("LOCAL_LLM_TIMEOUT", "180"))
+LOCAL_LLM_MAX_RETRIES = int(os.getenv("LOCAL_LLM_MAX_RETRIES", "1"))
+
 CLOUD_BASE_URL = os.getenv("CLOUD_BASE_URL", "https://api.deepseek.com/v1")
 CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "").strip()
 CLOUD_MODEL = os.getenv("CLOUD_MODEL", "deepseek-chat")
@@ -101,7 +112,12 @@ def _ensure_loopback_bypass() -> None:
 _ensure_loopback_bypass()
 
 
-local_client = OpenAI(base_url=LOCAL_BASE_URL, api_key=LOCAL_API_KEY)
+local_client = OpenAI(
+    base_url=LOCAL_BASE_URL,
+    api_key=LOCAL_API_KEY,
+    timeout=LOCAL_LLM_TIMEOUT,
+    max_retries=LOCAL_LLM_MAX_RETRIES,
+)
 cloud_client = (
     OpenAI(base_url=CLOUD_BASE_URL, api_key=CLOUD_API_KEY) if CLOUD_API_KEY else None
 )
@@ -160,8 +176,15 @@ def resolve_route(stage: str, mode: str | None = None) -> tuple[str, str]:
     return tier, reason
 
 
+LOCAL_ONLY_STAGES = frozenset({"query_rewrite", "grade", "grade_web"})
+
+
 def get_llm(stage: str, mode: str | None = None):
     """按路由表返回 (client, model_name, 实际档位, 降级原因)。"""
+    # Raw user queries and evidence stay on-device even if ROUTE_* is overridden.
+    # These stages are intentionally not configurable to a cloud provider.
+    if stage in LOCAL_ONLY_STAGES:
+        return local_client, LOCAL_MODEL, "local", ""
     tier, model_override, reason = resolve_route_detail(stage, mode)
     if tier == "cloud":
         return cloud_client, (model_override or CLOUD_MODEL), "cloud", ""
@@ -264,6 +287,13 @@ def llm_chat_streamed(stage: str, messages: list, temperature: float, sink=None,
                     pass  # 推送失败绝不能打断主流程
 
     text = "".join(parts)
+    # 显式关闭流。迭代到结尾通常已经释放连接，但 Ollama 侧只有在连接真正关闭
+    # 时才回收推理槽位；把释放动作写明确，避免"流读完了但服务端仍认为它活着"
+    # 这种只能靠重启服务端才能恢复的状态。
+    try:
+        stream.close()
+    except Exception:
+        pass
     estimated = False
     if completion_tokens <= 0:
         completion_tokens = count_tokens(text)

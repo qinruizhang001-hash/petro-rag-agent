@@ -1,5 +1,5 @@
 """
-地质分支（geology_agent）：断层 / 盖层风险
+地质分支：检索（retrieve_geology）+ 生成（generate_geology），断层 / 盖层风险
 =========================================
 并行扇出的左分支。职责单一：**拿到地质证据，并把它变成一段可被汇总的结论**。
 
@@ -19,7 +19,7 @@
 并行分支最怕的是"一条挂了整张图失败"：LangGraph 里节点抛异常会让整个
 superstep 失败，另一条分支已经算完的结果也一起丢掉。所以本节点把
 **所有**异常收进 ``geology_status``，正常返回 —— 汇总节点据此降级，
-在报告里写明"地质模块检索超时，请人工复核"，并基于井筒数据继续生成。
+在报告中提示该分支未能提供可用证据，并继续使用仍然可信的其他分支。
 
 这不是"吞掉错误"：错误类型、消息、耗时都进了状态和日志，
 只是**不再用异常中断主流程**。
@@ -30,6 +30,7 @@ import time
 
 from core.config import get_llm, llm_chat
 from core.state import AgentState
+from nodes.query_nodes import grade_external_evidence
 from nodes.retrieve_node import retrieve_knowledge
 from nodes.web_search_node import should_search, web_search_save
 from utils.retry import call_with_retry
@@ -68,73 +69,145 @@ def _segment_messages(state: AgentState, evidence: str) -> list[dict]:
     }]
 
 
-def geology_agent(state: AgentState) -> dict:
-    """并行左分支：LightRAG 检索 + 地质结论生成。永不抛异常。"""
+def retrieve_geology(state: AgentState) -> dict:
+    """只检索地质 Top-K；等待 grade_node 通过后才允许生成结论。"""
     t0 = time.perf_counter()
-    t_epoch = time.time()   # 墙钟时间戳：跨分支比较用（perf_counter 的起点不可跨节点比）
-    log.info("\n[Geology] 地质分支启动：LightRAG 图谱检索（断层 / 盖层）...")
+    started = time.time()
+    strategy = state.get("retrieval_strategy") or "primary"
+    params = (state.get("extracted_params") or "").strip()
+    original = (state.get("user_input") or "").strip()
+    rewritten = (state.get("geology_query") or "").strip()
+    if strategy == "expanded":
+        query = "\n".join(part for part in (
+            rewritten, f"Original question: {original}", f"Project parameters: {params}",
+            "CCUS geological carbon storage fault reactivation caprock integrity "
+            "injection pressure fracture pressure leakage risk",
+        ) if part)
+        mode = "mix"  # alternate LightRAG strategy: combine graph and vector retrieval
+    else:
+        query = "\n".join(part for part in (
+            rewritten or "CCUS geological storage fault caprock injection pressure",
+            f"Project parameters: {params}", f"Original question: {original}",
+        ) if part)
+        mode = "hybrid"
 
-    update: dict = {}
-    evidence = ""
     try:
-        # ─── ① 图谱检索 + 精排 + 压缩（复用唯一实现）───
-        update = retrieve_knowledge(state)
-        evidence = update.get("retrieved_knowledge", "") or ""
-
-        # ─── ② 证据不足时联网补料 ───
-        # 原来的 should_search 是主链路上的条件边；扇出之后没有"主链路"了，
-        # 而"证据够不够"这个问题天然属于取证据的这一条分支，所以搬进来。
-        merged = {**state, **update}
-        if should_search(merged) == "web_search":
-            web_update = web_search_save(merged)
-            update = {**update, **web_update}
-            evidence = evidence + "\n\n" + (web_update.get("web_content") or "")
-
-        # ─── ③ 生成地质结论（带指数退避重试）───
-        mode = state.get("complexity_mode") or "cloud"
-        _, model, tier, _ = get_llm("geology", mode)
-        resp = call_with_retry(
-            llm_chat,
-            "geology",
-            messages=_segment_messages(state, evidence),
-            temperature=0.2,
-            mode=mode,
-            label="geology 段生成",
-        )
-        segment = (resp.choices[0].message.content or "").strip()
-        update = {**update, **record_llm_usage(merged, "geology", resp, model, tier)}
-
-        elapsed = time.perf_counter() - t0
-        log.info(f"  [Geology] ✅ 完成（{elapsed:.1f}s，{len(segment)} 字）")
-        return {
-            **update,
-            "geology_report": segment,
-            "geology_evidence": evidence,
-            "geology_status": {
-                "ok": bool(segment),
-                "started_at": round(t_epoch, 3),
-                "ended_at": round(time.time(), 3),
-                "elapsed_s": round(elapsed, 2),
-                "chars": len(segment),
-                "engine": "lightrag",
-                "error": "" if segment else "模型返回空内容",
-            },
+        update = retrieve_knowledge(state, query_override=query, mode=mode)
+        candidates = update.get("top_candidates") or []
+        evidence = update.get("retrieved_knowledge", "") if candidates else ""
+        status = {
+            "ok": bool(candidates),
+            "started_at": round(started, 3),
+            "ended_at": round(time.time(), 3),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+            "engine": "lightrag",
+            "candidates": len(candidates),
+            "top_score": (candidates[0].get("rerank_score") if candidates else None),
+            "retrieval_strategy": strategy,
+            "retrieval_mode": mode,
+            "error": "" if candidates else "LightRAG 未召回候选片段",
         }
-
-    except Exception as exc:  # noqa: BLE001 — 分支必须降级而不是中断整张图
-        elapsed = time.perf_counter() - t0
-        log.error(f"  [Geology] ❌ 分支失败（{elapsed:.1f}s）：{type(exc).__name__}: {exc}")
+        passthrough = {
+            key: value for key, value in update.items()
+            if key not in {"retrieved_knowledge", "top_candidates", "retrieval_query", "retrieval_mode"}
+        }
         return {
-            **update,
-            "geology_report": "",
+            **passthrough,
             "geology_evidence": evidence,
+            "geology_candidates": candidates,
+            "geology_status": status,
+        }
+    except Exception as exc:  # noqa: BLE001 — parallel retrieval must degrade to state
+        elapsed = time.perf_counter() - t0
+        log.error("[Geology Retrieve] %s: %s", type(exc).__name__, exc)
+        return {
+            "geology_evidence": "",
+            "geology_candidates": [],
             "geology_status": {
-                "ok": False,
-                "started_at": round(t_epoch, 3),
-                "ended_at": round(time.time(), 3),
-                "elapsed_s": round(elapsed, 2),
-                "chars": 0,
-                "engine": "lightrag",
+                "ok": False, "started_at": round(started, 3),
+                "ended_at": round(time.time(), 3), "elapsed_s": round(elapsed, 2),
+                "engine": "lightrag", "candidates": 0,
+                "retrieval_strategy": strategy, "retrieval_mode": mode,
                 "error": f"{type(exc).__name__}: {exc}",
             },
         }
+
+
+def generate_geology(state: AgentState) -> dict:
+    """仅使用 Grader 接受的地质证据生成分支结论。"""
+    t0 = time.perf_counter()
+    status = dict(state.get("geology_status") or {})
+    grade = (state.get("retrieval_grade") or {}).get("geology") or {}
+    if not grade.get("accepted"):
+        error = grade.get("reason") or "Self-RAG 未接受地质证据"
+        status.update({
+            "ok": False, "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "grading_error": f"地质证据未通过相关性评估，已阻止无依据生成：{error}",
+        })
+        if not status.get("error"):
+            status["error"] = status["grading_error"]
+        return {"geology_report": "", "geology_status": status}
+
+    evidence = (state.get("geology_evidence") or "").strip()
+    update: dict = {}
+    try:
+        # 联网兜底仍在本地 RAG 证据通过 Grader 后执行。
+        local_state = {**state, "retrieved_knowledge": evidence}
+        if should_search(local_state) == "web_search":
+            web_update = web_search_save(local_state)
+            update = {**update, **web_update}
+            web_evidence = (web_update.get("web_content") or "").strip()
+            if web_evidence:
+                web_grade_update = grade_external_evidence(
+                    {**state, **web_update}, web_evidence
+                )
+                web_grade = web_grade_update.get("grade") or {}
+                update = {
+                    **update,
+                    **{k: v for k, v in web_grade_update.items() if k != "grade"},
+                }
+                status["web_evidence_grade"] = web_grade
+                if web_grade.get("accepted"):
+                    evidence = "\n\n".join(part for part in (evidence, web_evidence) if part)
+                else:
+                    log.warning(
+                        "[Geology] external search evidence rejected by Self-RAG; "
+                        "it will not be passed to generation"
+                    )
+            else:
+                status["web_evidence_grade"] = {
+                    "status": "empty", "accepted": False, "score": 0.0,
+                    "reason": "No external evidence returned",
+                }
+
+        mode = state.get("complexity_mode") or "cloud"
+        _, model, tier, _ = get_llm("geology", mode)
+        merged = {**state, **update, "geology_evidence": evidence}
+        resp = call_with_retry(
+            llm_chat, "geology", messages=_segment_messages(state, evidence),
+            temperature=0.2, mode=mode, label="geology 段生成",
+        )
+        segment = (resp.choices[0].message.content or "").strip()
+        update = {**update, **record_llm_usage(merged, "geology", resp, model, tier)}
+        status.update({
+            "ok": bool(segment), "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "chars": len(segment), "error": "" if segment else "模型返回空内容",
+        })
+        return {
+            **update, "geology_report": segment, "geology_evidence": evidence,
+            "geology_status": status,
+        }
+    except Exception as exc:  # noqa: BLE001 — preserve branch degradation contract
+        status.update({
+            "ok": False, "ended_at": round(time.time(), 3),
+            "elapsed_s": round(float(status.get("elapsed_s") or 0) +
+                                (time.perf_counter() - t0), 2),
+            "chars": 0, "error": f"{type(exc).__name__}: {exc}",
+        })
+        log.error("[Geology Generate] %s: %s", type(exc).__name__, exc)
+        return {**update, "geology_report": "", "geology_evidence": evidence,
+                "geology_status": status}

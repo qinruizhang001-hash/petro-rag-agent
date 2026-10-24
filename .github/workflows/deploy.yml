@@ -4,6 +4,20 @@
 # 触发条件：main 分支有代码推送
 # 行为：通过 SSH 连接到云服务器，执行 deploy.sh 完成拉取、构建、重启。
 #
+# 为什么拆成 config-check + deploy 两个 job
+# -----------------------------------------
+# 2026-10-19 连续三次 Deploy 都是红的（run #1/#2/#3），每次都在 checkout 之后
+# 约 10 秒失败。deploy.sh 的失败模式不可能是 10 秒 —— 它要么在"缺 docker"
+# 的预检处立刻退出，要么在 docker build 里耗掉几分钟。10 秒说明**连 SSH 都没
+# 连上**：要么 SSH_HOST / SSH_USERNAME / SSH_PRIVATE_KEY 三个 secret 没配，
+# 要么主机不可达。
+#
+# 这两种情况的处理方式必须不同：
+#   * 没配置 → 跳过，并在 job summary 里写明"这次没有部署，不是成功"
+#   * 配了但连不上 → 仍然是失败（红），因为那是真的坏了
+# 之前不做区分，于是"根本没配置"看起来和"部署挂了"一模一样，每次 push 都亮红灯，
+# 红灯就不再传递信息了。
+#
 # 使用前必须在仓库 Settings → Secrets and variables → Actions 里配置：
 #   SSH_HOST          云服务器公网 IP 或域名
 #   SSH_USERNAME      登录用户名（如 ubuntu / root）
@@ -26,8 +40,61 @@ on:
   # 允许手动触发（GitHub 网页上点 "Run workflow"）
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  # ─── ① 先判断"到底配没配" ────────────────────────────────
+  config-check:
+    name: Deploy config check
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Are the SSH secrets present?
+        id: check
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SSH_HOST:-}" ] || missing+=("SSH_HOST")
+          [ -n "${SSH_USERNAME:-}" ] || missing+=("SSH_USERNAME")
+          [ -n "${SSH_PRIVATE_KEY:-}" ] || missing+=("SSH_PRIVATE_KEY")
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Deploy target configured: ${SSH_USERNAME}@${SSH_HOST}"
+            exit 0
+          fi
+
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          # 部分配置 = 真的配错了，必须红：那种情况下的"跳过"会掩盖一个手误。
+          if [ ${#missing[@]} -lt 3 ]; then
+            echo "::error::Deploy is partially configured (missing: ${missing[*]}). Fill in all of SSH_HOST / SSH_USERNAME / SSH_PRIVATE_KEY, or remove the ones you set."
+            exit 1
+          fi
+
+          # 完全没配 = 还没打算部署。跳过，并说清楚"这不是一次成功的部署"。
+          echo "::warning::Deploy skipped — no SSH secrets configured. This run did NOT deploy anything."
+          {
+            echo "### ⏭️ Deploy skipped — not configured"
+            echo ""
+            echo "没有配置 \`SSH_HOST\` / \`SSH_USERNAME\` / \`SSH_PRIVATE_KEY\`，因此**本次没有部署任何东西**。"
+            echo "这不是一次成功的部署，只是这台仓库还没有部署目标。"
+            echo ""
+            echo "要么在 Settings → Secrets and variables → Actions 里补齐三个 secret，"
+            echo "要么按 README 的「30 分钟跑通一次评估」在本地跑（不需要服务器）。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+  # ─── ② 真正部署 ──────────────────────────────────────────
   deploy:
+    name: Deploy
+    needs: config-check
+    if: needs.config-check.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -57,4 +124,11 @@ jobs:
             LOG="/var/log/ccus-deploy.log"
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] GitHub Actions 触发部署 (commit ${{ github.sha }})" | sudo tee -a "$LOG"
             cd "$DEPLOY_DIR"
-            bash deploy.sh
+            # deploy.sh 的失败原因在 /var/log/ccus-deploy.log 里；SSH 只回传
+            # 最后几行，所以这里主动把尾部打出来 —— 否则 Actions 页面上只有
+            # "exit code 1"，还得再登服务器看日志。
+            if ! bash deploy.sh; then
+              echo "::error::deploy.sh failed; last 40 lines of $LOG:"
+              tail -n 40 "$LOG" || true
+              exit 1
+            fi
