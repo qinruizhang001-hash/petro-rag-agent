@@ -484,7 +484,9 @@ def sync_graph(items: list[dict], budget: int, force: bool = False) -> dict:
             continue
 
         t0 = time.time()
-        ok = insert_text(payload)
+        # 传源文件名，否则 LightRAG 把 file_path 记成 unknown_source，
+        # 任何 chunk 都无法回溯到 PDF（血缘审计会打 0% 可追溯）。
+        ok = insert_text(payload, file_paths=[f"ccus_docs/{it['file']}"])
         dt = time.time() - t0
         if ok:
             done += 1

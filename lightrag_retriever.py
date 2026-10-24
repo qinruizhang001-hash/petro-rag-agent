@@ -162,10 +162,18 @@ class _LightRAGBridge:
 
     # ─── 对外同步接口 ──────────────────────────────
 
-    def insert_text(self, text: str, timeout: float = 1800):
+    def insert_text(self, text: str, timeout: float = 1800, file_paths=None):
         """增量建图。超时默认 30 分钟：一个 chunk 的实体抽取在 CPU 上就要几十秒，
-        多 chunk 文档累计起来很容易超过检索用的 10 分钟。"""
-        return self._submit(lambda: self._rag.ainsert(text), timeout=timeout)
+        多 chunk 文档累计起来很容易超过检索用的 10 分钟。
+
+        ``file_paths`` 是**血缘**，不是装饰：不传的话 LightRAG 会把
+        ``file_path`` 记成 ``unknown_source``，于是任何一个 chunk、实体或
+        关系都无法回溯到源 PDF。此前 23 篇文档全部是 unknown_source，
+        等于知识库自己说不清"这句话是从哪篇论文来的"。
+        """
+        return self._submit(
+            lambda: self._rag.ainsert(text, file_paths=file_paths), timeout=timeout
+        )
 
     def query_data(self, query: str, mode: str = "hybrid") -> dict:
         """返回结构化检索结果（不经过 LLM 生成），供 rerank 使用。"""
@@ -248,7 +256,7 @@ def query_graph_answer(query: str, mode: str = "hybrid") -> str:
         return ""
 
 
-def insert_text(text: str, timeout: float = 1800) -> bool:
+def insert_text(text: str, timeout: float = 1800, file_paths=None) -> bool:
     """
     把一段文本**增量**写入知识图谱（建图入口）。
 
@@ -258,12 +266,16 @@ def insert_text(text: str, timeout: float = 1800) -> bool:
     两套参数建出来的图和查询时的切分粒度对不上，检索会静默退化 —— 不报错，
     只是召回变差，这种问题最难查。
 
+    ``file_paths``：源文件名（或相对路径）。**务必传**，否则文档血缘为
+    ``unknown_source``，报告里的引用就无法回溯。``scripts/corpus_audit.py``
+    会把可追溯率打出来。
+
     返回 True 表示成功。失败只记日志并返回 False，不抛异常：批量入库时
     单篇论文失败不应该中断整个流程。
     """
     try:
         bridge = _get_bridge()
-        bridge.insert_text(text, timeout=timeout)
+        bridge.insert_text(text, timeout=timeout, file_paths=file_paths)
         return True
     except Exception as e:
         log.warning(f"  [LightRAG] 增量建图异常: {e}")

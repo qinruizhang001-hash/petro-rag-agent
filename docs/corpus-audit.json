@@ -1,0 +1,370 @@
+{
+  "corpus": {
+    "files": [
+      {
+        "file": "ccus1.pdf",
+        "pages": 15,
+        "extractable": 45275,
+        "ingested": 3977,
+        "coverage": 0.0878,
+        "seconds": 43.8,
+        "chars_per_sec": 90.8,
+        "in_graph": true
+      },
+      {
+        "file": "ccus2.pdf",
+        "pages": 37,
+        "extractable": 70852,
+        "ingested": 3943,
+        "coverage": 0.0557,
+        "seconds": 35.0,
+        "chars_per_sec": 112.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus3.pdf",
+        "pages": 38,
+        "extractable": 77486,
+        "ingested": 3900,
+        "coverage": 0.0503,
+        "seconds": 44.7,
+        "chars_per_sec": 87.2,
+        "in_graph": true
+      },
+      {
+        "file": "ccus4.pdf",
+        "pages": 16,
+        "extractable": 41467,
+        "ingested": 3905,
+        "coverage": 0.0942,
+        "seconds": 18.0,
+        "chars_per_sec": 216.9,
+        "in_graph": true
+      },
+      {
+        "file": "ccus5.pdf",
+        "pages": 15,
+        "extractable": 65479,
+        "ingested": 3867,
+        "coverage": 0.0591,
+        "seconds": 53.0,
+        "chars_per_sec": 73.0,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_01.pdf",
+        "pages": 47,
+        "extractable": 161877,
+        "ingested": 4157,
+        "coverage": 0.0257,
+        "seconds": 37.5,
+        "chars_per_sec": 110.9,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_02.pdf",
+        "pages": 23,
+        "extractable": 52151,
+        "ingested": 4131,
+        "coverage": 0.0792,
+        "seconds": 40.9,
+        "chars_per_sec": 101.0,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_03.pdf",
+        "pages": 17,
+        "extractable": 60632,
+        "ingested": 3997,
+        "coverage": 0.0659,
+        "seconds": 50.4,
+        "chars_per_sec": 79.3,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_04.pdf",
+        "pages": 27,
+        "extractable": 122265,
+        "ingested": 4001,
+        "coverage": 0.0327,
+        "seconds": 35.5,
+        "chars_per_sec": 112.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_05.pdf",
+        "pages": 19,
+        "extractable": 75309,
+        "ingested": 3912,
+        "coverage": 0.0519,
+        "seconds": 39.7,
+        "chars_per_sec": 98.5,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_06.pdf",
+        "pages": 16,
+        "extractable": 42208,
+        "ingested": 3905,
+        "coverage": 0.0925,
+        "seconds": 39.3,
+        "chars_per_sec": 99.4,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_07.pdf",
+        "pages": 6,
+        "extractable": 26371,
+        "ingested": 4029,
+        "coverage": 0.1528,
+        "seconds": 54.9,
+        "chars_per_sec": 73.4,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_08.pdf",
+        "pages": 25,
+        "extractable": 72966,
+        "ingested": 4040,
+        "coverage": 0.0554,
+        "seconds": 48.5,
+        "chars_per_sec": 83.3,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_09.pdf",
+        "pages": 5,
+        "extractable": 13844,
+        "ingested": 4086,
+        "coverage": 0.2951,
+        "seconds": 54.4,
+        "chars_per_sec": 75.1,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_10.pdf",
+        "pages": 52,
+        "extractable": 131010,
+        "ingested": 3923,
+        "coverage": 0.0299,
+        "seconds": 36.1,
+        "chars_per_sec": 108.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_11.pdf",
+        "pages": 26,
+        "extractable": 61719,
+        "ingested": 3453,
+        "coverage": 0.0559,
+        "seconds": 43.3,
+        "chars_per_sec": 79.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_12.pdf",
+        "pages": 58,
+        "extractable": 76897,
+        "ingested": 4096,
+        "coverage": 0.0533,
+        "seconds": 29.8,
+        "chars_per_sec": 137.4,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_13.pdf",
+        "pages": 5,
+        "extractable": 14054,
+        "ingested": 4020,
+        "coverage": 0.286,
+        "seconds": 44.3,
+        "chars_per_sec": 90.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_14.pdf",
+        "pages": 15,
+        "extractable": 81827,
+        "ingested": 3965,
+        "coverage": 0.0485,
+        "seconds": 47.5,
+        "chars_per_sec": 83.5,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_15.pdf",
+        "pages": 52,
+        "extractable": 93361,
+        "ingested": 4031,
+        "coverage": 0.0432,
+        "seconds": 25.8,
+        "chars_per_sec": 156.2,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_16.pdf",
+        "pages": 5,
+        "extractable": 10810,
+        "ingested": 4051,
+        "coverage": 0.3747,
+        "seconds": 34.7,
+        "chars_per_sec": 116.7,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_17.pdf",
+        "pages": 9,
+        "extractable": 24058,
+        "ingested": 4035,
+        "coverage": 0.1677,
+        "seconds": 55.8,
+        "chars_per_sec": 72.3,
+        "in_graph": true
+      },
+      {
+        "file": "ccus_auto_18.pdf",
+        "pages": 14,
+        "extractable": 45373,
+        "ingested": 3997,
+        "coverage": 0.0881,
+        "seconds": 59.4,
+        "chars_per_sec": 67.3,
+        "in_graph": true
+      }
+    ],
+    "files_total": 23,
+    "files_in_graph": 23,
+    "pages_total": 542,
+    "extractable_total": 1467291,
+    "ingested_total": 91421,
+    "coverage": 0.0623,
+    "extract_seconds_total": 972.3,
+    "sec_per_1000_chars": 10.64
+  },
+  "projection": [
+    {
+      "label": "每篇 4000 字符",
+      "chars": 92000,
+      "coverage": 0.0627,
+      "hours": 0.27
+    },
+    {
+      "label": "每篇 8000 字符",
+      "chars": 184000,
+      "coverage": 0.1254,
+      "hours": 0.54
+    },
+    {
+      "label": "每篇 12000 字符",
+      "chars": 276000,
+      "coverage": 0.1881,
+      "hours": 0.82
+    },
+    {
+      "label": "每篇 20000 字符",
+      "chars": 460000,
+      "coverage": 0.3135,
+      "hours": 1.36
+    },
+    {
+      "label": "全文（无预算）",
+      "chars": 1467291,
+      "coverage": 1.0,
+      "hours": 4.34
+    }
+  ],
+  "chunks": {
+    "count": 71,
+    "chars_total": 110332,
+    "chars_mean": 1554,
+    "chars_min": 30,
+    "chars_max": 2294,
+    "per_doc_min": 1,
+    "per_doc_max": 4,
+    "docs": 23
+  },
+  "graph": {
+    "nodes": 394,
+    "edges": 404,
+    "components": 85,
+    "largest": 244,
+    "largest_ratio": 0.6193,
+    "isolated": 61,
+    "top": [
+      244,
+      11,
+      8,
+      7,
+      6,
+      6,
+      5,
+      4,
+      4,
+      4
+    ],
+    "types": {
+      "technology": 105,
+      "parameter": 85,
+      "geologicalbody": 65,
+      "process": 63,
+      "risk": 23,
+      "material": 23,
+      "unknown": 16,
+      "regulation": 7,
+      "wellborecomponent": 3,
+      "transport": 3,
+      "other": 1
+    },
+    "exists": true,
+    "isolated_ratio": 0.1548,
+    "mean_degree": 2.05
+  },
+  "lineage": {
+    "docs": 23,
+    "unknown_source": 23,
+    "traceable": 0,
+    "traceable_ratio": 0.0
+  },
+  "vectors": {
+    "exists": true,
+    "collections": [
+      {
+        "name": "ccus_knowledge",
+        "vectors": 670,
+        "referenced": true
+      },
+      {
+        "name": "ccus_knowledge_v2",
+        "vectors": 671,
+        "referenced": true
+      },
+      {
+        "name": "ccus_knowledge_v3",
+        "vectors": 1982,
+        "referenced": true
+      },
+      {
+        "name": "petro_knowledge",
+        "vectors": 3,
+        "referenced": false
+      },
+      {
+        "name": "petro_pdf_knowledge",
+        "vectors": 1,
+        "referenced": true
+      },
+      {
+        "name": "russian_knowledge",
+        "vectors": 81,
+        "referenced": false
+      }
+    ],
+    "vectors_total": 3408,
+    "dead_collections": [
+      "petro_knowledge",
+      "russian_knowledge"
+    ],
+    "dead_vectors": 84
+  },
+  "graph_budget_default": 4000
+}

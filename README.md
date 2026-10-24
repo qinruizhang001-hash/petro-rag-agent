@@ -2348,6 +2348,12 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
 
 ### What this system is not, yet
 
+**The single largest limitation is not in the model — it is the ingestion budget.** `ingest_ccus_batch.py` feeds LightRAG only the first `--graph-budget` characters of each paper (default 4,000), so the graph below is built from **6.2 % of the corpus**: 91,421 characters ingested out of 1,467,291 extractable, measured by `python scripts/corpus_audit.py` (snapshot in `docs/corpus-audit.json`). Every "the knowledge base is too small" objection is downstream of that one number, and the fix is machine time rather than more papers — an isolated A/B on a single paper shows entity density stays flat when the budget goes from 4,000 characters to full text (3.50 → 3.59 entities per 1,000 characters), and the marginal extraction rate on this GPU is 5.5 s per 1,000 characters, so full coverage costs roughly 2–3 hours.
+
+**Document lineage was 0 % traceable until this week.** All 23 documents carried `file_path = unknown_source` because `insert_text` never passed `file_paths`, so no sentence in any report could be traced back to a PDF. Fixed in code and pinned by `tests/test_lineage.py`; existing data keeps the old value until the next re-ingest.
+
+`docs/gap-register.md` records these two findings plus 15 other claims from review — each with a verdict (factual error / already known / real gap / research topic), the evidence, and what it would cost to close.
+
 **The graph is now a network, but only just — and it took normalisation, not more papers, to get there.** The honest trajectory, all measured on the same corpus:
 
 | Stage | Nodes | Edges | Components | Largest component |

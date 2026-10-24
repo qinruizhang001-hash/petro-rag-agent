@@ -309,6 +309,7 @@ jobs:
             tests.test_physics_rules \
             tests.test_physics_audit \
             tests.test_aggregate_split \
+            tests.test_lineage \
             tests.test_logging_setup \
             tests.test_text_cleaning \
             tests.test_entity_aliases \
