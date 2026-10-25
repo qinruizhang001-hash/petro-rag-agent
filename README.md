@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1080%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1118%20unit-brightgreen">
 </p>
 
 ---
@@ -41,7 +41,7 @@ flowchart TB
 
     NG["nginx :80<br/>host 8080<br/>the only public port"]
 
-    BE["FastAPI :8000<br/>gunicorn · 2 workers<br/>Bearer token on /api/*"]
+    BE["FastAPI :8000<br/>gunicorn · 1 worker<br/>Bearer token on /api/*"]
     FE["Streamlit :8501<br/>instrument panel<br/>server-side fetch + token"]
 
     OL["Ollama :11434<br/>runs on the host,<br/>not in Docker<br/>qwen2.5 · embeddings"]
@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **1106 unit tests, 989 of them on every push** | 894 stdlib-only · 95 dependency-backed without torch; the other 117 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
+| 3 | **1118 unit tests, 1047 of them on every push** | 906 stdlib-only · 78 dependency-backed without torch · 17 gate/graph · 46 chart/UI; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ + closed-loop plan** | latest-timestamp wins · mean + 90 % CI over 100 runs · 5 priors · Gaussian-copula correlation · Sobol first-order/total · probability → ok/warn/alert with a Wilson interval · then a constrained solve for well count / pressure cap / rate that meets the budget |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**1080 unit tests, of which 1010 run on every push** (871 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 70 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**1118 unit tests, of which 1047 run on every push** (906 that import nothing outside the standard library · 78 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -489,17 +489,19 @@ Two interventions fixed it, and the measurement shows which one mattered:
 
 | Stage | Nodes | Edges | Components | Largest | What changed |
 |-------|------:|------:|-----------:|--------:|--------------|
-<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（8.1% 正文覆盖）。
-     2026-10-25 全文重建后图谱为 4,826 实体 / 5,008 关系，绝对数字已变，
-     但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
+<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（12 篇论文 / 8.1% 正文覆盖）。
+     2026-10-25 全文重建后图谱为 4,988 实体 / 5,128 关系（加 162 个策展节点前为 4,826 / 5,008），
+     绝对数字已变，但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
 | Default LightRAG type table | 765 | 559 | 247 | 83 | — |
 | **+ 8-type domain ontology** | 433 | 426 | **96** | 252 | explicit *never-extract* list |
 | + corpus screening | 422 | 419 | 91 | 252 | `ccus4.pdf` dropped (NOMA paper, not CCUS) |
 | **+ entity disambiguation** | 389 | 400 | **84** | **244** | 17 alias groups merged, 8 dirty nodes deleted |
 
+> **Scope of this table: the first 12-paper, abstract-level build.** It is here because it is the measurement that decided the design, not because it describes the graph today. The current full-text graph is **4,988 entities / 5,128 relations / 1,226 components / largest component 3,073**. The same relative ordering holds on it, which is why the conclusion below survives — but anyone quoting 389 / 400 as this project's graph size is quoting a measurement taken on eleven times less text.
+
 **The ontology constraint did 61 % of the work (247 → 96); alias merging only did 91 → 84.** That is the useful finding: *typed* extraction beats *synonym* merging, because the damage was never "two names for one thing" — it was "things that should not be entities at all." Merging `CO2` / `Carbon Dioxide (CO2)` matters, but deleting `AGH University of Krakow` matters far more.
 
-The merge rules are deliberately boring — case, plural, parenthetical gloss, citation suffix, plus a hand-written synonym table. No fuzzy matching, no edit distance, no embedding similarity: **a missed merge costs one edge, a wrong merge permanently fuses two distinct geological concepts.** `normalize_graph.py` therefore defaults to `--dry-run`, which replays the whole plan through a union-find projection before touching storage; the projection (389/400/84/244) matched the real rebuild exactly, so the 15-minute re-ingest never had to be repeated.
+The merge rules are deliberately boring — case, plural, parenthetical gloss, citation suffix, plus a hand-written synonym table. No fuzzy matching, no edit distance, no embedding similarity: **a missed merge costs one edge, a wrong merge permanently fuses two distinct geological concepts.** `normalize_graph.py` therefore defaults to `--dry-run`, which replays the whole plan through a union-find projection before touching storage; on that 12-paper corpus the projection (389 / 400 / 84 / 244) matched the real rebuild exactly, so the 15-minute re-ingest never had to be repeated.
 
 ### 3–4. 33 % off the rerank, with the answer left untouched
 
@@ -517,7 +519,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1106 unit tests** (989 in CI: 894 stdlib-only · 95 dependency-backed without torch), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1118 unit tests** (1047 in CI: 906 stdlib-only · 78 dependency-backed without torch · 17 gate/graph · 46 chart/UI), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -596,7 +598,7 @@ A relevance score below `SELF_RAG_MIN_SCORE` (default `0.55`) triggers one bound
 ```mermaid
 flowchart TD
     UI["Browser<br/>:8080"] -->|"one origin"| NG["nginx<br/>/api/* · /*"]
-    NG -->|"SSE stream"| API["FastAPI Backend<br/>gunicorn · 2 workers"]
+    NG -->|"SSE stream"| API["FastAPI Backend<br/>gunicorn · 1 worker"]
     NG -->|"WebSocket"| ST["Streamlit Console"]
     ST -->|"Bearer token"| API
     API --> LG["LangGraph Multi-Agent Orchestrator"]
@@ -706,12 +708,31 @@ The deep verdict is also injected into the report prompt as fact lines (`render_
 
 ### Human-in-the-loop
 
-The graph contains a `hitl_gate` node. Two compile targets share the same graph definition:
+The graph contains a `hitl_gate` node. Three compile targets share the same graph definition:
 
 | Graph | Compile flags | Behaviour |
 |---|---|---|
-| `app` / `app_stream` | no `interrupt_before` | gate auto-approves and **records** `human_decision.auto = true` — the API response says `human_review.auto: true`, so "nobody looked at this" is never disguised as "approved" |
-| `app_hitl` | `interrupt_before=["hitl_gate"]` | pauses before the gate; state persists in SQLite, so approval can arrive hours later from a different process |
+| `app` | `checkpointer`, no `interrupt_before` | gate auto-approves and **records** `human_decision.auto = true` |
+| `app_stream` | **no checkpointer** | gate auto-approves; no checkpoint at all — see the contract below |
+| `app_hitl` | `checkpointer` + `interrupt_before=["hitl_gate"]` | pauses before the gate; state persists in SQLite, so approval can arrive hours later from a different request |
+
+**Which endpoints can be resumed, and which cannot.** This is a contract, not an implementation detail, because every response that carries a `thread_id` invites the caller to try to approve it:
+
+| Endpoint | `thread_id` returned | Checkpoint | Can be resumed with `/api/approve`? |
+|---|---|---|---|
+| `POST /api/analyze` (SSE) | yes, for log correlation | **none** | **No.** `SqliteSaver` has no async support, so `app_stream` is compiled without a checkpointer. If the connection drops, that run is gone — there is no state to resume |
+| `POST /api/analyze/sync` | **no** | yes | **No.** It never stops at the gate, so there is no "awaiting approval" state. No `thread_id` is returned precisely so nobody tries |
+| `POST /api/analyze/hitl` | yes | yes | **Yes.** The only endpoint that returns `status: "awaiting_approval"` |
+
+Every one of those responses carries `human_review.auto`. On the auto paths it is always `true`, and the console renders it as a warning directly under "assessment complete" rather than a caption further down — a `✅` next to an unreviewed report is the misreading this field exists to prevent.
+
+**The backend runs exactly one gunicorn worker, and that is a correctness constraint.** `SqliteSaver` has no cross-process mutual exclusion: two workers connecting to the same `checkpoint.db` fail on concurrent writes. Measured on Windows, 2 processes × 60 checkpoint writes × 10 rounds = 1,200 writes: **3 failures with the default settings, and 3 failures with WAL + `busy_timeout=30s`**. The error is `OperationalError: attempt to write a readonly database`, raised in `SqliteSaver.put`'s `INSERT` — so it is not a HITL-only problem, it is *any* node finishing that can kill a run.
+
+WAL does not fix it, and that is worth stating plainly: WAL addresses `SQLITE_BUSY` (lock waiting), while this is the Windows VFS mapping a sharing violation to `SQLITE_READONLY`, which never invokes the busy handler. "Add WAL and you are multi-worker safe" is the plausible-sounding fix that does not hold. `gunicorn.conf.py` therefore clamps `WEB_CONCURRENCY` to 1 and prints why; `CHECKPOINT_ALLOW_MULTI_WORKER=1` is the escape hatch for a future Postgres/Redis saver.
+
+Throughput does not depend on worker count: `UvicornWorker` serves requests concurrently on the event loop and the blocking work (LLM calls, reranking) runs in `asyncio.to_thread`. What a second worker would definitely buy is a second 2.2 GB copy of the reranker. WAL is still enabled, for a different reason: `/health` reads `checkpoint.db` on its own connection, and under a rollback journal a read during a write returns "database is locked" — which the probe used to report as "0 checkpoints".
+
+One honest boundary: `checkpoint.db` lives inside the container and is **not** on a volume, so "approval can arrive hours later" holds across worker restarts, not across `docker compose down`. Point `CHECKPOINT_DB` at a mounted directory if you need that.
 
 ```bash
 # 1) run until the gate, get the report + physics verdict
@@ -962,7 +983,7 @@ Missing fields render as `-` rather than raising: most log lines have no model o
 ## Deployment (Docker)
 
 <!-- 中文注释：生产级容器化。整个栈四个容器：nginx（唯一对外入口 :8080）、
-     frontend（Streamlit:8501）、backend（FastAPI:8000，gunicorn 2 worker）。
+     frontend（Streamlit:8501）、backend（FastAPI:8000，gunicorn 1 worker）。
      Ollama 刻意不在栈里，复用宿主机那一份 —— 原因是内存和 GPU，见下。
      这一节的重点不是"能起来"，而是几件在本地跑不出来、只有进容器才暴露的事：
      1) 服务名就是主机名 —— 写 localhost 会连到容器自己；
@@ -1030,7 +1051,7 @@ setx OLLAMA_HOST 0.0.0.0:11434
 |---|---|---|---|
 | `nginx` | `nginx:alpine` | **8080 → 80** | Single entry point. `/api/*` → backend, `/*` → frontend |
 | `frontend` | built from `Dockerfile` | 127.0.0.1:8501 | `streamlit run app.py --server.port=8501` |
-| `backend` | same image | 127.0.0.1:8000 | `gunicorn api_server:api --config gunicorn.conf.py` (2 workers) — `/docs` |
+| `backend` | same image | 127.0.0.1:8000 | `gunicorn api_server:api --config gunicorn.conf.py` (1 worker) — `/docs` |
 | `ollama` | **host process** | — | Reached at `host.docker.internal:11434`; `qwen2.5` generates, `nomic-embed-text` embeds (768-d, fixed in `lightrag_retriever.py`) |
 
 ### Why Ollama is not in the stack
@@ -1087,28 +1108,26 @@ Frontend and backend read `API_TOKEN` from the **same** `env_file`, which is the
 
 An empty `API_TOKEN` disables auth (local development) and logs a warning at import — not in `__main__`, because gunicorn imports the module and never runs that branch.
 
-### Process model: gunicorn, and the memory bill it comes with
+### Process model: one worker, and why that is not a downgrade
 
 ```python
 # gunicorn.conf.py
-workers = 4                                  # WEB_CONCURRENCY
+workers = resolve_worker_count(int(os.getenv("WEB_CONCURRENCY", "4")), ...)  # → 1
 worker_class = "uvicorn_worker.UvicornWorker"
 timeout = 900
 ```
 
-`uvicorn --workers 4` would start four processes and manage none of them; gunicorn's arbiter restarts crashed workers and supports graceful reloads. That is the difference being bought here.
+`uvicorn --workers N` would start N processes and manage none of them; gunicorn's arbiter restarts crashed workers and supports graceful reloads. That is the difference being bought here — not the worker count.
 
 The worker class is `uvicorn_worker.UvicornWorker`, not `uvicorn.workers.UvicornWorker`. The latter still works in uvicorn 0.54 but emits a `DeprecationWarning` and is slated for removal — pinning to it means the container fails to import on some future minor bump.
 
-Two things about this configuration are easy to get wrong in opposite directions:
-
 **`timeout` must be raised.** gunicorn's default is 30 s. One assessment takes 90–150 s, so the default kills the worker mid-report and leaves a single `worker timeout` line in the log.
 
-**Worker count is a memory decision, not a throughput dial.** `core/reranker.py` loads a 2.2 GB model at import time, so each worker carries its own private copy — four of them is 10–12 GB before Ollama gets a byte. `gunicorn.conf.py` prints that arithmetic from `/proc/meminfo` at startup and warns when it does not fit. This repo ships **`WEB_CONCURRENCY=2`** (≈4.4 GB) because the reference machine has 16 GB; four was written, measured against the machine, and rejected. Raise it only after redoing the sum.
+**The worker count is pinned to 1 by the checkpointer, not by memory.** `SqliteSaver` has no cross-process mutual exclusion, so two workers writing the same `checkpoint.db` fail — measured 3 failures in 1,200 writes, and WAL does not help (details in [Human-in-the-loop](#human-in-the-loop)). The memory argument points the same way — `core/reranker.py` loads a 2.2 GB model at import time and each worker carries its own copy — but it is the second reason, not the first. `gunicorn.conf.py` still prints the memory arithmetic from `/proc/meminfo` at startup, because it is what will stop you if you ever do raise the count after switching savers.
 
-`preload_app` is deliberately **off**, even though it would share the model copy-on-write and save ~8 GB. `lightrag_retriever` starts a background thread that runs LightRAG's event loop at import time, and threads do not survive `fork` — the children would inherit a "ready" flag for a loop that is not running, and retrieval would hang forever. Preload buys memory and sells correctness.
+`preload_app` is deliberately **off**, even though it would share the model copy-on-write and save ~2 GB. `lightrag_retriever` starts a background thread that runs LightRAG's event loop at import time, and threads do not survive `fork` — the children would inherit a "ready" flag for a loop that is not running, and retrieval would hang forever. Preload buys memory and sells correctness.
 
-**What two workers do and do not fix.** They stop one slow assessment from blocking a second request. They do not make inference faster — every worker queues at the same Ollama, and the host Ollama runs with `OLLAMA_NUM_PARALLEL=1` because an 8 GB laptop GPU cannot hold two resident copies of a 7B model. So the two fan-out branches are genuinely concurrent *in the graph* but serialize *at the model*: the wall-clock saving shows up only when the branches are not both waiting on inference. They also do not remove shared-state contention — HITL threads are checkpointed in `checkpoint.db`, and multiple processes writing one SQLite file can contend, so `WEB_CONCURRENCY=1` is the honest setting if you exercise the human gate heavily.
+**What one worker does and does not cost.** Concurrency is not lost: `UvicornWorker` serves requests on the event loop, and every blocking call (LLM, rerank, retrieval) goes through `asyncio.to_thread`, so a second request does not wait for the first. What *is* lost is process-level redundancy — if the worker dies, in-flight assessments die with it. Given that inference is the bottleneck and every worker queues at the same Ollama (`OLLAMA_NUM_PARALLEL=1`), a second process buys very little wall-clock and costs 2.2 GB.
 
 ### Health: real dependencies, not "the process is alive"
 
@@ -2047,7 +2066,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1080 unit tests** (1010 on every push), and a self-hosted end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1118 unit tests** (1047 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -2409,7 +2428,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Forty-nine suites (`tests/`). CI runs 989 of those tests; the other 117 need torch/chromadb/plotly and run locally or on the self-hosted runner:
+Fifty suites (`tests/`). CI runs 1047 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2613,7 +2632,7 @@ Three things this measurement settled, and one it did not:
 
 1. **Entity density is flat in budget.** An isolated A/B on one paper gave 3.50 → 3.59 entities per 1,000 characters going from 4,000 characters to full text. The truncation was discarding equal-density knowledge, not a low-value tail — which is why "read more" was worth 3.4 hours of GPU time.
 2. **The end-to-end rate is 14.8 s per 1,000 characters, not 5.5.** The 5.5 s figure came from a short paper's *marginal* rate and under-estimated the rebuild by half; the actual run took **3 h 26 min** for 1,092,271 characters. Two earlier numbers in this section were wrong for the same class of reason (6.2 % came from using raw page text as the denominator, including reference lists we deliberately strip) and are corrected here rather than quietly deleted.
-3. **Coverage and connectivity are different problems, and coverage made connectivity worse.** Isolated nodes went from 15.5 % to 17.5 % — not the 12 % predicted — because nine times more text brought in many peripheral entities that nothing links to. The largest component still holds 62 % of the nodes, but there are now 322 multi-node components. This is the honest remaining gap: **the graph is broad and shallow**. I originally wrote that closing it "needs relation normalisation, not more papers" — the second half was right, the first was not. Normalisation merges variants that are already there; it cannot invent a second caprock formation. What the measurement actually showed was a distribution problem (18 caprocks against 1,310 parameters), and the fix was a curated, referenced ontology rather than another pass over the same 22 PDFs — see §4 above. That took the largest component from 2,992 to 3,073 and cost connectivity inside the thin dimensions, because new nodes arrive with fewer edges each.
+3. **Coverage and connectivity are different problems, and coverage made connectivity worse.** Isolated nodes went from 15.5 % to 17.9 % — not the 12 % predicted — because nine times more text brought in many peripheral entities that nothing links to. The largest component still holds 62 % of the nodes, but there are now 334 multi-node components (1,226 total minus the 892 isolates). This is the honest remaining gap: **the graph is broad and shallow**. I originally wrote that closing it "needs relation normalisation, not more papers" — the second half was right, the first was not. Normalisation merges variants that are already there; it cannot invent a second caprock formation. What the measurement actually showed was a distribution problem (18 caprocks against 1,310 parameters), and the fix was a curated, referenced ontology rather than another pass over the same 22 PDFs — see §4 above. That took the largest component from 2,992 to 3,073 and cost connectivity inside the thin dimensions, because new nodes arrive with fewer edges each.
 4. **What did not get fixed:** one chunk of `ccus_auto_17.pdf` returned an empty JSON extraction result, contributing zero entities. That is a per-chunk failure, not a per-paper one, and it accounts for most of the 0.3 % coverage gap. It is recorded rather than retried because re-ingesting the paper to recover one chunk would also re-extract the other 43.
 
 
@@ -2625,24 +2644,26 @@ Three things this measurement settled, and one it did not:
 
 | Stage | Nodes | Edges | Components | Largest component |
 |---|---|---|---|---|
-<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（8.1% 正文覆盖）。
-     2026-10-25 全文重建后图谱为 4,826 实体 / 5,008 关系，绝对数字已变，
-     但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
+<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（12 篇论文 / 8.1% 正文覆盖）。
+     2026-10-25 全文重建后图谱为 4,988 实体 / 5,128 关系（加 162 个策展节点前为 4,826 / 5,008），
+     绝对数字已变，但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
 | Hand-written seed (5 papers) | 46 | 32 | — | 46 |
 | 23 papers, LightRAG's default prompt | 765 | 559 | **247** | 83 (10.8 %) |
 | 23 papers, domain type constraints | 433 | 426 | 96 | 252 (58.2 %) |
 | …minus one off-topic paper | 422 | 419 | 91 | 252 (59.7 %) |
 | …plus alias merging and noise removal | **389** | **400** | **84** | **244 (62.7 %)** |
 
+> These are the 12-paper, abstract-level numbers. The graph this repo actually ships is **4,988 / 5,128 / 1,226 components / largest 3,073** — see the scope note in [§1–2](#12-from-a-fragment-cloud-to-a-geological-knowledge-network).
+
 The middle row is the one worth staring at. Going from 5 papers to 23 **multiplied the node count by 16 and left the graph more fragmented than before** — 247 components, the largest holding 11 % of the nodes. Feeding a graph more documents does not weave it together, because LightRAG merges entities by **exact string**, and two abstracts about caprock integrity rarely spell it the same way. The corpus was growing; the connectivity was not.
 
 What actually fixed it was making the extractor agree with itself: a closed type list with an explicit *do-not-extract* list, plus deterministic alias merging (`CO2` ← `Carbon dioxide (CO2)` ← `Carbon Dioxide`, `CCS` ← 7 spellings, `Fault` ← `Faults`). Node count fell by half while the main component tripled, which is the shape you want — fewer nodes, more edges between them.
 
-What is still true: **61 of the 84 remaining components are isolated single nodes** (entities mentioned once, in one paper, with no relation extracted around them), and the graph only sees the first 4 000 characters of each paper. And string normalisation is not entity resolution: `Caprock`, `Caprock Integrity` and `Caprock Seal` are still three nodes, correctly, because they are three different things — but `CO2 plume migration` and `plume migration` are also still two, and that one is a miss. Closing it needs cross-paper coreference, not a bigger alias table.
+What is still true, restated on the current graph: **892 of the 1,226 components are isolated single nodes** — 17.9 % of all nodes are entities mentioned once, in one paper, with no relation extracted around them. And string normalisation is not entity resolution: `Caprock`, `Caprock Integrity` and `Caprock Seal` are still three nodes, correctly, because they are three different things — but `CO2 plume migration` and `plume migration` are also still two, and that one is a miss. Closing it needs cross-paper coreference, not a bigger alias table.
 
-It also only knows what each paper is *about*, not what it *found* — the 4 000-character budget stops before the results sections where the numbers live.
+The 4 000-character budget described above is gone: the corpus is ingested at full text with **99.7 % coverage**, so the graph now reaches the results sections where the numbers live. What has *not* been done is applying the normalisation to the enlarged graph — `normalize_graph.py` has only ever been run in `--dry-run` on it. The measured projection is **4,988 → 4,419 nodes, 1,226 → 1,087 components, largest 3,073 → 2,829 (64.0 %)**, and `--apply` has not been executed, so the graph on disk is still un-normalised. That is deliberate: applying it invalidates every number quoted in this README at once, so it is a scheduled change, not an incidental one.
 
-Closing either gap needs three things this pipeline does not do yet: **entity canonicalisation** (`caprock` / `Cap rock` / `Caprock Integrity` are three nodes today, and only exact-string matching merges them), **entity resolution across papers** rather than per-document extraction, and **full-text extraction** at a cost that does not mean hours of inference. Until then the graph is a good multi-hop index over abstracts, not a domain model.
+Closing the rest needs two things this pipeline does not do: **cross-paper entity resolution** rather than per-document extraction, and **a curated ontology for the dimensions extraction structurally cannot reach** — 22 papers about the same formation will never produce a second caprock, which is why the ontology in [§4](#4-broaden--dataccus_domain_ontologyjson) exists.
 
 **The physics tools are demonstrations, not engineering calculators.**
 
@@ -2707,9 +2728,10 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - [x] **Two-phase flow approximation** — Brooks–Corey relative permeability, Buckley–Leverett front, 1-D finite-volume solver cross-checked against the analytic solution (`utils/relperm.py`, `utils/flow1d.py`)
 - [x] **Poroelastic stress path** — uniaxial-strain coupling (`Δσ_h/ΔP = α(1−2ν)/(1−ν)`, derived from `σ_h = ν/(1−ν)·σ_v + α(1−2ν)/(1−ν)·P` rather than quoted) so the injection layer's total stress rises with pore pressure (`utils/poroelastic.py`). The gate still runs on the conservative fixed-total-stress path: the coupled path holds only *inside* the injection layer, and poroelastic **stress transfer** into the caprock can lower σ_h and promote slip — not modelled. Both verdicts ship side by side, and the monotonicity (coupled ≤ conservative) is proven and grid-tested for ΔP ≥ 0 only, because depletion reverses it
 - [x] **Buoyant column geometry** — the 1-D plume spreads CO₂ across πr², which under-predicts column height and therefore over-predicts breakthrough time. Given a trap area, the same mass in a closed structure gives the early bound; the two geometries bracket the fill time instead of reporting the optimistic one alone (`utils/caprock.py`). Still open: a spill point, which caps the column and can make the early bound too pessimistic
-- [x] Incremental graph ingestion from PDFs (`ccus_docs/`) — 22 papers, full text, 99.7 % coverage, 4,826 entities, lineage 100 % (`ingest_ccus_batch.py` + `normalize_graph.py` + `scripts/repair_partial_ingest.py`). Entity canonicalisation exists but is not yet re-run on the enlarged graph
-- [ ] **Relation normalisation on the full-text graph** — 17.5 % isolated nodes and 322 multi-node components; this is now the top graph-quality item, ahead of adding papers
-- [ ] Async task queue for concurrent assessments (and a reranker shared across workers)
+- [x] Incremental graph ingestion from PDFs (`ccus_docs/`) — 22 papers, full text, 99.7 % coverage, 4,988 entities / 5,128 relations, lineage 100 % (`ingest_ccus_batch.py` + `scripts/repair_partial_ingest.py`). Entity canonicalisation is **written but only ever projected**: `normalize_graph.py` on the current graph gives 4,988 → 4,419 nodes, 1,226 → 1,087 components, largest 3,073 → 2,829 (64.0 %), and `--apply` has not been run
+- [ ] **Apply that normalisation** — the projection is measured and the rules are tested, but applying it moves every graph number in this README at once, so it needs its own commit and a re-run of the audit
+- [ ] **Relation normalisation on the full-text graph** — 17.9 % isolated nodes (892 of 4,988) and 334 multi-node components; this is now the top graph-quality item, ahead of adding papers
+- [ ] Async task queue for concurrent assessments. Not needed for throughput today (one Uvicorn worker already serves concurrent requests through the thread pool); it is needed to share one reranker across processes, which is what a second worker would otherwise duplicate at 2.2 GB a copy
 - [ ] Fetch model prices instead of hardcoding them (off-peak / cache-hit rates)
 - [ ] Feed real per-run costs back into the routing decision (currently the decision is made before the cost is known)
 - [ ] Resume a dropped stream instead of discarding the run (needs an async checkpointer)

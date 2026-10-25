@@ -45,6 +45,8 @@
     "components": 1087,
     "largest": 2829,
     "largest_ratio": 0.6402,
+    "isolated": 822,
+    "isolated_ratio": 0.186,
     "top": [
       2829,
       24,

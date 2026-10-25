@@ -20,6 +20,21 @@ FastAPI 后端，把 LangGraph 多智能体工作流封装为 HTTP 接口。
     GET  /charts/{file}     生成的地质图表静态文件
     GET  /docs              Swagger 交互文档
 
+**产品契约：哪个接口能续人工审核，哪个不能**
+------------------------------------------------
+只有 ``/api/analyze/hitl`` 会暂停并留下可续跑的断点。``/api/analyze``（SSE）
+和 ``/api/analyze/sync`` 都是**一次跑完**，没有断点：
+
+* ``/api/analyze``   无 checkpointer（``SqliteSaver`` 不支持异步），**不能**跨连接
+  续跑。连接断了就是这次任务没了，没有 ``thread_id`` 可以拿来 approve。
+* ``/api/analyze/sync`` 有 checkpointer，但**不停**在闸门前，闸门自动放行并写
+  ``human_review.auto = true``。断点存在，但没有"等待审核"这个状态可续。
+* ``/api/analyze/hitl`` 有 checkpointer + ``interrupt_before``，是**唯一**会返回
+  ``status == "awaiting_approval"`` 的接口。
+
+这条契约必须写在接口文档里而不是留在实现注释里：前端只要看到 ``thread_id``
+就会以为能 approve，而 SSE 返回的 ``thread_id`` 只是日志关联用的。
+
 鉴权:
     ``/api/*`` 全部要求 ``Authorization: Bearer <API_TOKEN>``。
     ``/health``、``/docs``、``/charts`` 不鉴权 —— 前者要给编排系统探活，
@@ -33,9 +48,13 @@ SSE 事件格式（每行 `data: {json}`，空行分隔）:
     {"type":"chart", "chart":{...,"path":"...","summary":"..."}}
     {"type":"done",  "report":"...", "score":9, "extracted_params":"...",
                      "model_routing":{...}, "chart":{...}, "elapsed_s":78.2,
+                     "human_review":{"auto":true,...}, "quality_gate":{...},
                      "cost_estimation":{...}, "complexity":{...},
                      "context_pruning":{...}}
     {"type":"error", "message":"..."}
+
+``done`` 事件里的 ``human_review.auto`` 是**必填**字段，不是可选装饰：
+``true`` 表示"这条结论没有人看过"。自动路径永远是 ``true``。
 
 实现上的两个关键点（都是踩过的坑）:
 
@@ -75,6 +94,7 @@ from workflow import (
     compute_cost_estimation,
 )
 from chart_tools import CHART_DIR
+from core.checkpoint import CHECKPOINT_DB
 from core.config import LOCAL_API_KEY, LOCAL_BASE_URL, LOCAL_MODEL
 from core.gates import is_failed
 
@@ -297,6 +317,13 @@ def _run_agent(user_input: str, thread_id: str) -> dict:
 
 @router.post("/api/analyze/sync")
 async def analyze_sync(request: ProjectRequest):
+    """非流式评估，一次返回完整 JSON。
+
+    有 checkpointer，但**不停**在人工闸门前：闸门自动放行并写
+    ``human_review.auto = true``。所以响应里没有 ``thread_id`` ——
+    不是漏了，是刻意不给审核句柄，避免调用方以为可以 approve 一条
+    从未等待过审核的 thread。
+    """
     log.info(f"[API] 收到 /sync 请求：{request.user_input[:60]}")
     thread_id = f"api_{int(time.time())}"
     try:
@@ -483,7 +510,13 @@ async def _event_stream(user_input: str, thread_id: str):
 
 @router.post("/api/analyze")
 async def analyze_ccus_project(request: ProjectRequest):
-    """SSE 流式评估。前端用 requests(stream=True) 或 EventSource 消费。"""
+    """SSE 流式评估。前端用 ``requests(stream=True)`` 或 EventSource 消费。
+
+    **这个接口没有断点。** ``app_stream`` 不带 checkpointer（``SqliteSaver`` 只
+    实现同步接口），所以连接断开就等于这次任务丢失，也没有任何状态可以拿去
+    approve。响应里的 ``thread_id`` 只用于日志关联，**不是**审核句柄。
+    需要人工把关请用 ``POST /api/analyze/hitl`` —— 那是唯一会停在闸门前的接口。
+    """
     log.info(f"[API] 收到 /stream 请求：{request.user_input[:60]}")
     thread_id = f"api_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
@@ -705,19 +738,26 @@ def _probe_chroma() -> str:
 
 
 def _probe_sqlite() -> str:
-    """checkpoint 库：HITL 暂停/续跑全靠它，路径与 workflow.py 保持一致。"""
-    con = sqlite3.connect("checkpoint.db", timeout=PROBE_TIMEOUT)
+    """checkpoint 库：HITL 暂停/续跑全靠它，路径与 workflow.py 共用 ``CHECKPOINT_DB``。
+
+    为什么要区分两种 ``OperationalError``：以前一律当成 ``n = 0``，于是
+    "库被锁"和"全新环境还没有表"返回同一句话。前者是故障，后者不是 ——
+    探针把故障报成正常，比探针自己挂掉更难查。
+    """
+    con = sqlite3.connect(CHECKPOINT_DB, timeout=PROBE_TIMEOUT)
     try:
         n = con.execute("SELECT count(*) FROM checkpoints").fetchone()[0]
-    except sqlite3.OperationalError:
-        n = 0  # 表还没建：全新环境，不算故障
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise  # 锁库/损坏是真故障，交给 _timed 记成不健康
+        n = 0
     finally:
         con.close()
-    return f"checkpoint.db 可写（{n} 条断点）"
+    return f"{CHECKPOINT_DB} 可读（{n} 条断点）"
 
 
 def _probe_reranker() -> str:
-    """重排模型是否已在进程内 —— 4 个 worker 里每个都要各自加载一份。"""
+    """重排模型是否已在进程内 —— 每个 worker 各加载一份 2.2 GB，不共享。"""
     mod = sys.modules.get("core.reranker")
     if mod is None or not hasattr(mod, "reranker"):
         raise RuntimeError("未加载（首次请求时会加载）")

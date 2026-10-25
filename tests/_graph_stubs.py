@@ -95,7 +95,11 @@ def install_leaf_stubs() -> list[str]:
     _install(
         "evolution_engine",
         query_system_experience=lambda *_a, **_k: "",
-        record_experience=lambda *_a, **_k: None,
+        # 返回值必须是 dict，不能是 None：``nodes/history_node.py`` 会读
+        # ``evo.get("recorded")``。桩返回 None 时，只要这个桩**真的生效**
+        # （也就是 evolution_engine 还没被真实导入过），整图测试就会在
+        # save_file_memory 上崩 —— 而它在原来的导入顺序下一直是"碰巧没事"。
+        record_experience=lambda *_a, **_k: {"recorded": False},
     )
     return list(STUBBED)
 

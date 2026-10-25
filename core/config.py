@@ -122,7 +122,8 @@ cloud_client = (
     OpenAI(base_url=CLOUD_BASE_URL, api_key=CLOUD_API_KEY) if CLOUD_API_KEY else None
 )
 
-# 兼容旧引用（app_ui.py 等外部脚本可能直接用 client）
+# 兼容旧引用（仓库外的一次性脚本可能直接用 client）。
+# 仓库内已经没有任何地方用它 —— 原本唯一的使用者 app_ui.py 已删除。
 client = local_client
 
 _cloud_warned = False

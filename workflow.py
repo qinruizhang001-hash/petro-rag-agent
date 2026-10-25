@@ -60,16 +60,20 @@ LangGraph 工作流定义与编译
 
 ``app_hitl`` 必须带 checkpointer：暂停意味着"进程可以退出、几小时后由另一次
 HTTP 请求续跑"，状态只能落在 sqlite 里。
+
+**后端只能跑一个 worker** —— 这是 ``SqliteSaver`` 的写者约束，实测数字与
+WAL 为什么治不了它，都写在 ``core/checkpoint.py``（连接配置也在那里，那是
+纯 stdlib 模块，所以"PRAGMA 到底设没设上"能在零依赖的 CI job 里直接验证）。
+这里只留结论：``gunicorn.conf.py`` 会把 ``WEB_CONCURRENCY`` 强制降到 1。
 """
 from __future__ import annotations
 
 import core  # noqa: F401  必须最先：触发 core/__init__ 的环境预置
 
-import sqlite3
-
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
 
+from core.checkpoint import CHECKPOINT_DB, open_checkpoint_conn
 from core.config import (
     CLOUD_BASE_URL,
     LOCAL_BASE_URL,
@@ -98,6 +102,7 @@ log = get_logger(__name__)
 
 __all__ = [
     "app", "app_stream", "app_hitl",
+    "CHECKPOINT_DB", "open_checkpoint_conn",
     "NODE_LABELS", "compute_cost_estimation", "main",
 ]
 
@@ -192,7 +197,10 @@ workflow.add_edge("mark_failed", END)
 # ============================================================
 # 12. 初始化 Checkpoint 机制
 # ============================================================
-conn = sqlite3.connect("checkpoint.db", check_same_thread=False)
+# 连接配置在 ``core/checkpoint.py``：它是纯 stdlib，所以"PRAGMA 到底设没设上"
+# 这件事能在零依赖的 CI job 里直接问 sqlite，而不必先编译整张图。
+# 为什么后端只能跑一个 worker、WAL 为什么治不了那个问题，也都写在那个文件里。
+conn = open_checkpoint_conn()
 memory_saver = SqliteSaver(conn)
 app = workflow.compile(checkpointer=memory_saver)
 

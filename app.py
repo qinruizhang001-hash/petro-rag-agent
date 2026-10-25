@@ -672,6 +672,18 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
     else:
         st.success(f"✅ 评估完成（{done_.get('elapsed_s', '-')} 秒）")
 
+    # 自动放行必须**紧跟在"评估完成"下面**，不能藏在风险雷达区的一行 caption 里。
+    # 理由：用户看到 ✅ 会默认"有人确认过了"，而这条路径上根本没有人 ——
+    # `hitl_gate` 在无 interrupt 的编译版本里自己放行并写 auto=true。
+    # 把"未经人工确认"放在离 ✅ 最近的地方，是让误读没有机会发生。
+    review = done_.get("human_review") or {}
+    if review.get("auto"):
+        st.warning(
+            "🔓 **全自动模式：这份结论未经人工确认。**\n\n"
+            "需要人工把关请调用 `POST /api/analyze/hitl` 起一条会暂停的 thread，"
+            "再用 `POST /api/approve` 决定通过或驳回。"
+        )
+
     # 物理一致性校验：一票否决的结论必须顶在最前面，不能被折叠进详情
     physics = done_.get("physics_check") or {}
     if physics.get("blocking"):
@@ -854,12 +866,8 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
             f"分数基于物理校验结果、UQ 概率和注入参数综合计算。"
         )
 
-    review = done_.get("human_review") or {}
-    if review.get("auto"):
-        st.caption(
-            "🔓 本次为全自动模式，结论未经人工确认。"
-            "需要人工把关请调用 `POST /api/analyze/hitl` + `POST /api/approve`。"
-        )
+    # 人工审核状态已在"评估完成"下面用 st.warning 顶格提示过，
+    # 这里不再重复 —— 同一条警示出现两次会让人以为是两件事。
 
     # 成本文案由后端算好（cost_estimation.caption）：成本与"节省"必须来自
     # 同一次计算，前端各算一遍很容易出现量级错配。

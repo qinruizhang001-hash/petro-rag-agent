@@ -40,8 +40,25 @@ _graph_stubs.install_leaf_stubs()
 # 文件记忆必须指到临时目录：否则一次测试就会往真实的 project_history.md 里
 # 写记录（这个坑在 e2e 里踩过，测试问句混进了真实历史）。
 _TMP = tempfile.mkdtemp(prefix="ccus-gate-")
-os.environ.setdefault("PROJECT_HISTORY_PATH", os.path.join(_TMP, "project_history.md"))
-os.environ.setdefault("USER_PROFILE_PATH", os.path.join(_TMP, "user_profile.md"))
+_HISTORY_PATH = os.path.join(_TMP, "project_history.md")
+_PROFILE_PATH = os.path.join(_TMP, "user_profile.md")
+
+# **必须无条件覆盖，不能用 setdefault。** `.env` 里写着 `PROJECT_HISTORY_PATH=`
+# （留空），`load_dotenv()` 会把这个键设成**空字符串** —— 键存在、值为空，
+# setdefault 于是什么也不做。随后若照抄环境变量写进模块常量，历史路径就成了
+# ``''``，直到图跑到 ``ensure_files()`` 才炸成 ``FileNotFoundError: ''``，
+# 离现场已经隔了七八层 langgraph 栈。
+os.environ["PROJECT_HISTORY_PATH"] = _HISTORY_PATH
+os.environ["USER_PROFILE_PATH"] = _PROFILE_PATH
+
+# 环境变量只对**尚未导入**的模块有效：``file_memory`` 在 import 时就把路径
+# 固化成了模块常量（``PROJECT_HISTORY_PATH = _env_path(...)``）。discover 顺序下
+# 它通常已经被前面的测试导入过，于是上面两行形同虚设 —— 必须直接改已导入模块
+# 的常量。与 ``eval_ragas._redirect_loaded_file_memory`` 是同一个坑、同一个解法。
+_file_memory = sys.modules.get("file_memory")
+if _file_memory is not None:
+    _file_memory.PROJECT_HISTORY_PATH = _HISTORY_PATH
+    _file_memory.USER_PROFILE_PATH = _PROFILE_PATH
 
 OVER_PRESSURE_PARAMS = "注入压力 400 bar；埋深 2500 m；温度 80℃"
 SAFE_PARAMS = "注入压力 300 bar；埋深 2500 m；温度 80℃"
@@ -165,6 +182,13 @@ def _load_graph():
 
     导入完立刻把真实模块还原回 ``sys.modules``：否则后面对
     ``nodes.query_nodes`` 等模块的测试会拿到桩（顺序依赖的坑）。
+
+    **导入之后必须验证桩真的生效。** 这套替换只在"workflow 第一次被导入"时
+    起作用：若别的测试模块先 ``import workflow``，``sys.modules`` 里已经有
+    缓存，这里拿到的就是**绑定真实节点**的那张图 —— 而 ``save_file_memory``
+    是真的，于是每跑一次整图就往 ``project_history.md`` 里写 4-5 条测试问句。
+    这个后果不是"测试变慢"，是把真实记忆污染掉，而且没有任何断言会失败。
+    实测发生过一次（一个新测试模块在模块顶层 import 了 workflow）。
     """
     saved = {name: sys.modules.get(name) for name in _STUB_NODES}
     for name, attrs in _STUB_NODES.items():
@@ -179,7 +203,45 @@ def _load_graph():
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = module
+    if getattr(workflow, "save_file_memory", None) is not _save_file_memory:
+        raise AssertionError(
+            "workflow 里的 save_file_memory 不是桩：说明 workflow 在本次导入前"
+            "已经被别的测试模块导入过，图绑定了真实节点。继续跑会往真实的 "
+            "project_history.md 写测试问句。请检查哪个测试模块在顶层 import 了 "
+            "workflow，把它改成在用例内部导入。"
+        )
+    _assert_memory_is_isolated()
     return workflow
+
+
+def _assert_memory_is_isolated():
+    """历史路径必须是本模块的临时目录，既不能为空、也不能指回仓库。
+
+    空串会等到图跑到 ``ensure_files()`` 才炸（``FileNotFoundError: ''``），
+    错误现场离原因隔了七八层栈；指回仓库则更糟 —— 不报错，只是把测试问句
+    静默写进真实历史。两种都在这里提前拦下。
+    """
+    module = sys.modules.get("file_memory")
+    if module is None:
+        return
+    for attr, expected in (
+        ("PROJECT_HISTORY_PATH", _HISTORY_PATH),
+        ("USER_PROFILE_PATH", _PROFILE_PATH),
+    ):
+        actual = str(getattr(module, attr, "") or "")
+        if not actual.strip():
+            raise AssertionError(
+                f"file_memory.{attr} 是空串。多半是照抄了 os.environ 里的空值"
+                f"（.env 里该键留空），而没走 file_memory._env_path 的空值兜底。"
+            )
+        if os.path.normcase(os.path.abspath(actual)) != os.path.normcase(
+            os.path.abspath(expected)
+        ):
+            raise AssertionError(
+                f"file_memory.{attr} 没指向本测试的临时目录：{actual!r}。"
+                f"继续跑会把测试数据写进真实文件。"
+            )
+
 
 
 @contextlib.contextmanager

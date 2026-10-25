@@ -15,26 +15,63 @@
 #   一删，容器启动就 ImportError。
 # ─────────────────────────────────────────────────────────────
 import os
+import sys
 
 # ── 监听 ──────────────────────────────────────────────────
 bind = "0.0.0.0:8000"
 
 # ── 进程模型 ──────────────────────────────────────────────
-# 4 个 worker：一次推理（地质分支 70-140 s）不会堵住整个服务。
+# **worker 数被强制限制为 1。** 不是保守，是实测：
 #
-# ⚠️ 内存账必须算清楚：core/reranker.py 在 **import 时**加载
-# bge-reranker-v2-m3（2.2 GB 权重，进程 RSS 约 2.5-3 GB）。
-# 4 个 worker = 4 份，合计 10-12 GB，**再加上** Ollama 容器的 ~5 GB。
-# 所以这台机器至少需要 24 GB 内存。
+# checkpoint.db 用 SqliteSaver，它只支持同步接口，跨进程没有互斥。两个 worker
+# 各自 connect 同一个库，并发写会失败。实测（Windows，2 进程 × 60 次写 × 10 轮
+# = 1,200 次）：默认配置 3 次失败，加 WAL + busy_timeout 仍然 3 次失败。
+# 异常是 `attempt to write a readonly database`，抛在 SqliteSaver.put 的
+# INSERT 上 —— 也就是**任何一个节点跑完都可能整条任务崩掉**，不只是 HITL。
 #
+# WAL 治不了它：WAL 解决 SQLITE_BUSY（锁等待），而这里是 Windows VFS 把共享
+# 冲突映射成 SQLITE_READONLY，busy handler 不会被调用。所以"多 worker + WAL"
+# 是个听起来合理、实测不成立的组合。
+#
+# 并发不靠多进程：worker_class 是 UvicornWorker，请求在事件循环里并发，
+# 重活（LLM、检索、重排）都在 asyncio.to_thread 里跑，一个进程能同时服务多个
+# 请求。多开 worker 唯一确定买到的东西是**每个进程各一份 2.2 GB 的 reranker**。
+#
+# 真要回到多 worker，得先换掉 sqlite checkpointer（Postgres/Redis），
+# 然后设 CHECKPOINT_ALLOW_MULTI_WORKER=1 解除这个限制。
+
+
+def resolve_worker_count(requested: int, allow_multi: bool) -> int:
+    """把 WEB_CONCURRENCY 收敛到 checkpoint.db 能承受的值。
+
+    单独抽成函数是为了能被测试直接调用 —— 写死在模块顶层的话，
+    "多 worker 被降级"这件事只能靠读日志确认。
+    """
+    if allow_multi or requested <= 1:
+        return max(1, requested)
+    print(
+        f"[gunicorn] WEB_CONCURRENCY={requested} 被强制降为 1："
+        "checkpoint.db（SqliteSaver）跨进程没有互斥，多写者会以 "
+        "'attempt to write a readonly database' 失败（实测 3/1200 次写）。"
+        "并发由 asyncio + 线程池承担，不需要多进程。"
+        "若已换成 Postgres/Redis checkpointer，设 CHECKPOINT_ALLOW_MULTI_WORKER=1。",
+        file=sys.stderr,
+    )
+    return 1
+
+
+workers = resolve_worker_count(
+    int(os.getenv("WEB_CONCURRENCY", "4")),
+    os.getenv("CHECKPOINT_ALLOW_MULTI_WORKER") == "1",
+)
+worker_class = "uvicorn_worker.UvicornWorker"
+
 # 不用 preload_app 来省内存，原因是它会直接破坏功能：
 #   · lightrag_retriever 在 import 时启动一个后台线程跑 LightRAG 的 event loop；
 #   · 线程不会随 fork 复制，子进程里那个 loop 根本没在跑；
 #   · 于是 _submit 把协程投进去以后永远等不到结果 → 检索挂死。
-# 换句话说，preload 省下的 8 GB 换来的是"看起来起来了但检索不工作"。
-# 内存不够就把 WEB_CONCURRENCY 调小，别开 preload。
-workers = int(os.getenv("WEB_CONCURRENCY", "4"))
-worker_class = "uvicorn_worker.UvicornWorker"
+# 换句话说，preload 省下的内存换来的是"看起来起来了但检索不工作"。
+# 单 worker 之后内存本来就不紧张（一份 reranker 2.2 GB），更没必要冒这个险。
 
 # ── 超时 ──────────────────────────────────────────────────
 # gunicorn 默认 30 s —— 一次评估要 90-150 s，默认值会把正在干活的 worker
@@ -88,11 +125,13 @@ def _warn_if_memory_short() -> None:
     needed_gb = workers * per_worker_gb
 
     if available_gb and needed_gb > available_gb * 0.9:
+        # 注意：worker 数已经被 resolve_worker_count 钳到 1，"调小 WEB_CONCURRENCY"
+        # 这条建议在这里已经无效 —— 能调的只剩容器内存。
         print(
             f"[gunicorn] ⚠️ 内存可能不够：{workers} 个 worker × {per_worker_gb:.1f} GB "
             f"≈ {needed_gb:.0f} GB，当前可用 {available_gb:.1f} GB。\n"
-            f"[gunicorn]    每个 worker 都会各自加载一份 2.2 GB 的重排模型。\n"
-            f"[gunicorn]    请调小 WEB_CONCURRENCY，或给容器更多内存。",
+            f"[gunicorn]    每个 worker 都会各自加载一份 2.2 GB 的重排模型；"
+            f"worker 数已固定为 1，请给容器更多内存。",
             flush=True,
         )
 

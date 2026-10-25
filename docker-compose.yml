@@ -8,7 +8,7 @@
 #
 #   nginx       统一入口 :8080（容器内 80）—— 唯一暴露给外部用户的端口
 #   frontend    Streamlit :8501，只绑回环，经 nginx 访问
-#   backend     FastAPI  :8000，只绑回环，经 nginx 访问；gunicorn 2 worker
+#   backend     FastAPI  :8000，只绑回环，经 nginx 访问；gunicorn 1 worker（强制）
 #
 # Ollama 不在这里 —— 复用宿主机那一份。两个原因，都不是偏好：
 #   1) 内存。这台机器 15.5 GB，2×2.2 GB 的 reranker 已经吃掉 4.4 GB，
@@ -17,7 +17,7 @@
 #      地质分支从 70 秒变成几分钟。宿主机那份已经在用 CUDA，模型也下好了。
 #
 # 代价：换机器要先装 Ollama 并 `ollama pull qwen2.5 nomic-embed-text`。
-# 想恢复完全自包含，把「容器内 Ollama」注释段恢复，并把 WEB_CONCURRENCY 降到 1。
+# 想恢复完全自包含，把「容器内 Ollama」注释段恢复即可（worker 数不要动）。
 #
 # 端口为什么是 8080 而不是 80：
 #   80 需要 root/管理员权限，Windows 上还常被 IIS 或其它服务占用。
@@ -62,9 +62,18 @@ services:
       # 用户改调参可以随便改那个文件，但把服务名改成 localhost 会让整个栈失联，
       # 这类值不值得开放给"顺手改一下"。
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
-      # worker 数。默认 4 是给 24 GB 机器的账，这台 15.5 GB 只能给 2。
-      # 4 个 worker 各自加载一份 2.2 GB 的 reranker，是私有内存，不共享。
-      WEB_CONCURRENCY: 2
+      # worker 数**必须是 1**，这不是性能调参，是 checkpoint.db 的写者约束：
+      # SqliteSaver 跨进程没有互斥，两个 worker 并发写同一个库会以
+      # "attempt to write a readonly database" 失败（实测 2 进程 × 60 次写 × 10 轮
+      # = 1,200 次写里失败 3 次；加 WAL + busy_timeout 仍是 3 次）。
+      # 失败点在每个节点的 checkpoint 写入，所以后果不只是 HITL 续跑失败，
+      # 而是任意一次评估可能中途崩掉。
+      #
+      # 并发不受影响：UvicornWorker 在事件循环里并发，重活在 asyncio.to_thread
+      # 里跑。多开 worker 唯一确定买到的是每个进程各一份 2.2 GB 的 reranker。
+      # gunicorn.conf.py 还会把它强制降到 1 并打印原因，这里写 1 是为了让
+      # 读 compose 的人不必再去看那个文件。
+      WEB_CONCURRENCY: 1
       # 代码里的默认值是 D:\python-learn\chroma_petro（Windows 绝对路径），
       # 在 Linux 容器里不覆盖它，chromadb 会建一个名字里带反斜杠的目录。
       CCUS_CHROMA_PATH: /app/chroma_petro
@@ -100,7 +109,7 @@ services:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
-      # 2 个 worker 各自加载 2.2 GB 模型，冷启动仍比单进程久
+      # 冷启动要加载 2.2 GB 的 reranker，比纯 API 服务久
       start_period: 120s
       retries: 3
     restart: unless-stopped

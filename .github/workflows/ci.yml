@@ -152,8 +152,8 @@ jobs:
             grep -q "^  $svc" docker-compose.yml \
               || { echo "::error::docker-compose.yml lost service $svc"; exit 1; }
           done
-          # 中文注释：Ollama 刻意**不在**栈里。这台机器 15.5 GB 内存，2×2.2 GB 的
-          # reranker 已经吃掉 4.4 GB；再起一个常驻 Ollama 会挤到换页，而容器里的
+          # 中文注释：Ollama 刻意**不在**栈里。这台机器 15.5 GB 内存，后端那 2.2 GB
+          # 的 reranker 已经占住一大块；再起一个常驻 Ollama 会挤到换页，而容器里的
           # Ollama 拿不到 GPU，7B 模型退回 CPU 后一次评估从 70 秒变成几分钟。
           # 所以它跑在宿主机上，后端经 host.docker.internal 访问。
           if grep -qE '^  ollama:' docker-compose.yml; then
@@ -177,11 +177,17 @@ jobs:
           # 在 Linux 容器里不覆盖会建出一个名字带反斜杠的目录 —— 不报错，只是永远查不到东西。
           grep -q 'CCUS_CHROMA_PATH: /app/chroma_petro' docker-compose.yml \
             || { echo "::error::CCUS_CHROMA_PATH must be overridden for the container filesystem"; exit 1; }
-          # 中文注释：worker 数是内存算出来的，不是拍脑袋。每个 worker 私有一份
-          # 2.2 GB 的 reranker；4 个是 24 GB 机器的账，这台 15.5 GB 只能给 2。
-          # 改大之前先看 gunicorn.conf.py 顶部那段 /proc/meminfo 算账。
-          grep -q 'WEB_CONCURRENCY: 2' docker-compose.yml \
-            || { echo "::error::WEB_CONCURRENCY must stay at 2 on a 16 GB host (each worker loads its own 2.2 GB reranker)"; exit 1; }
+          # 中文注释：worker 数必须是 1，这是 checkpoint.db 的写者约束，不是内存调参。
+          # SqliteSaver 跨进程没有互斥：两个 worker 并发写同一个库会以
+          # "attempt to write a readonly database" 失败（实测 3/1200 次写，
+          # 加 WAL + busy_timeout 也一样）。失败点在每个节点的 checkpoint 写入，
+          # 所以后果是任意一次评估可能中途崩掉，不只是 HITL 续跑失败。
+          # 并发由 asyncio + 线程池承担，不需要多进程。
+          grep -q 'WEB_CONCURRENCY: 1' docker-compose.yml \
+            || { echo "::error::WEB_CONCURRENCY must be 1: SqliteSaver has no cross-process write lock"; exit 1; }
+          if grep -q 'WEB_CONCURRENCY: 2' docker-compose.yml; then
+            echo "::error::two workers write the same checkpoint.db; measured failures at 3/1200 writes"; exit 1
+          fi
           # 中文注释：memory/ 是本仓库的 Python 包（memory_manager.py 等）。
           # 容器里的文件记忆必须挂在别的目录名上 —— 排除或挂掉 memory/ 会让
           # 镜像里的代码直接消失，而报错会指向 ImportError，与 Docker 无关。
@@ -259,12 +265,12 @@ jobs:
           grep -q 'from workflow import app' multi_agent_ccus.py \
             || { echo "::error::entry shim must re-export app from workflow"; exit 1; }
           # 图结构只能有一处定义：节点注册 / 边 / 条件路由 / 编译都在 workflow.py。
-          # app_ui.py 是早期自包含的独立 demo（自带一份节点实现与图），
-          # 不参与当前链路，故排除；真要清理它是另一件事。
+          # 早期那份自包含 demo（app_ui.py）自带第二份图，靠这个 job 开排除口子
+          # 才活着 —— 排除口子等于"双源合法化"，所以 demo 已删除。
+          # 现在没有任何例外：除 workflow.py 外，出现图构造即失败。
           for pat in 'add_node\(' 'add_edge\(' 'add_conditional_edges\(' 'workflow\.compile\('; do
             hits=$(grep -rlE "$pat" --include='*.py' . \
                      | grep -v '^\./workflow\.py$' \
-                     | grep -v '^\./app_ui\.py$' \
                      | grep -v '^\./_refactor' || true)
             if [ -n "$hits" ]; then
               echo "::error::graph construction must live in workflow.py only; found in: $hits"
@@ -296,7 +302,9 @@ jobs:
       # 先验分布与参数相关性（copula）/ Sobol 敏感性 / 风险决策阈值 /
       # 注入策略优化（约束求解，含与 UQ 判据的逐样本一致性）/
       # 孔隙弹性应力路径（与保守口径的单调性对比）/
-      # 消融对照（含"补丁是否真的到达调用点"与"三组结果是否互相覆盖"）），
+      # 消融对照（含"补丁是否真的到达调用点"与"三组结果是否互相覆盖"）/
+      # checkpoint 库的写者约束（WAL / busy_timeout 是否真的设上、worker 数是否
+      # 被强制降为 1、compose 是否与代码一致）），
       # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       #
@@ -330,6 +338,7 @@ jobs:
             tests.test_graph_analysis \
             tests.test_domain_ontology \
             tests.test_ablation \
+            tests.test_checkpoint_db \
             tests.test_branch_merge \
             tests.test_retry \
             tests.test_pinn_query \
@@ -517,4 +526,19 @@ jobs:
           done
           grep -q 'interrupt_before' workflow.py \
             || { echo "::error::workflow.py lost the HITL interrupt"; exit 1; }
+          # 中文注释：SSE 端点**没有断点**，这是产品契约的一部分而不是实现细节。
+          # app_stream 必须是不带 checkpointer 的编译版本：一旦有人给它加上，
+          # astream_events 会直接抛 NotImplementedError（SqliteSaver 不支持异步），
+          # 而"流式请求不能跨连接续跑"这条契约也就悄悄变了。
+          grep -q 'app_stream = workflow.compile()' workflow.py \
+            || { echo "::error::app_stream must stay checkpointer-free (no resume on SSE)"; exit 1; }
+          # 中文注释：自动放行必须让调用方看得见。后端下发 auto 标记、前端把它
+          # 渲染成"未经人工确认"，两件事缺一，一份没人看过的报告就会显示成
+          # "评估完成" —— 这正是这套系统最不该犯的错。
+          grep -q 'human_review' api_server.py \
+            || { echo "::error::api_server.py must expose human_review.auto"; exit 1; }
+          grep -q 'human_review' app.py \
+            || { echo "::error::app.py must read human_review from the backend"; exit 1; }
+          grep -q '未经人工确认' app.py \
+            || { echo "::error::app.py must warn that an auto-approved report was not reviewed"; exit 1; }
           echo "Contract OK: frontend is decoupled from domain logic."
