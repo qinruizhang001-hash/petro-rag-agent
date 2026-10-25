@@ -47,6 +47,7 @@ from memory.memory_manager import save_memory
 from nodes.aggregate_finalize import finalize_report
 from nodes.aggregate_prompt import build_materials, build_system_prompt
 from nodes.aggregate_support import (
+    TOOL_HINTS,
     TOOL_POLICY,
     chart_payload,
     example_args,

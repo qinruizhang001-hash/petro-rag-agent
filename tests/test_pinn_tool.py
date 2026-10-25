@@ -31,6 +31,64 @@ except Exception as exc:  # noqa: BLE001
     HAVE_DEPS = False
     ERR = f"{type(exc).__name__}: {exc}"
 
+@unittest.skipUnless(HAVE_DEPS, f"缺少运行时依赖（{ERR}）")
+class TestPlannerToolList(unittest.TestCase):
+    """
+    规划器的工具清单：提示词必须能解析，不能半路 NameError。
+
+    回归背景（2026-10-23，commit 35fe308）：那次重构把 ``_TOOL_HINTS`` 从
+    aggregate_node 搬到 aggregate_support 并改名为 ``TOOL_HINTS``，改了两处
+    引用，**漏了导入**。后果分两条路，只有一条会炸：
+
+        MCP 连得上 → get_client_specs() 成功 → 走到 TOOL_HINTS → NameError
+        MCP 连不上 → 走静态兜底清单 → 一切正常
+
+    也就是说，**配置正确的部署**会崩，而本地没起 MCP 的开发环境看不出来。
+    E2E 当时跑在没有 MCP 的环境里，因此连续几天没抓到。
+    """
+
+    def test_tool_hints_is_bound_in_the_node_module(self):
+        from nodes import aggregate_node as an
+
+        self.assertTrue(
+            hasattr(an, "TOOL_HINTS"),
+            "TOOL_HINTS 未导入：MCP 可用时 _plan_prompt_tools 会抛 NameError",
+        )
+
+    def test_plan_prompt_uses_hints_and_skips_policy_tools(self):
+        from nodes import aggregate_node as an
+
+        specs = [
+            {"name": "get_co2_density", "description": "服务端通用说明",
+             "required": ["pressure_bar"],
+             "properties": {"pressure_bar": {"type": "number"}}},
+            {"name": "query_ccus_graph", "description": "d",
+             "required": ["query"], "properties": {"query": {"type": "string"}}},
+            {"name": "get_fault_stability", "description": "d",
+             "required": ["depth_m"],
+             "properties": {"depth_m": {"type": "number"}}},
+        ]
+        with patch("nodes.aggregate_node.get_client_specs", return_value=specs):
+            text = an._plan_prompt_tools()
+
+        self.assertIn("get_co2_density", text)
+        # 用的是本节点的 TOOL_HINTS，而不是服务端的通用 description
+        self.assertIn("不要自己口算密度", text)
+        # skip_in_planner：确定性触发的工具不该出现在规划器里
+        self.assertNotIn("query_ccus_graph", text)
+        self.assertNotIn("get_fault_stability", text)
+
+    def test_unknown_tool_falls_back_to_its_description(self):
+        """没写 hint 的新工具也不能让清单生成失败。"""
+        from nodes import aggregate_node as an
+
+        specs = [{"name": "brand_new_tool", "description": "新工具说明"}]
+        with patch("nodes.aggregate_node.get_client_specs", return_value=specs):
+            text = an._plan_prompt_tools()
+        self.assertIn("brand_new_tool", text)
+        self.assertIn("新工具说明", text)
+
+
 QUESTION = "预测距离井口 50 米处，注入 10 天后的压力"
 PLAN_WITH_TOOL = '```json\n{"tool": "predict_pressure_pinn", "x": 50, "t": 10}\n```'
 EXPECTED = 109.951          # injection 场景 x=50 m, t=10 d（解析解 110.000）
