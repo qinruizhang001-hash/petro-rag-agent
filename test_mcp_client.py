@@ -35,7 +35,14 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent
 SERVER = "mcp_server_ccus.py"
-EXPECTED_TOOLS = {"get_co2_density", "predict_pressure_pinn", "query_ccus_graph"}
+EXPECTED_TOOLS = {
+    "get_co2_density",
+    "assess_injection_uncertainty",
+    "get_fault_stability",
+    "get_caprock_integrity",
+    "predict_pressure_pinn",
+    "query_ccus_graph",
+}
 
 _results: list[tuple[bool, str, str]] = []
 
@@ -84,7 +91,8 @@ async def run(with_graph: bool) -> int:
             print("\n=== ① 工具发现 ===")
             listed = (await session.list_tools()).tools
             names = {t.name for t in listed}
-            check("服务端暴露了 3 个工具", len(listed) == 3, f"{sorted(names)}")
+            check(f"服务端暴露了 {len(EXPECTED_TOOLS)} 个工具",
+                  len(listed) == len(EXPECTED_TOOLS), f"{sorted(names)}")
             check("工具名与需求一致", names == EXPECTED_TOOLS,
                   f"缺失 {EXPECTED_TOOLS - names}" if names != EXPECTED_TOOLS else "")
 
@@ -95,6 +103,12 @@ async def run(with_graph: bool) -> int:
             check("predict_pressure_pinn 的 schema 含 x / t",
                   {"x", "t"} <=
                   set((by_name["predict_pressure_pinn"].input_schema or {}).get("properties", {})))
+            check("get_fault_stability 的 schema 含 depth_m / injection_pressure_bar",
+                  {"depth_m", "injection_pressure_bar"} <=
+                  set((by_name["get_fault_stability"].input_schema or {}).get("properties", {})))
+            check("get_caprock_integrity 的 schema 含柱高与注入速率",
+                  {"co2_column_height_m", "injection_rate_m3_per_day"} <=
+                  set((by_name["get_caprock_integrity"].input_schema or {}).get("properties", {})))
             check("每个工具都有 description（否则模型不知道何时调用）",
                   all(t.description for t in listed))
 
@@ -104,15 +118,51 @@ async def run(with_graph: bool) -> int:
                 "get_co2_density", {"pressure_bar": 250, "temperature_celsius": 80}
             )
             d = payload(res)
-            expected = 1.9 * 250 / (80 + 273.15)
+            from utils.co2_properties import co2_density_kg_m3
+
+            expected = co2_density_kg_m3(250, 80)
             check("调用未报错", not res.is_error, str(d)[:80])
             check("返回结构化密度值", isinstance(d.get("density_kg_m3"), (int, float)))
-            check(f"密度 ≈ {expected:.2f} kg/m³（状态方程 1.9P/T）",
-                  abs(d.get("density_kg_m3", 0) - expected) < 0.01,
+            check(f"密度 ≈ {expected:.2f} kg/m³（Peng-Robinson）",
+                  abs(d.get("density_kg_m3", 0) / expected - 1.0) < 0.01,
                   f"得到 {d.get('density_kg_m3')}")
 
-            # ─── ③ PINN：必须与解析稳态解对得上 ───
-            print("\n=== ③ predict_pressure_pinn(50 m, 10 d) ===")
+            # ─── ③ 断层活化 / 盖层封闭性：结论必须带假设 ───
+            print("\n=== ③ get_fault_stability(2500 m, 250 bar) ===")
+            res = await session.call_tool(
+                "get_fault_stability",
+                {"depth_m": 2500, "injection_pressure_bar": 250},
+            )
+            f = payload(res)
+            check("调用未报错", not res.is_error, str(f)[:80])
+            check("返回滑移比与临界孔隙压力",
+                  f.get("slip_ratio") is not None and f.get("pp_crit_bar") is not None,
+                  f"slip_ratio={f.get('slip_ratio')}, pp_crit={f.get('pp_crit_bar')}")
+            check("两口径交叉验证一致（滑移比 ≥1 ⟺ 附加压力超余量）",
+                  f.get("consistent") is True, f"consistent={f.get('consistent')}")
+            check("假设参数随结果返回（否则数值会被当成实测）",
+                  bool(f.get("assumptions")), f"{len(f.get('assumptions') or [])} 条")
+
+            print("\n=== ④ get_caprock_integrity(2500 m, 250 bar, 柱高 50 m) ===")
+            res = await session.call_tool(
+                "get_caprock_integrity",
+                {"depth_m": 2500, "injection_pressure_bar": 250,
+                 "temperature_celsius": 60, "co2_column_height_m": 50},
+            )
+            c = payload(res)
+            check("调用未报错", not res.is_error, str(c)[:80])
+            check("返回突破压力与可封柱高",
+                  c.get("entry_pressure_bar") and c.get("max_column_height_m"),
+                  f"Pc={c.get('entry_pressure_bar')} bar, H={c.get('max_column_height_m')} m")
+            check("密度差来自状态方程（不是常数）",
+                  isinstance(c.get("density_difference"), (int, float))
+                  and 100 < float(c["density_difference"]) < 800,
+                  f"Δρ={c.get('density_difference')} kg/m³")
+            check("给出判定结论（柱高已给，不应是 no_data）",
+                  c.get("verdict") not in (None, "no_data"), f"verdict={c.get('verdict')}")
+
+            # ─── ④ PINN：必须与解析稳态解对得上 ───
+            print("\n=== ⑤ predict_pressure_pinn(50 m, 10 d) ===")
             res = await session.call_tool(
                 "predict_pressure_pinn", {"x": 50, "t": 10}
             )
@@ -135,7 +185,7 @@ async def run(with_graph: bool) -> int:
 
             # ─── ④ 图谱检索：证据片段必须非空 ───
             if with_graph:
-                print("\n=== ④ query_ccus_graph（首次调用会加载模型，请稍候）===")
+                print("\n=== ⑥ query_ccus_graph（首次调用会加载模型，请稍候）===")
                 t1 = time.perf_counter()
                 res = await session.call_tool(
                     "query_ccus_graph",
@@ -150,10 +200,10 @@ async def run(with_graph: bool) -> int:
                 check("片段内容非空", bool(frags) and all(len(f) > 50 for f in frags),
                       f"首段 {len(frags[0]) if frags else 0} 字")
             else:
-                print("\n=== ④ query_ccus_graph（已跳过：--no-graph）===")
+                print("\n=== ⑥ query_ccus_graph（已跳过：--no-graph）===")
 
-            # ─── ⑤ 错误路径：不存在的工具必须被拒绝 ───
-            print("\n=== ⑤ 错误路径 ===")
+            # ─── ⑦ 错误路径：不存在的工具必须被拒绝 ───
+            print("\n=== ⑦ 错误路径 ===")
             try:
                 bad = await session.call_tool("no_such_tool", {})
                 check("未知工具被拒绝", bool(bad.is_error), str(payload(bad))[:80])
@@ -176,7 +226,7 @@ async def run(with_graph: bool) -> int:
             if not ok:
                 print(f"  - {name}  {detail}")
         return 1
-    print("✅ MCP Server 三个工具均按预期返回")
+    print("✅ MCP Server 六个工具均按预期返回")
     return 0
 
 

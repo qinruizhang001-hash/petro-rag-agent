@@ -291,8 +291,9 @@ jobs:
       # 上下文压缩 / 成本核算 / 物理规则 / 日志配置 / 文本清洗 /
       # 实体别名归并 / 图谱连通性分析 / 并行分支合并降级 / 退避重试 /
       # PINN 问句抽取 / 经验库解析与排序 / 时间维度冲突检测 /
-      # 蒙特卡洛不确定性量化），故意**不装** requirements.txt，
-      # 保证核心逻辑不受三方包版本漂移影响。
+      # 蒙特卡洛不确定性量化 / 地应力与断层活化 / CO₂ 物性 /
+      # 相渗与两相流 / 盖层封闭性 / 储层模拟器契约 / 深层物理接线），
+      # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       #
       # 反例（2026-10 踩过）：把 test_eval_ragas / test_evaluate_budget 塞进来，
@@ -308,6 +309,13 @@ jobs:
             tests.test_cost_model \
             tests.test_physics_rules \
             tests.test_physics_audit \
+            tests.test_geomechanics \
+            tests.test_co2_properties \
+            tests.test_relperm \
+            tests.test_flow1d \
+            tests.test_caprock \
+            tests.test_reservoir_backend \
+            tests.test_physics_deep \
             tests.test_aggregate_split \
             tests.test_lineage \
             tests.test_corpus_scope \

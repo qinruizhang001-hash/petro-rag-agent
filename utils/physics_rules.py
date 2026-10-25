@@ -382,6 +382,7 @@ def evaluate_physics(
     user_input: str = "",
     params: dict | None = None,
     rules: RuleParams | None = None,
+    deep: bool = False,
 ) -> dict:
     """
     对一份报告做物理一致性校验，返回结构化结果。
@@ -402,6 +403,9 @@ def evaluate_physics(
 
     ``params`` 用于测试时直接注入数值，跳过文本抽取。
     ``rules`` 用于覆盖默认规则参数（见 ``RuleParams``）；不传则读环境变量。
+    ``deep`` 为 True 时追加地应力/断层活化与盖层封闭性判定（见
+    ``utils/physics_deep.py``）。默认关闭：深层判定依赖假设参数，只在调用方
+    明确要求时才允许它影响阻断结论，否则既有行为会静默改变。
     """
     rules = rules or load_rule_params()
     extracted = dict(params) if params else extract_parameters(params_text, user_input)
@@ -512,7 +516,13 @@ def evaluate_physics(
     if temperature is not None and p_inj:
         m = _DENSITY_RE.search(report)
         if m:
-            expected = 1.9 * p_inj / (temperature + 273.15)
+            # 用 Peng-Robinson 状态方程，不再用 1.9·P/T。
+            # 旧式在 250 bar / 80℃ 给 1.35 kg/m³，真实值约 650 —— 差 460 倍，
+            # 于是所有"密度对得上"的报告其实都对不上，而所有按真实值写的
+            # 报告都会被判违规。详见 utils/co2_properties.py 的模块说明。
+            from utils.co2_properties import co2_density_kg_m3
+
+            expected = co2_density_kg_m3(p_inj, temperature)
             stated_density = float(m.group(1))
             diff = abs(stated_density - expected) / expected
             check("density_consistent", diff <= rules.density_tolerance,
@@ -523,6 +533,20 @@ def evaluate_physics(
                     f"报告中的 CO2 密度 {stated_density:.2f} kg/m³ 与物理工具结果 "
                     f"{expected:.2f} kg/m³ 不符（偏差 {diff*100:.0f}%）",
                 )
+
+    # ─── 5. 深层物理（可选）：断层活化 / 盖层突破 ─────────
+    deep_result = None
+    if deep and depth is not None:
+        from utils.physics_deep import assess
+
+        deep_result = assess(
+            depth_m=depth,
+            injection_pressure_bar=p_inj,
+            temperature_celsius=temperature,
+            text=f"{params_text or ''}\n{user_input or ''}",
+        )
+        for reason in deep_result.get("blocking_reasons") or []:
+            violation("DEEP_PHYSICS", "blocking", reason)
 
     blocking = any(v["severity"] == "blocking" for v in violations)
     if blocking:
@@ -535,11 +559,11 @@ def evaluate_physics(
     feedback = _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict, rules)
     summary = _build_summary(status, p_inj, depth, p_h, p_frac, verdict)
     return _result(status, extracted, limits, violations, checks, summary,
-                   feedback=feedback, rules=rules)
+                   feedback=feedback, rules=rules, deep=deep_result)
 
 
 def _result(status, params, limits, violations, checks, summary, feedback="",
-            rules: RuleParams | None = None):
+            rules: RuleParams | None = None, deep: dict | None = None):
     manifest = rules_manifest(rules)
     return {
         "status": status,
@@ -555,6 +579,8 @@ def _result(status, params, limits, violations, checks, summary, feedback="",
         # 规则版本 + 生效参数 + 出处：报告页与审计记录都读这两个字段。
         "rules_version": manifest["version"],
         "rules": manifest["parameters"],
+        # 深层判定（断层/盖层/两相流）。None 表示本次没跑。
+        "deep": deep,
     }
 
 
@@ -619,6 +645,16 @@ def _build_feedback(violations, p_inj, depth, p_h, p_frac, verdict,
             f"（或压裂改造）才能有效注入；不得使用「注入顺畅」「压力充足」一类表述。"
             f"可执行措施：把井底压力提高至 > {min_ok_pressure:.0f} bar，"
             f"或把储层深度调整到 < {max_ok_depth:.0f} m。"
+        )
+    if any(v["code"] == "DEEP_PHYSICS" for v in blocking):
+        # 深层判定的修正要求和上面两类不同：上面是"把压力调回窗口"，
+        # 这里是"把判定依据连同它依赖的假设一起写出来"。不写假设的话，
+        # 下一版会照抄滑移比数字，把一个通用应力剖面的结论写成场地实测。
+        lines.append(
+            "修正要求：断层活化/盖层失效的判定必须连同**它依赖的假设**一起写 "
+            "（应力梯度、Shmin/SHmax 比例、摩擦系数、孔喉半径），"
+            "并给出至少一条可执行措施 —— 把井底压力降到临界孔隙压力以下，"
+            "或重新评估断层产状与应力剖面。只改写措辞不算修正。"
         )
     lines.append("其余结论可保留，但凡是与上述数值冲突的表述必须一并改掉。")
     return "\n".join(lines)

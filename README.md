@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-593%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-829%20unit-brightgreen">
 </p>
 
 ---
@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **593 unit tests run in CI on every push** | 460 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the E2E suite is self-hosted and prints its own count |
+| 3 | **829 unit tests, 758 of them on every push** | 625 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI, 100 runs |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**593 unit tests run in CI on every push** (460 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**829 unit tests, of which 758 run on every push** (625 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -147,7 +147,7 @@ The assertions that earn their place are the ones written against a *specific* w
 A retrieval system that returns both `200 bar (2025-06)` and `300 bar (2026-03)` has not
 found two facts — it has found one *trend* and one *contradiction*. Averaging them, or
 quoting whichever chunk ranked higher, produces a number that is wrong in a way nobody
-can see. And a report that states `ρ = 1.35 kg/m³` with no interval is claiming a
+can see. And a report that states `ρ = 661 kg/m³` with no interval is claiming a
 precision the inputs do not have.
 
 **Temporal layer** (`core/temporal.py`, pure functions, no model):
@@ -174,7 +174,7 @@ Three details that decide whether this works or quietly misfires:
 perturbs its input 100 times and reports a distribution.
 
 ```text
-250 bar / 80 ℃  →  1.35 kg/m³（90 % CI 1.28–1.40，100 次蒙特卡洛，输入 ±5 % 扰动）
+250 bar / 80 ℃  →  661 kg/m³（90 % CI 644–681，100 次蒙特卡洛，输入 ±5 % 扰动）
 2500 m / 250 bar →  注入可行 44 % · 压力不足 56 %（标称判定：压力不足）
 ```
 
@@ -416,7 +416,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **593 unit tests run in CI** (460 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **829 unit tests** (758 in CI: 625 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -572,6 +572,32 @@ So the evaluator now runs in two layers, **in this order**:
 2. **Model layer.** Only if the rules pass does the LLM score structure, grounding and actionability — with the rule-engine verdict injected into its prompt as ground truth, so it cannot overrule a deterministic conclusion.
 
 The distinction between `blocking` and `warning` matters: *"the report says it is safe, but it is not"* is a contradiction and blocks; *"the report did not mention it"* is an omission and only warns. Text matching is directional — `"破裂压力 379 bar 高于注入压力"` (a **safe** claim) is deliberately *not* counted as acknowledging the risk, and negations (`未超过` / `不超过` / `没有超过`) are excluded.
+
+### Deep physics — beyond "is the pressure arithmetic consistent?"
+
+The two-line gate above answers one question: *is the injection pressure between the pore pressure and the fracture pressure?* It cannot answer the questions an actual project asks, because the failure modes it cannot see are earlier and more common:
+
+| Question | Why the two-line gate cannot answer it | Module |
+|---|---|---|
+| Will an existing fault slip? | Slip is controlled by effective normal stress on the fault plane, not by the fracture pressure. A fault can be reactivated **below 1.5 × hydrostatic** — while `P_inj < P_frac` still holds | `utils/geomechanics.py` |
+| Will the caprock leak? | Buoyancy `Δρ·g·H` depends on the CO₂ column, and Δρ depends on the CO₂ density, which the old `ρ = 1.9·P/T` got wrong by **460×** | `utils/caprock.py` + `utils/co2_properties.py` |
+| How does CO₂ actually move? | Single-phase arithmetic has no saturation front, no mobility ratio, no fingering | `utils/relperm.py` + `utils/flow1d.py` |
+| What if a real simulator exists? | There was no contract to plug one in | `utils/reservoir_backend.py` |
+
+**Geomechanics (`2026.10-g1`).** Terzaghi effective stress plus Mohr–Coulomb: `P_p,crit = σ_n − (τ − C)/μ`, and the slip ratio `τ/(μ·σ'_n)` is evaluated at the *injected* pore pressure, not the in-situ one. The result is computed two ways (slip ratio ≥ 1, and applied overpressure ≥ activation margin) and the two are asserted to agree — they are the same inequality, so a disagreement means a bug, not a judgement call. Two further details that are easy to get wrong and are locked by tests:
+
+- **The two "worst planes" are different angles.** The plane closest to slipping *now* is `argmax τ/(σ_n − P_p)`; the plane that slips *first as pressure rises* is `argmin P_p,crit`, which is the classical `45° + φ/2` (60.5° at μ = 0.6). Using the first where the second is meant gives 53.5° — 7° optimistic, silently.
+- **Shear slip and tensile opening are separate mechanisms.** Once `P_p > σ_n` the plane is jacked open; friction and cohesion stop being the controlling parameters. Reported as `tensile_opening` with its own wording, because the mitigation differs (lower pressure vs. re-evaluate the fault).
+
+**Caprock (`2026.10-c1`).** Two independent failure paths, reported separately because they fail at different conditions: capillary breakthrough (`P_c = 2γcosθ/r`, buoyancy `Δρ·g·H`) and mechanical failure (`P_inj ≥ σ_hmin + T_0`). The dynamic mode turns an injection rate into a column height through the 1-D solver and returns a breakthrough time. The one-directional bias is stated in the output rather than buried: the 1-D model ignores gravity segregation, so the column is **under**estimated and the breakthrough time is an **upper bound** — optimistic, not a safety margin.
+
+**Two-phase flow (`2026.10-rp1` / `2026.10-f1`).** Brooks–Corey relative permeability, Buckley–Leverett front by the Welge tangent construction, and a 1-D finite-volume solver (CFL-limited, upwind) validated against that analytic solution: front position 0.9138 vs 0.9110, saturation just behind the front 0.3849 vs 0.4045, average behind 0.4922 vs 0.4940, mass balance error 0.0. The tangent is taken from the **gas** end; taking it from the water end is the classic sign error and reports `S_g = 0.17` instead of `0.49` — a factor of three, with no exception raised.
+
+**Simulator adapter (`2026.10-b1`).** A `SimulationResult` contract (`ccus-sim-result/1`) with units required explicitly, strictly increasing time, saturations in [0, 1], and `converged=false` rejected — a non-converged result still has numbers in it, and those numbers are noise. When no external result is available the adapter degrades to the analytic screening backend **and says so** (`degraded`, `degraded_reason`); it never silently substitutes one for the other.
+
+**Blocking policy — the part that matters most.** These judgements run on *assumed* parameters (stress gradients, pore-throat radius). Blocking a report because "under a default stress profile you would slip" is its own kind of error: it stops projects that have no problem. So the deep layer is allowed to block in exactly two cases — the input explicitly mentions a fault (with a dip angle), or it explicitly gives a CO₂ column height / injection rate. Otherwise it contributes facts and sensitivity only. The decision, and the reason for it, is returned in the `policy` field and logged, so "why was this not blocked" is answerable after the fact.
+
+The deep verdict is also injected into the report prompt as fact lines (`render_facts`) so the report can state it, with the assumption kept **on the same line as the number** — a 7B model copies line by line, and a caveat on its own line is a caveat that does not survive into the report.
 
 ### Human-in-the-loop
 
@@ -1314,13 +1340,18 @@ The lesson is narrow but worth recording: a figure that is constructed correctly
      现在统一由 mcp_server_ccus.py 暴露，主系统通过 mcp_client_ccus.py 动态发现并调用。
      好处不是时髦，而是同一份工具可以同时给主系统和 Cursor 用，且加工具不用改主程序。 -->
 
-The three tools that compute something — CO₂ density, PINN pressure, graph retrieval — used to be imported directly by the aggregation node. They are now served over MCP from `mcp_server_ccus.py`:
+The tools that compute something used to be imported directly by the aggregation node. They are now served over MCP from `mcp_server_ccus.py`:
 
 | Tool | Returns | Backed by |
 |---|---|---|
-| `get_co2_density(pressure_bar, temperature_celsius)` | density in kg/m³ + the formula string | `tools/physics_tools.py` |
+| `get_co2_density(pressure_bar, temperature_celsius)` | density in kg/m³ + the EOS name | `utils/co2_properties.py` |
+| `assess_injection_uncertainty(depth_m, injection_pressure_bar)` | probability of ok / risky / under over 100 Monte Carlo runs | `tools/physics_tools.py` |
+| `get_fault_stability(depth_m, injection_pressure_bar, dip_deg)` | slip ratio, critical pore pressure, margin, mechanism — **with the stress assumptions attached** | `utils/geomechanics.py` |
+| `get_caprock_integrity(depth_m, injection_pressure_bar, …)` | entry pressure, sealable column height, mechanical limit | `utils/caprock.py` |
 | `predict_pressure_pinn(x, t, scenario)` | pressure in bar + the analytic steady state for cross-checking | `pinn_model.py` |
 | `query_ccus_graph(query, top_k)` | raw evidence fragments, never LLM-rewritten | `lightrag_retriever.py` |
+
+Fault activation and caprock integrity are the newest rows and the reason the list grew: they are questions the two-line pressure gate structurally cannot answer. They are registered as tools so an external client (Cursor, Claude Desktop) can ask them directly, but they are **excluded from the in-repo planner** (`TOOL_POLICY["skip_in_planner"]`) — same reasoning as the uncertainty tool: given depth and pressure they always have an answer, so letting a 7B model decide whether to ask is letting it decide whether to mention the risk.
 
 ### What actually changed in the main system
 
@@ -1335,7 +1366,7 @@ def _plan_prompt_tools() -> str:
     ...
 ```
 
-Adding a tool is now a one-file change (`mcp_server_ccus.py`); the planner prompt, the dispatch table and the client test all follow. What did **not** get delegated to the protocol is judgement about *when* to call — the server's descriptions say what a tool does, and `_TOOL_HINTS` in `nodes/aggregate_node.py` says when it is appropriate. Collapsing the two would make the tool list the prompt. Discovery failure is also handled: if the server cannot be reached, planning falls back to a two-entry static list rather than losing the tools entirely, which matters because a dead server and a dead model produce the same empty report.
+Adding a tool is now a one-file change (`mcp_server_ccus.py`); the planner prompt, the dispatch table and the client test all follow. What did **not** get delegated to the protocol is judgement about *when* to call — the server's descriptions say what a tool does, and `TOOL_HINTS` in `nodes/aggregate_support.py` says when it is appropriate. (That import was lost in a refactor on 2026-10-23 and restored on 2026-10-25: the failure only fires when MCP discovery *succeeds*, so every local run without a server kept working while a correctly-configured deployment crashed. `tests/test_pinn_tool.py` now asserts the binding.) Collapsing the two would make the tool list the prompt. Discovery failure is also handled: if the server cannot be reached, planning falls back to a two-entry static list rather than losing the tools entirely, which matters because a dead server and a dead model produce the same empty report.
 
 One tool stayed in-process on purpose. `generate_pressure_curve` writes a PNG and returns its path for the frontend to render — sending it over a process boundary means shipping bytes back and losing the `charts/` path convention, for no gain. It remains a hard-coded local entry in the plan prompt, and the prompt says so explicitly, so the model does not think the dynamic list is exhaustive.
 
@@ -1362,20 +1393,30 @@ External clients have no such conflict, so `test_mcp_client.py` exercises the re
   已连接：ccus-tools v1.0.0（1635 ms）
 
 === ① 工具发现 ===
-  [PASS] 服务端暴露了 3 个工具  (['get_co2_density', 'predict_pressure_pinn', 'query_ccus_graph'])
+  [PASS] 服务端暴露了 6 个工具
+         (['assess_injection_uncertainty', 'get_caprock_integrity', 'get_co2_density',
+           'get_fault_stability', 'predict_pressure_pinn', 'query_ccus_graph'])
+  [PASS] get_fault_stability 的 schema 含 depth_m / injection_pressure_bar
+  [PASS] get_caprock_integrity 的 schema 含柱高与注入速率
   [PASS] 每个工具都有 description（否则模型不知道何时调用）
 === ② get_co2_density(250 bar, 80℃) ===
-  [PASS] 密度 ≈ 1.35 kg/m³（状态方程 1.9P/T）  (得到 1.35)
-=== ③ predict_pressure_pinn(50 m, 10 d) ===
+  [PASS] 密度 ≈ 662.93 kg/m³（Peng-Robinson）  (得到 660.9342)
+=== ③ get_fault_stability(2500 m, 250 bar) ===
+  [PASS] 返回滑移比与临界孔隙压力  (slip_ratio=0.478, pp_crit=363.445)
+  [PASS] 两口径交叉验证一致（滑移比 ≥1 ⟺ 附加压力超余量）  (consistent=True)
+  [PASS] 假设参数随结果返回（否则数值会被当成实测）  (6 条)
+=== ④ get_caprock_integrity(2500 m, 250 bar, 柱高 50 m) ===
+  [PASS] 返回突破压力与可封柱高  (Pc=43.3 bar, H=1722.7 m)
+  [PASS] 密度差来自状态方程（不是常数）  (Δρ=256.2 kg/m³)
+=== ⑤ predict_pressure_pinn(50 m, 10 d) ===
   [PASS] PINN 与解析解差值 < 0.5 bar  (PINN 109.951 vs 解析 110.0)
   [PASS] baseline 场景恒为 100 bar（退化算例）  (得到 99.991 bar)
-=== ④ query_ccus_graph ===
-  [PASS] 返回了证据片段  (count=37)
-=== ⑤ 错误路径 ===
+=== ⑥ query_ccus_graph（已跳过：--no-graph）===
+=== ⑦ 错误路径 ===
   [PASS] 未知工具被拒绝  ({'_text': 'Unknown tool: no_such_tool'})
   [PASS] 缺参数被拒绝  ({'_text': "1 validation error for get_co2_density..."})
 
-测试总结：17 PASS / 0 FAIL
+测试总结：24 PASS / 0 FAIL
 ```
 
 Note the connection cost: **1 635 ms** to be ready, of which almost all is interpreter start plus importing the SDK. That number is the reason tool bodies import lazily — with `torch` and `lightrag` at module scope it would be tens of seconds, and Cursor would show a spinner on every launch.
@@ -1414,7 +1455,7 @@ The server speaks stdio, so it needs no port and no daemon. Absolute paths below
 
 Two things you would expect to need, and don't. `PYTHONIOENCODING=utf-8` is unnecessary — the SDK re-wraps stdin/stdout as UTF-8 itself, with the source comment "the std handles' platform encodings are unreliable". And no `cwd` is needed: every path the server touches (`models/`, `lightrag_storage/`, `.env`) resolves from `__file__`, which matters because Claude Desktop launches children with the home directory as cwd. `HF_HUB_OFFLINE=1` is set by `core/__init__.py` on import, not by the config.
 
-That last claim was measured rather than assumed, since it is exactly the kind of thing that works locally and fails for the user: the server was launched with `cwd=C:\Users\yeeun` (outside the repo) and all three tools returned correct values — density 1.35 kg/m³, PINN 109.951 bar, 37 graph fragments — with LightRAG resolving its store to the repo's absolute `lightrag_storage/`.
+That last claim was measured rather than assumed, since it is exactly the kind of thing that works locally and fails for the user: the server was launched with `cwd=C:\Users\yeeun` (outside the repo) and all three tools returned correct values — density ≈ 661 kg/m³, PINN 109.951 bar, 37 graph fragments — with LightRAG resolving its store to the repo's absolute `lightrag_storage/`.
 
 Verify before wiring, in two steps that separate "the tool is broken" from "the transport is broken":
 
@@ -1830,8 +1871,8 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token Economics** — Three measurable mechanisms rather than a slogan: **context pruning** (local Qwen2.5 compresses long retrieved text in ≤3 000-char chunks before it reaches the paid model — measured 7 000 → 401 chars, 94 % saved), **dynamic routing** (per-request tier chosen from input length *and* whether the knowledge base actually matched, with a one-way `local → cloud` escalation), and a **cost dashboard** that prices every stage by the model that really ran — local inference at electricity cost, not zero. Every degradation carries a reason in state, so "we thought it was on the cloud" is auditable instead of invisible.
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
-- **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 1.35 kg/m³**, **300 bar / 90 °C → 1.57 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **593 unit tests run in CI**, and a self-hosted end-to-end regression suite.
+- **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **829 unit tests** (758 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1906,6 +1947,13 @@ petro-rag-agent/
 ├── utils/
 │   ├── tokens.py             # Token counting & usage accounting (single source of truth)
 │   ├── physics_rules.py      # Deterministic P_inj vs P_h / P_frac consistency checks
+│   ├── physics_deep.py       # Fault activation + caprock + two-phase, with a blocking policy
+│   ├── geomechanics.py       # Mohr-Coulomb slip, stress polygon, tensile opening (unit-tested)
+│   ├── caprock.py            # Capillary entry pressure, sealable column, mechanical limit
+│   ├── co2_properties.py     # Peng-Robinson EOS + Span & Wagner Psat (unit-tested)
+│   ├── relperm.py            # Brooks-Corey + Welge tangent front (unit-tested)
+│   ├── flow1d.py             # 1-D finite-volume displacement, checked against the analytic front
+│   ├── reservoir_backend.py  # Simulator contract (ccus-sim-result/1) + analytical backend
 │   ├── logging_setup.py      # app.log + stderr, model & token as structured fields
 │   ├── text_cleaning.py      # PDF text cleaning + paragraph-aware chunking (unit-tested)
 │   ├── embeddings.py         # The ONE place the ChromaDB embedding model is chosen
@@ -1920,8 +1968,8 @@ petro-rag-agent/
 │   └── cost_model.py         # Token → CNY pricing & savings baseline (unit-tested)
 ├── tools/
 │   ├── knowledge_tools.py    # Optional Tavily web search + auto-ingestion
-│   └── physics_tools.py      # calculate_co2_density (served over MCP, see below)
-├── mcp_server_ccus.py        # MCP Server (stdio): density / PINN / graph — 3 tools, lazy imports
+│   └── physics_tools.py      # Density / fault stability / caprock (served over MCP, see below)
+├── mcp_server_ccus.py        # MCP Server (stdio): 6 tools, lazy imports
 ├── mcp_client_ccus.py        # Sync MCP client facade; memory transport for in-repo use
 ├── test_mcp_client.py        # Real stdio round-trip against the server (17 assertions)
 ├── fetch_ccus_papers.py      # arXiv search → relevance filter → PDF download + manifest
@@ -2176,7 +2224,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Thirty-one suites (`tests/`). CI runs 593 of those tests; the rest need torch/chromadb/Ollama and run locally or on the self-hosted runner:
+Thirty-six suites (`tests/`). CI runs 758 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2184,6 +2232,13 @@ Thirty-one suites (`tests/`). CI runs 593 of those tests; the rest need torch/ch
 - `test_context_pruner.py` — pruning: threshold is character-based and exclusive at the boundary, chunking never loses a character and never exceeds the per-chunk cap, oversized paragraphs are hard-split, duplicate bullets collapse, a single failing chunk does not discard the successful ones, and **all three failure modes fall back to the original text byte-for-byte**.
 - `test_cost_model.py` — pricing: `ollama/deepseek-r1` prices as local (the name says DeepSeek, the compute is local), unknown models fall back to the most expensive tier, `retrieve` statistics are not billed as tokens, `llm_total_tokens` is not double-counted, every stage row is recomputable by hand, savings never go negative, and `format_cny` keeps enough decimals that ¥0.015 does not render as `0.01`.
 - `test_physics_rules.py` — the deterministic gate: pressure formulas match `chart_tools` exactly, `MPa`/`km` are converted (not silently treated as bar/metres), injection pressure is preferred over the bare word "pressure" (otherwise the check compares fracture pressure with itself and always passes), a depth of `3` is rejected rather than used, claim detection is **directional** ("fracture pressure is above injection pressure" is a safety claim, not an acknowledgment) and negation-aware (`未超过` / `不超过` / `没有超过`), passive voice is accepted, and the 25 % fracture-value tolerance covers the legitimate 1.4–1.8× gradient range without letting a 32 % error through. It also locks the **prompt-rendering contract**: an `unverifiable` verdict must render to an **empty string**, so the reviewer is never shown a "check" that carries no result — a distinction that once cost a healthy report 4 points because the model read "not computed" as "did not pass".
+- `test_geomechanics.py` — the fault-reactivation model, tested against the classical results it has to reproduce: the frictional limit `K = (√(μ²+1)+μ)²` (3.119 at μ=0.6, 4.676 at μ=0.85), the optimal dip `45°+φ/2` (60.5°), and the 3-D tensor projection degenerating to the textbook 2-D formula at φ=90°. The two criteria (slip ratio ≥ 1, and applied overpressure ≥ activation margin) must agree to `places=3` across the whole pressure range — they are the same inequality, so a disagreement is a bug. Shear slip and tensile opening are asserted to be reported as **different mechanisms**, because a fault jacked open by pore pressure is not "slipping less".
+- `test_co2_properties.py` — the EOS, anchored to numbers that can be looked up: 250 bar / 80 ℃ → 663 kg/m³ (supercritical), 20 ℃ saturation pressure 57.4 bar against 57.3 measured, water viscosity 1.00 mPa·s at 20 ℃ and 0.355 at 80 ℃. One test exists only to prove the module is **not** the old `ρ = 1.9·P/T`: it asserts a ratio above 100×, so the regression cannot come back quietly.
+- `test_relperm.py` — Brooks–Corey plus the Welge tangent construction, with a test that locks the **direction**: the tangent must be taken from the gas end. Taking it from the water end returns `S_g = 0.17` instead of `0.49` — a factor of three, no exception, no warning.
+- `test_flow1d.py` — the finite-volume solver against its own analytic solution: front position 0.9138 vs 0.9110, saturation just behind the front 0.3849 vs 0.4045, average behind 0.4922 vs 0.4940, mass balance error 0.0. Plus the one-directional bias: `limitations` must say the model ignores gravity segregation, because that makes the breakthrough time optimistic rather than conservative.
+- `test_caprock.py` — two independent failure paths, kept separate because they fail under different conditions: capillary breakthrough (`Pc = 2γcosθ/r`, 43.3 bar by hand) and mechanical failure (`P_inj ≥ σhmin + T_0`). Entry pressure must scale linearly with IFT and double when the pore throat halves; a contact angle ≥ 90° must raise rather than return a negative pressure; the verdict must flip at the boundary (0.98 vs 1.02 of the limit); and the gravity-segregation bias must be stated **with its direction**.
+- `test_reservoir_backend.py` — the simulator contract: every problem listed at once rather than the first, a non-converged result rejected (the numbers are still there and still look normal — that is the point), missing units rejected, `psi` and percentages rejected, non-monotonic time rejected, and the analytical backend's own output forced through the same validator so the contract is used on both sides. Also locks that a missing external file produces a message naming the schema and the adapter doc, and that the example JSON in `docs/simulator-adapter.md` still passes.
+- `test_physics_deep.py` — the **blocking policy**, which is where this layer can do the most damage: a default stress profile must never block a report that never mentioned a fault, a mentioned fault must be judged, and the two mechanisms must not be worded as one. It also pins the report fact lines — the assumption has to sit on the same line as the number, because a 7B model copies line by line and a caveat on its own line does not survive into the report.
 - `test_logging_setup.py` — observability: every line carries timestamp, module, model and token fields; missing fields render `-` instead of raising; repeated configuration does not stack handlers (a duplication that only shows up as an unexpectedly large log file); `LOG_LEVEL` is honoured and an unknown level falls back to `INFO`.
 - `test_text_cleaning.py` — the ingestion front end, where failures are silent by construction: `permea-` / `ability` across a line break must become one word (a missed join sends "permea ability" to the embedding model and that chunk can never match "permeability" again); the arXiv watermark stamp and bare page numbers must go; the reference list must be cut **only** when the heading is in the latter half (a paper *about* citation analysis must not lose its body); and chunking must not drop a character when a page arrives as one giant paragraph. Also locks the ordering constraint — hyphenation must be repaired **before** whitespace is collapsed, because afterwards there is no `\n` left to anchor on.
 - `test_entity_aliases.py` — the merge rules, tested in **both directions**, because the two failure modes cost very different amounts. A missed merge leaves two nodes where there should be one (one edge lost). A wrong merge permanently fuses two distinct geological concepts, concatenates their descriptions, and cannot be undone. So the suite asserts what must merge (`CO2` / `Carbon Dioxide (CO2)` / `Carbon dioxide (CO2)`; `CCS` / seven spellings; `Fault` / `Faults`; `Cap Rock` / `Caprock`) **and** what must not (`Fault` vs `Pre-Existing Faults`, `Caprock` vs `Caprock Fracturing`). It also pins three traps: `Gas` must not singularise to `Ga`, two-character Chinese geology terms (`井筒` / `储层` / `断层` / `盖层`) must survive the "too short" filter, and `IPCC` typed as `organization` must not be deleted — the type is unreliable enough that deleting by type loses real policy entities.
@@ -2378,7 +2433,7 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 
 **The physics tools are demonstrations, not engineering calculators.**
 
-- `calculate_co2_density` uses `ρ = 1.9·P/T`, not Span–Wagner or a NIST table. It exists to prove the *tool-calling contract* — that numbers come from code rather than the model's arithmetic — not to produce a value you would put in a permit application.
+- **The CO₂ density comes from Peng-Robinson, not from Span–Wagner tables.** Away from the critical point it is accurate to a few percent; near it the error reaches 10–15 % (Z_c is pinned at 0.307 against a real 0.274). Good enough for buoyancy and mobility estimates, not good enough to quote in a permit application — and it replaced a `ρ = 1.9·P/T` placeholder that was wrong by 460×, which is a different category of problem entirely.
 - The chart tool and the consistency gate both assume a constant **1.5× hydrostatic** fracture gradient and a single overburden model. Real fracture pressure depends on the stress state, lithology, pore pressure and depletion history.
 - The gate checks **arithmetic and stated claims**, not geomechanics. A report can be perfectly consistent with a 1.5× gradient and still be wrong about the actual caprock. Consistency is necessary, not sufficient.
 
@@ -2397,6 +2452,11 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - **Text extraction quality depends on the PDF's text layer.** PyMuPDF is used first because pypdf silently returns `actiontostabilizeatmosphericconcentrations` for some files (words positioned individually rather than separated by space glyphs). That class of failure is invisible downstream — the embedding model happily embeds nonsense. Where even PyMuPDF produces a poor layer (scans, complex two-column layouts), the chunks are degraded and nothing flags it.
 - **A failed report is still returned as text, just not as a deliverable.** Reflection is bounded at two rewrites; if the score is still under 8 the run ends with `quality_gate.status = failed` and `report_status = failed`, and the body is returned behind a blocking banner (quarantined entirely when the veto was physical). Nothing downstream treats it as approved — `save_file_memory` is skipped, the API says `status: failed`, the UI shows a red banner instead of "assessment complete" — but a caller that only reads `report` will still see prose. The structured field is the contract; the text is not.
 - **The quality threshold is a model score, and model scores are noisy.** 8/10 from a 7B reviewer is a quality signal with maybe ±1 of variance; the physics gate is the only part that is deterministic. This is why the physics veto runs first and cannot be outvoted, and why the RAGAS golden set exists as an independent measurement of faithfulness rather than trusting the reviewer's own score.
+- **The geomechanical model is a screening model, not a site model.** Shmin and SHmax are derived from Sv by fixed ratios (0.75 / 0.90), friction is Byerlee's 0.6, cohesion is zero, and the fault is a planar cohesionless surface. Every one of those is a documented default, returned with the result in `assumptions`. A real answer needs a stress measurement (leak-off / DFIT) and the fault's actual geometry; what this layer can do is tell you *which* input to go measure first.
+- **Poroelastic coupling is not modelled.** Injection is assumed to change pore pressure only, with total stress held fixed. In soft or compacting formations the total stress path matters and the real margin is smaller than reported — another optimistic bias, in the same direction as the gravity-segregation one.
+- **The caprock model assumes a homogeneous, fracture-free seal.** Fractures, sand streaks and faults are the dominant leakage paths in the field, and none of them are in the model. A `sealed` verdict means "the matrix seal holds", not "the site is sealed".
+- **The two-phase flow model is 1-D and gravity-free.** It is validated against its own analytic solution, which makes it internally consistent — not field-validated. Mobility ratio and front saturation are useful for relative comparisons between scenarios; the absolute arrival time is an upper bound.
+- **The simulator adapter ships a contract, not a simulator.** `ExternalResultBackend` validates and consumes a result file; there is no online coupling, no time-stepping handshake, and no convergence control passed to a real solver. If no external result is supplied, the analytic backend answers and the response says `degraded: true` with the reason.
 - **A verdict the gate could not compute is never shown to the reviewer.** When the parameters are insufficient the gate's block is omitted from the review prompt entirely, instead of being passed along as "unverifiable". This is deliberate (an empty verdict reads as a failed check to a small model, and cost a healthy report 4 points before it was fixed), but it means the reviewer's score for sparse inputs is based on the literature and the report alone — the "no physics check was possible" fact lives in `physics_check` for the human, not in the scoring.
 - **The gate's claim detection is regex-based.** It handles direction and negation, but a creative sentence ("the caprock would only fail under conditions this project does not reach") reads as an acknowledgment. The model layer is the backstop — which is exactly why the gate runs *first* and the model *second*.
 - **The API runs a single worker.** Concurrent requests are not supported: a second worker would load a second copy of the 2.3 GB reranker, the same memory ceiling documented in the Testing section.
@@ -2414,10 +2474,15 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 
 ### Roadmap
 
-- [ ] **Uncertainty quantification** — Monte Carlo over depth / fracture gradient / density; report intervals, not scalars
+- [x] **Uncertainty quantification** — Monte Carlo over depth / fracture gradient / density; report intervals, not scalars (`core/uq.py`, percentile intervals rather than `mean ± zσ` because the verdict function is a step function)
 - [ ] **Probability-based gate** — replace `P_inj > P_frac` with `P(exceed) > threshold`, with the threshold exposed as config
-- [ ] **Physics-simulation adapter** — `validate/run/summarise` protocol so a reservoir or geomechanical solver sits behind the same tool contract, with async execution and budgets
-- [ ] Replace the density approximation with a proper CO₂ EOS (Span–Wagner / NIST tables)
+- [x] **Physics-simulation adapter** — `validate/run/summarise` protocol so a reservoir or geomechanical solver sits behind the same tool contract (`utils/reservoir_backend.py`, schema `ccus-sim-result/1`). Async execution and budgets are still open
+- [x] Density approximation replaced — but with **Peng-Robinson**, not Span–Wagner tables: accurate to <5 % away from the critical point, 10–15 % near it (Z_c is pinned at 0.307 vs the real 0.274). NIST tables remain the better answer for near-critical work
+- [x] **Geomechanical screening** — fault reactivation (Mohr–Coulomb + Terzaghi), stress polygon self-consistency check, tensile opening as a separate mechanism (`utils/geomechanics.py`)
+- [x] **Caprock integrity** — capillary entry pressure, maximum sealable column, mechanical failure limit, dynamic column from injection rate (`utils/caprock.py`)
+- [x] **Two-phase flow approximation** — Brooks–Corey relative permeability, Buckley–Leverett front, 1-D finite-volume solver cross-checked against the analytic solution (`utils/relperm.py`, `utils/flow1d.py`)
+- [ ] **Poroelastic coupling** — the stress model assumes injection changes pore pressure only; total stress is held fixed, which over-predicts the margin in soft / compacting formations
+- [ ] **Gravity segregation in the column model** — the current 1-D plume spreads CO₂ uniformly, so the breakthrough time is an upper bound (documented in `limitations`, not fixed)
 - [ ] Incremental graph ingestion from PDFs (`ccus_docs/`), with entity canonicalisation
 - [ ] Async task queue for concurrent assessments (and a reranker shared across workers)
 - [ ] Fetch model prices instead of hardcoding them (off-peak / cache-hit rates)
@@ -2427,5 +2492,10 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - [ ] Bound `charts/`: retention policy or content-addressed filenames
 - [ ] Emit structured JSON logs alongside the human-readable format, for aggregation
 
-<!-- 中文注释：诚实标注——云端路由只验证了"结构与降级"，没有 paid key 就不宣称输出质量对比；
-     物理校验是"算术与表述一致性"，不是地质力学正确性；下一步明确指向 UQ 与真实物理仿真接口。 -->
+<!-- 中文注释：诚实标注——云端路由只验证了"结构与降级"，没有 paid key 就不宣称输出质量对比。
+     物理层现在分两级：physics_rules 判"注入压力对不对"（纯算术，总能算），
+     physics_deep 判"会不会滑、会不会漏"（需要地应力/孔喉参数，默认值即假设值，
+     因此只在输入确实涉及断层或给出柱高/注入速率时才允许阻断）。
+     仍然做不到的：孔隙弹性耦合、重力分异、裂缝型泄漏通道、真实储层模拟器的
+     在线耦合（只提供结果契约，不提供求解器）。这些写在上面 Roadmap 里，
+     而不是留在"已支持地质力学"这句含糊话里。 -->

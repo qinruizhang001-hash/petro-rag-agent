@@ -89,7 +89,9 @@ def _no_documents(*_args, **_kwargs) -> list:
 
 
 def _fake_density_uq(pressure_bar, temperature_celsius, **_kwargs) -> dict:
-    mean = 1.9 * float(pressure_bar) / (float(temperature_celsius) + 273.15)
+    from utils.co2_properties import co2_density_kg_m3
+
+    mean = co2_density_kg_m3(pressure_bar, temperature_celsius)
     return {
         "mean": mean,
         "p5": mean * 0.97,

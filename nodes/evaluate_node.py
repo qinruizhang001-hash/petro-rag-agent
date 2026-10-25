@@ -108,6 +108,34 @@ def _parse_score(text: str) -> tuple[float, str] | None:
     return score, feedback
 
 
+def _log_deep(deep: dict | None) -> None:
+    """把深层物理结论打进日志。
+
+    单独成函数是为了让"这次没跑深层判定"和"跑了但没算出来"在日志里可分辨：
+    前者是 None，后者是 ``status="no_data"`` 且带 ``missing``。两者都不阻断，
+    但排查"为什么断层没被判"时，这两条路的修法完全不同。
+    """
+    if not deep:
+        log.info("[Physics·deep] 未运行", extra={"model": "rules:physics", "tokens": "-"})
+        return
+    if deep.get("status") != "ok":
+        log.info(
+            f"[Physics·deep] 未计算：缺 {', '.join(deep.get('missing') or [])}",
+            extra={"model": "rules:physics", "tokens": "-"},
+        )
+        return
+    geo = deep.get("geomechanics")
+    cap = deep.get("caprock") or {}
+    log.info(
+        f"[Physics·deep] 断层：{geo['verdict'] if geo else '未判定（输入未提断层）'}"
+        f" | 盖层：{cap.get('verdict')} | 阻断：{bool(deep.get('blocking'))}",
+        extra={"model": "rules:physics", "tokens": "-"},
+    )
+    for reason in deep.get("blocking_reasons") or []:
+        log.warning(f"[Physics·deep] blocking · {reason}",
+                    extra={"model": "rules:physics", "tokens": "-"})
+
+
 def evaluate_report(state: AgentState):
     log.info("[Agent 4] 审核报告：先做规则化物理校验，再由模型评质量")
 
@@ -118,6 +146,12 @@ def evaluate_report(state: AgentState):
         params_text=state.get("extracted_params", ""),
         report_text=state.get("final_report", ""),
         user_input=state.get("user_input", ""),
+        # 深层物理（断层活化 / 盖层突破）在这里打开：它是**闸门**，必须
+        # 独立于模型评分存在。``deep=False`` 时既有行为完全不变，但那样
+        # "注入压力 1.2 倍静水就把断层推滑"这类报告会照样通过 —— 那正是
+        # 本轮要补的漏洞。是否真的阻断由 ``physics_deep`` 的策略决定：
+        # 只有输入明确提到断层、或明确给了柱高/注入速率时才允许拦。
+        deep=True,
     )
     log.info(
         f"[Physics] {physics['status']} | {physics['summary']}",
@@ -126,6 +160,7 @@ def evaluate_report(state: AgentState):
     for v in physics.get("violations") or []:
         log.warning(f"[Physics] {v['severity']} · {v['code']} · {v['message']}",
                     extra={"model": "rules:physics", "tokens": "-"})
+    _log_deep(physics.get("deep"))
 
     if physics.get("blocking"):
         # 一票否决：不打模型分，直接打回。省一次调用，也避免模型"审美"压过物理。

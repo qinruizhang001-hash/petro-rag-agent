@@ -196,10 +196,12 @@ class TestPhysicsToolsUQ(unittest.TestCase):
         self.assertIsInstance(float(text.split()[0]), float)
 
     def test_density_mean_matches_state_equation(self):
+        from utils.co2_properties import co2_density_kg_m3
+
         out = self.density_uq(250, 80, seed=42)
-        expected = 1.9 * 250 / (80 + 273.15)
-        # 100 次抽样的均值本身有抽样误差（SE ≈ 0.003），不能要求到小数点后三位
-        self.assertAlmostEqual(out["mean"], expected, delta=0.01)
+        expected = co2_density_kg_m3(250, 80)
+        # 100 次抽样的均值有抽样误差，按相对容差比较（1%）
+        self.assertAlmostEqual(out["mean"] / expected, 1.0, delta=0.01)
 
     def test_density_ci_brackets_the_mean(self):
         out = self.density_uq(250, 80, seed=42)

@@ -79,6 +79,21 @@ HEALTH_URL = f"{API_BASE}/health"
 API_TOKEN = (os.getenv("API_TOKEN") or "").strip()
 AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
 
+# 深层物理判定的中文名。前端只做**展示**，不重算 —— 判定结果全部由后端
+# 规则引擎给出，这里只把枚举翻成中文，避免"前端自己算一个结论"的老问题。
+_GEO_VERDICT_CN = {
+    "stable": "未活化",
+    "near_critical": "接近活化（余量 <20%）",
+    "reactivated": "已活化",
+    "tensile_opening": "张性开启",
+}
+_CAP_VERDICT_CN = {
+    "sealed": "封闭",
+    "capillary_breakthrough": "毛细管突破",
+    "mechanical_failure": "力学失效",
+    "no_data": "未判定",
+}
+
 st.set_page_config(
     page_title="CCUS 评估监控台",
     page_icon="🏭",
@@ -490,6 +505,62 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
                 ],
                 hide_index=True,
             )
+
+    # ─── 深层物理：断层活化 / 盖层封闭性 / 两相流 ───
+    # 这三项与上面两条压力线的结论**不是一回事**：断层在 1.5× 静水以下就可能
+    # 活化，盖层毛细管突破与注入压力无关。所以它们单独成块，不塞进"物理校验
+    # 提示"里 —— 混在一起会让读者以为"没超破裂压力"就等于"没有这些风险"。
+    deep = physics.get("deep") or {}
+    if deep.get("status") == "ok":
+        geo = deep.get("geomechanics") or {}
+        cap = deep.get("caprock") or {}
+        rel = deep.get("relperm") or {}
+        rows = []
+        if geo:
+            rows.append({
+                "判据": "断层活化",
+                "结论": _GEO_VERDICT_CN.get(geo.get("verdict"), geo.get("verdict")),
+                "关键数值": (
+                    f"滑移比 {geo.get('slip_ratio')}（≥1 即滑动）· "
+                    f"临界孔隙压力 {geo.get('pp_crit_bar')} bar · "
+                    f"余量 {geo.get('margin_bar')} bar"
+                ),
+            })
+        else:
+            rows.append({
+                "判据": "断层活化",
+                "结论": "未判定",
+                "关键数值": "输入未提及断层（不用假设应力剖面做阻断）",
+            })
+        if cap.get("entry_pressure_bar") is not None:
+            rows.append({
+                "判据": "盖层封闭性",
+                "结论": _CAP_VERDICT_CN.get(cap.get("verdict"), cap.get("verdict") or "—"),
+                "关键数值": (
+                    f"突破压力 {cap['entry_pressure_bar']:.0f} bar · "
+                    f"可封柱高 {cap['max_column_height_m']:.0f} m"
+                    + (f" · 本次柱高 {cap['column_height_m']:.0f} m"
+                       if cap.get("column_height_m") is not None else "")
+                ),
+            })
+        if rel:
+            rows.append({
+                "判据": "两相流",
+                "结论": f"流度比 M = {rel.get('mobility_ratio'):.1f}",
+                "关键数值": (
+                    f"前缘 S_CO₂ {rel.get('sg_front'):.2f} · "
+                    f"波及区平均 {rel.get('co2_saturation'):.2f}"
+                ),
+            })
+        st.caption(f"深层物理判定 · {deep.get('version') or ''}")
+        st.dataframe(rows, hide_index=True)
+        with st.expander("深层判定的前提与阻断策略（结论只在这些假设下成立）"):
+            for item in deep.get("assumptions") or []:
+                st.markdown(f"- 假设：{item}")
+            for item in deep.get("policy") or []:
+                st.markdown(f"- 策略：{item}")
+            for item in cap.get("limitations") or []:
+                st.markdown(f"- 局限：{item}")
 
     # ─── 时间维度冲突：与物理告警同级，必须顶在正文之前 ───
     # 这类问题最容易被读者忽略：报告里出现一个"最新"的压力值，看起来毫无异常，

@@ -66,6 +66,12 @@ TOOL_POLICY = {
         # 不能交给 7B 决定"这次要不要评估不确定性"。不确定性量化是报告的固定项，
         # 不是可选工具 —— 交给模型规划，等于让它自己决定要不要诚实。
         "assess_injection_uncertainty",
+        # 断层活化与盖层封闭性同理，而且更严重：它们要的是**埋深 + 注入压力**，
+        # 规划 prompt 里一旦出现示例值，7B 会照抄，而埋深被抄错会让断层判定
+        # 整体偏掉且不报错（滑移比看起来仍然"合理"）。改为在 aggregate 里
+        # 由代码按提取到的参数确定性调用（见 nodes/aggregate_node._assess_deep）。
+        "get_fault_stability",
+        "get_caprock_integrity",
     }
 }
 

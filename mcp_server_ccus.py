@@ -5,6 +5,9 @@ CCUS 工具 MCP Server
 让 Cursor / Claude Desktop 这类外部客户端也能用自然语言调用它们::
 
     get_co2_density(pressure_bar, temperature_celsius)
+    assess_injection_uncertainty(depth_m, injection_pressure_bar)
+    get_fault_stability(depth_m, injection_pressure_bar, dip_deg)
+    get_caprock_integrity(depth_m, injection_pressure_bar, ...)
     predict_pressure_pinn(x, t)
     query_ccus_graph(query)
 
@@ -53,12 +56,17 @@ server = MCPServer(
     name=SERVER_NAME,
     version=SERVER_VERSION,
     instructions=(
-        "CCUS（碳捕集利用与封存）数值与检索工具。三个工具都返回由代码计算或"
+        "CCUS（碳捕集利用与封存）数值与检索工具。所有工具都返回由代码计算或"
         "从知识图谱检索得到的事实，而不是模型生成的估计值："
-        "get_co2_density 用状态方程算 CO2 密度；"
+        "get_co2_density 用 Peng-Robinson 状态方程算 CO2 密度；"
+        "assess_injection_uncertainty 用蒙特卡洛算注入可行性的概率分布；"
+        "get_fault_stability 用地应力判据算断层会不会活化；"
+        "get_caprock_integrity 算盖层突破压力与可封 CO2 柱高；"
         "predict_pressure_pinn 用一维扩散方程的物理信息神经网络算地层压力；"
         "query_ccus_graph 从 22 篇 CCUS 文献构建的知识图谱里检索证据片段。"
         "涉及数值时优先调用工具，不要自行推算。"
+        "注意：地应力与孔喉参数是**假设值**，返回结果里会一并给出，"
+        "引用数值时必须同时说明它依赖的假设。"
     ),
 )
 
@@ -66,11 +74,11 @@ server = MCPServer(
 @server.tool(
     name="get_co2_density",
     description=(
-        "计算给定注入压力与温度下 CO2 的密度（kg/m³），使用简化状态方程 "
-        "rho = 1.9 * P / T(K)，并对压力输入做 100 次蒙特卡洛传播，"
-        "返回均值与 90% 置信区间（p5~p95）。"
+        "计算给定注入压力与温度下 CO2 的密度（kg/m³），使用 Peng-Robinson "
+        "状态方程（CO2 临界参数取 Span & Wagner 1996），并对压力输入做 100 次"
+        "蒙特卡洛传播，返回均值与 90% 置信区间（p5~p95）。"
         "这是确定性计算 + 统计传播，不要用模型记忆的密度值替代。"
-        "典型值：250 bar / 80℃ → 均值约 1.35 kg/m³。"
+        "典型值：250 bar / 80℃ → 约 660 kg/m³（超临界）。"
     ),
 )
 def get_co2_density(
@@ -100,10 +108,11 @@ def get_co2_density(
         # 报告里的区间不一致（两次抽样不是同一批随机数）
         "samples": summary.get("samples", []),
         "text": summary["text"],
-        "formula": "rho = 1.9 * P[bar] / T[K]",
+        "formula": "Peng-Robinson EOS（见 utils/co2_properties.py）",
         "pressure_bar": float(pressure_bar),
         "temperature_celsius": float(temperature_celsius),
-        "note": "简化状态方程 + 100 次蒙特卡洛传播，用于演示工具契约，不是工程精度模型",
+        "note": "Peng-Robinson 状态方程 + 100 次蒙特卡洛传播；"
+                "临界点附近误差可达 10–15%（Zc 固定 0.307），远离临界点通常 <5%",
     }
 
 
@@ -193,13 +202,76 @@ def query_ccus_graph(query: str, top_k: int = 6) -> dict:
     }
 
 
+@server.tool(
+    name="get_fault_stability",
+    description=(
+        "判定给定埋深与注入压力下，一条断层会不会滑动（Mohr-Coulomb 滑动判据 + "
+        "Terzaghi 有效应力）。返回滑移比 τ/(μσ'n)（≥1 即滑动）、临界孔隙压力、"
+        "余量，以及张性开启（孔隙压力顶开断层面）是否发生。"
+        "这是比'超破裂压力'更早触发的风险：断层在 1.5 倍静水以下就可能滑移，"
+        "此时注入压力离破裂压力还有很大余量。"
+        "**应力剖面是假设值**（Sv=23 MPa/km、Shmin=0.75Sv、SHmax=0.90Sv、μ=0.6），"
+        "不是场地实测，结论只在该假设成立时有效。"
+    ),
+)
+def get_fault_stability(
+    depth_m: float,
+    injection_pressure_bar: float,
+    dip_deg: float = 60.0,
+    azimuth_deg: float = 90.0,
+) -> dict:
+    """断层活化判定（假设应力剖面 + 两口径交叉验证）。"""
+    from tools.physics_tools import fault_stability
+
+    return fault_stability(
+        depth_m, injection_pressure_bar,
+        dip_deg=dip_deg, azimuth_deg=azimuth_deg,
+    )
+
+
+@server.tool(
+    name="get_caprock_integrity",
+    description=(
+        "判定盖层能不能封住 CO2：毛细管突破压力（Laplace/Washburn，"
+        "Pc = 2γcosθ/r）、可封 CO2 柱高（H = Pc/(Δρ·g)），"
+        "以及力学失效界限（注入压力 ≥ σhmin + 抗张强度）。"
+        "给 co2_column_height_m 或 injection_rate_m3_per_day 时给出判定结论，"
+        "都不给时只返回突破压力与可封柱高（verdict='no_data'）。"
+        "Δρ 由 Peng-Robinson 状态方程算出，不是常数。"
+        "**孔喉半径与接触角取文献默认值**（10 nm / 30°），非 MICP 实测。"
+    ),
+)
+def get_caprock_integrity(
+    depth_m: float,
+    injection_pressure_bar: float,
+    temperature_celsius: float = 60.0,
+    co2_column_height_m: float | None = None,
+    injection_rate_m3_per_day: float | None = None,
+) -> dict:
+    """盖层封闭性判定（毛细管 + 力学两条路径）。"""
+    from tools.physics_tools import caprock_check
+
+    return caprock_check(
+        depth_m, injection_pressure_bar,
+        temperature_celsius=temperature_celsius,
+        co2_column_height_m=co2_column_height_m,
+        injection_rate_m3_per_day=injection_rate_m3_per_day,
+    )
+
+
 def _selftest() -> int:
-    """不经过 MCP 协议，直接调三个函数 —— 用来区分"工具坏了"和"传输坏了"。"""
+    """不经过 MCP 协议，直接调各函数 —— 用来区分"工具坏了"和"传输坏了"。"""
     print("=== get_co2_density ===")
     print(get_co2_density(250, 80))
 
     print("\n=== assess_injection_uncertainty ===")
     print(assess_injection_uncertainty(2500, 250))
+
+    print("\n=== get_fault_stability ===")
+    print(get_fault_stability(2500, 250)["text"])
+
+    print("\n=== get_caprock_integrity ===")
+    print(get_caprock_integrity(2500, 250, 60, co2_column_height_m=50)["text"])
 
     print("\n=== predict_pressure_pinn ===")
     print(predict_pressure_pinn(50, 10))

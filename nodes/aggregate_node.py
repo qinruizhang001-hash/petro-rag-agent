@@ -174,6 +174,54 @@ def _call_density(pressure_bar, temperature_celsius) -> dict | None:
         return None
 
 
+def _assess_deep(state: AgentState) -> dict | None:
+    """
+    跑一次深层物理判定（断层 / 盖层 / 两相流）。失败返回 None，不影响报告。
+
+    参数一律从**提取结果 + 用户原文**重新抽，不采用模型在工具指令里给的数字
+    —— 与密度、PINN 的接地守卫同一条理由：规划 prompt 里出现过示例值，
+    7B 会照抄，而埋深被抄错会让断层判定整体偏掉且不报错。
+
+    为什么吞异常：这是报告的**附加事实**，不是成稿的前置条件。本地 Ollama
+    偶尔会在这一阶段超时；因为一个可选数值让整条 case 失败，代价远大于收益。
+    但失败必须写日志 —— 静默降级会让"这次报告没有断层结论"看起来像
+    "这个场地没有断层风险"。
+    """
+    try:
+        from utils.physics_deep import assess
+        from utils.physics_rules import extract_parameters
+
+        ex = extract_parameters(
+            state.get("extracted_params", ""), state.get("user_input", "")
+        )
+        if ex.get("depth_m") is None or ex.get("injection_pressure_bar") is None:
+            return None
+        return assess(
+            depth_m=ex["depth_m"],
+            injection_pressure_bar=ex["injection_pressure_bar"],
+            temperature_celsius=ex.get("temperature_c"),
+            # 断层/柱高的显式提及只可能出现在这两段文字里
+            text=f"{state.get('extracted_params', '')}\n{state.get('user_input', '')}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(f"  [Warning] 深层物理判定失败（不影响报告）: "
+                    f"{type(exc).__name__}: {exc}")
+        return None
+
+
+def _deep_facts(deep: dict | None) -> list[str]:
+    """把深层判定转成报告 Prompt 里的事实行（无结论时返回空列表）。"""
+    if not deep:
+        return []
+    try:
+        from utils.physics_deep import render_facts
+
+        return render_facts(deep)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(f"  [Warning] 深层物理事实渲染失败: {type(exc).__name__}: {exc}")
+        return []
+
+
 def _plan_prompt_tools() -> str:
     """从 MCP Server 动态生成"可用工具"清单，客户端不硬编码工具名。
 
@@ -557,10 +605,22 @@ def aggregate_report(state: AgentState, config=None):
     if injection_uq.get("text"):
         tool_facts.append(f"注入风险概率分布：{injection_uq['text']}")
 
+    # ─── 深层物理：断层活化 / 盖层封闭性 / 两相流 ────────────
+    # **确定性触发**，不进规划器（与注入风险 UQ 同一条理由）：只要参数里
+    # 有埋深和注入压力，这几项就一定能算，让 7B 决定"这次要不要判断层"
+    # 等于让它决定要不要提风险。
+    #
+    # 结果同时写进 ``physics_deep`` 供前端/审计读，文本行进 ``tool_facts``
+    # —— 评审阶段的概率溯源与忠实度核对都以 ``tool_facts`` 为证据源，
+    # 不写进去的数值在评审眼里就是"无出处"。
+    deep_result = _assess_deep(state)
+    tool_facts.extend(_deep_facts(deep_result))
+
     facts_block = ""
     if tool_facts:
         facts_block = (
-            "【工具执行结果 —— 必须写进报告正文】\n- " + "\n- ".join(tool_facts)
+            "【工具执行结果（含规则引擎计算）—— 必须写进报告正文】\n- "
+            + "\n- ".join(tool_facts)
             + "\n\n"
         )
 
@@ -691,6 +751,11 @@ def aggregate_report(state: AgentState, config=None):
         # 不确定性量化结果：结构化字段，供 API / 前端 / 评审直接消费。
         # 报告正文里那段话是模型转述，可能被漏写；这个字段才是数值的可靠来源。
         "uq_summary": uq_payload(uq_summary),
+        # 深层物理判定（断层活化 / 盖层封闭性 / 两相流）。与 ``uq_summary``
+        # 同理：报告正文是模型转述，可能漏写或改写；这个字段是规则引擎的
+        # 原始结论，前端与审计只读它。``status="no_data"`` 表示参数不足，
+        # 与"算了但不合格"必须能区分开。
+        "physics_deep": deep_result or {},
         **compress_update,
         **state_update,
     }

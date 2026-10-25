@@ -4,9 +4,10 @@
 与 ``knowledge_tools``（联网检索）并列：这里是"算出来的事实"，
 那里是"查回来的事实"，两者都不该由语言模型口算/编造。
 
-``co2_density_value`` 用的是简化状态方程 ``ρ = 1.9·P / T``，
-不是 Span–Wagner。它演示的是**工具调用契约**（数值必须来自代码而非模型），
-不是储层工程计算器 —— 需要工程精度时替换本函数即可，调用方无需改动。
+``co2_density_value`` 用的是 Peng-Robinson 状态方程（实现见
+``utils/co2_properties.py``），临界参数取 Span & Wagner 1996。它演示的是
+**工具调用契约**（数值必须来自代码而非模型）：任何进入报告的数字都要能被
+追溯到一个确定性函数，而不是模型记忆里的"大概 600 多"。
 
 从 v1.6 起，对外暴露的不再是单点值，而是**分布**
 -----------------------------------------------
@@ -56,15 +57,19 @@ _VERDICT_LABELS = {
 # ══════════════════════════════════════════════════════════
 def co2_density_value(pressure_bar: float, temperature_celsius: float) -> float:
     """
-    简化状态方程：ρ = 1.9·P / T(K)。
+    CO₂ 密度（kg/m³），Peng-Robinson 状态方程。
 
     单独拆出来是为了让蒙特卡洛只传播**一个**不确定源：
     模型函数本身必须是纯函数、单参数，否则 ``monte_carlo`` 无法包装。
+
+    历史上这里是 ``ρ = 1.9·P/T``，在 250 bar / 80℃ 给 1.35 kg/m³。
+    真实超临界 CO₂ 约 650 kg/m³ —— 差 460 倍，量纲就不对。
+    这个数会进浮力（Δρ·g·H）、流度比、重力分异，错 460 倍不是"精度不够"，
+    是把"封不住"判成"封得住"。实现见 ``utils/co2_properties.py``。
     """
-    t_kelvin = float(temperature_celsius) + 273.15
-    if t_kelvin <= 0:
-        raise ValueError("温度必须高于绝对零度")
-    return 1.9 * float(pressure_bar) / t_kelvin
+    from utils.co2_properties import co2_density_kg_m3
+
+    return co2_density_kg_m3(pressure_bar, temperature_celsius)
 
 
 def co2_density_uq(
@@ -229,6 +234,82 @@ def injection_risk_uq(
         "unit": "",
         "text": text,
     }
+
+
+# ══════════════════════════════════════════════════════════
+# 断层活化 / 盖层封闭性（深层物理）
+# ══════════════════════════════════════════════════════════
+# 这两个工具与上面的密度/压力工具是**并列**关系：上面回答"注入压力对不对"，
+# 这里回答"会不会滑、会不会漏"。后者的触发条件比前者更早 —— 断层在
+# 1.5× 静水以下就可能滑动，而此时注入压力离破裂压力还有很大余量，
+# 只看破裂压力会漏掉整个风险类别。
+def fault_stability(
+    depth_m: float,
+    injection_pressure_bar: float,
+    dip_deg: float = 60.0,
+    azimuth_deg: float = 90.0,
+) -> dict:
+    """
+    断层活化判定（Mohr-Coulomb + Terzaghi 有效应力）。
+
+    ``dip_deg`` 默认 60°：最优产状在 45°+φ/2（μ=0.6 → 60.5°），不给倾角时
+    取最不利产状比取"某个平均值"更保守，且这一点写进了返回的 ``assumptions``。
+
+    返回结果含 ``text``（一句话）、``verdict``、``slip_ratio``、``pp_crit_bar``、
+    ``margin_bar``、``assumptions``、``limitations``。**假设必须跟着数字一起
+    返回**：这是用默认应力剖面算的，不是场地实测。
+    """
+    from utils.geomechanics import fault_reactivation
+
+    result = fault_reactivation(
+        depth_m=depth_m,
+        injection_pressure_bar=injection_pressure_bar,
+        dip_deg=dip_deg,
+        azimuth_deg=azimuth_deg,
+    )
+    head = {
+        "stable": "断层未活化",
+        "near_critical": "断层接近活化",
+        "reactivated": "断层已活化",
+        "tensile_opening": "断层张性开启",
+    }.get(result["verdict"], result["verdict"])
+    result["text"] = (
+        f"{head}：倾角 {result['plane']['dip_deg']:.0f}° 断层面滑移比 "
+        f"{result['slip_ratio']}（≥1 即滑动），临界孔隙压力 "
+        f"{result['pp_crit_bar']} bar，余量 {result['margin_bar']} bar"
+        f"（按假设应力剖面计算，非实测）"
+    )
+    return result
+
+
+def caprock_check(
+    depth_m: float,
+    injection_pressure_bar: float,
+    temperature_celsius: float = 60.0,
+    co2_column_height_m: float | None = None,
+    injection_rate_m3_per_day: float | None = None,
+) -> dict:
+    """
+    盖层封闭性判定：毛细管突破（Laplace/Washburn）与力学失效（σhmin + T0）
+    两条独立路径，任一条失效即 ``blocking``。
+
+    不给柱高也不给注入速率时返回 ``verdict="no_data"``，只给突破压力与
+    可封柱高 —— "没算"和"算出来不合格"必须能区分。
+    """
+    from utils.caprock import caprock_integrity
+
+    result = caprock_integrity(
+        depth_m=depth_m,
+        injection_pressure_bar=injection_pressure_bar,
+        temperature_celsius=temperature_celsius,
+        co2_column_height_m=co2_column_height_m,
+        injection_rate_m3_per_day=injection_rate_m3_per_day,
+    )
+    result["text"] = result.get("summary") or (
+        f"盖层突破压力 {result['entry_pressure_bar']:.0f} bar，"
+        f"可封 CO₂ 柱高 {result['max_column_height_m']:.0f} m"
+    )
+    return result
 
 
 # ══════════════════════════════════════════════════════════

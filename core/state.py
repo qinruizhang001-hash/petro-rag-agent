@@ -139,6 +139,12 @@ class AgentState(TypedDict):
     # mean / p5 / p95 / std / n / rel_sigma / text。数值全部来自代码模拟，
     # 模型只负责转述，不负责计算。
     uq_summary: dict
+    # ─── 深层物理判定（断层活化 / 盖层封闭性 / 两相流）───
+    # aggregate 节点产出：{status, blocking, geomechanics, caprock, relperm,
+    # policy, assumptions, version}。``status="no_data"`` 表示参数不足未算，
+    # 与"算了但不合格"是两件事，不能混。evaluate 节点会用同一套规则重算一遍
+    # 并据此阻断，所以这里的字段是**展示与审计**用的，不是闸门的唯一依据。
+    physics_deep: dict
     # ─── 人类在环（HITL）───
     human_decision: dict           # {approved, reviewer, comment, auto}
     human_rejections: int          # 人工驳回次数，用于给"人一直驳回"设上限
