@@ -198,3 +198,6 @@ eval/*.partial.jsonl
 
 # PDF 文本层校验时渲染的页面图，一次性产物。
 .pdfcheck/
+
+# 摘要 PDF 的 SVG→PNG 栅格化缓存（按源文件 mtime 失效，可随时重建）。
+.pdfbuild/
