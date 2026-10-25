@@ -219,6 +219,23 @@ def _pin_loaded_routing_to_local(local_model: str) -> None:
     )
 
 
+def _redirect_loaded_file_memory(path: str) -> bool:
+    """若 ``file_memory`` 已被导入，把它固化的历史路径改到 ``path``。
+
+    返回是否真的改到了（False 表示模块还没导入，环境变量对后续导入有效）。
+    单独抽出来是为了能测：``file_memory.PROJECT_HISTORY_PATH`` 是模块常量，
+    在 import 时就固定了，之后再设 ``PROJECT_HISTORY_PATH`` 环境变量对它无效。
+    在同一个进程里跑评估时它早已被导入，于是测试问句会写进真实的
+    ``project_history.md``，压缩逻辑再按"最近 N 条"把旧的真实记录挤掉 ——
+    这个损失不可逆，所以隔离必须覆盖这条路径。
+    """
+    module = sys.modules.get("file_memory")
+    if module is None:
+        return False
+    module.PROJECT_HISTORY_PATH = Path(path)
+    return True
+
+
 def _prepare_isolated_agent_environment(allow_cloud: bool, allow_web: bool) -> tempfile.TemporaryDirectory[str]:
     """Load project settings, then isolate side effects from real user history."""
     os.chdir(PROJECT_ROOT)
@@ -236,6 +253,8 @@ def _prepare_isolated_agent_environment(allow_cloud: bool, allow_web: bool) -> t
     os.environ["EVOLVE_HOME"] = str(temp_path / "evolution")
     os.environ["EVOLVE_WRITE_GRAPH"] = "0"
     os.environ["PROJECT_HISTORY_PATH"] = str(temp_path / "project_history.md")
+    # 与 core.config 同一个坑：模块常量在 import 时就固化了，环境变量对它无效。
+    _redirect_loaded_file_memory(os.environ["PROJECT_HISTORY_PATH"])
     os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1")
     os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
 

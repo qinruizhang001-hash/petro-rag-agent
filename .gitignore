@@ -191,3 +191,10 @@ state/
 eval/ragas_report.json
 # 逐题断点（--resume 用），同样是运行产物。
 eval/*.partial.jsonl
+
+# 消融运行产物：逐例落盘的 jsonl 与隔离的项目历史，都是本地跑出来的中间态。
+# 结论写在 docs/evidence-table.md 与 docs/gap-register.md，不靠这里留档。
+.ablation/
+
+# PDF 文本层校验时渲染的页面图，一次性产物。
+.pdfcheck/

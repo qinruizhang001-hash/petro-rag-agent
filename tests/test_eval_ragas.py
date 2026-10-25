@@ -351,6 +351,30 @@ class IsolationTests(unittest.TestCase):
         with patch.dict(sys.modules, {"core.config": None}):
             eval_ragas._pin_loaded_routing_to_local("qwen2.5")
 
+    def test_already_imported_file_memory_is_redirected(self):
+        # 与 core.config 同一类问题：file_memory 在 import 时把历史路径
+        # 固化成模块常量，之后设 PROJECT_HISTORY_PATH 环境变量对它无效。
+        # 不修这一手，同进程跑评估会把测试问句写进真实的 project_history.md，
+        # 压缩再按"最近 N 条"挤掉旧记录 —— 损失不可逆。
+        import sys
+        import types
+
+        fake = types.ModuleType("file_memory")
+        fake.PROJECT_HISTORY_PATH = Path("/repo/project_history.md")
+        with patch.dict(sys.modules, {"file_memory": fake}):
+            redirected = eval_ragas._redirect_loaded_file_memory("/tmp/iso/project_history.md")
+
+        self.assertTrue(redirected)
+        self.assertEqual(fake.PROJECT_HISTORY_PATH, Path("/tmp/iso/project_history.md"))
+
+    def test_unimported_file_memory_reports_that_it_changed_nothing(self):
+        import sys
+
+        with patch.dict(sys.modules, {"file_memory": None}):
+            self.assertFalse(
+                eval_ragas._redirect_loaded_file_memory("/tmp/iso/project_history.md")
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

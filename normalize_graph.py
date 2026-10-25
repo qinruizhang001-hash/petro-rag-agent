@@ -74,12 +74,17 @@ def project(plan: dict, nodes, edges) -> dict:
 
     comps = connected_components(sorted(kept), sorted(projected_edges))
     largest = len(comps[0]) if comps else 0
+    isolated = sum(1 for c in comps if len(c) == 1)
     return {
         "nodes": len(kept),
         "edges": len(projected_edges),
         "components": len(comps),
         "largest": largest,
         "largest_ratio": round(largest / (len(kept) or 1), 4),
+        # 孤立节点数：消融对照里"合并到底救回了什么"要看这个，
+        # 只看分量数会漏掉"合并把 3 个孤立点并成 1 个孤立点"这种情形。
+        "isolated": isolated,
+        "isolated_ratio": round(isolated / (len(kept) or 1), 4),
         "top": [len(c) for c in comps[:10]],
     }
 

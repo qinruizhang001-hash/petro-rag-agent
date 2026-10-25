@@ -1,0 +1,267 @@
+{
+  "online": {
+    "baseline": {
+      "arm": "baseline",
+      "changes": [
+        "未改动任何模块"
+      ],
+      "cases": 1,
+      "passed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "case_id": "ccus-01-pressure-management",
+          "question": "CO2 注入导致地层压力持续升高时，可以怎样做压力管理来降低断层再活化和盖层破裂风险？",
+          "gate_status": "passed",
+          "physics_status": "unverifiable",
+          "physics_blocking": false,
+          "retry_count": 1,
+          "response_chars": 1398,
+          "error": ""
+        }
+      ],
+      "environment": "本地模型（cloud 客户端已禁用，三组同口径）",
+      "note": "小样本诊断，不是基准。看的是闸门是否仍然拦得住，不是 Faithfulness 的绝对值。",
+      "partial": ".ablation\\online_baseline.jsonl",
+      "case_set": "golden"
+    },
+    "baseline@probe": {
+      "arm": "baseline",
+      "case_set": "probe",
+      "changes": [
+        "未改动任何模块"
+      ],
+      "cases": 1,
+      "passed": 0,
+      "failed": 1,
+      "results": [
+        {
+          "case_id": "probe-fault-blocking",
+          "question": "某盐水层封存场地，埋深 2500 m，注入压力 420 bar，存在一条倾角 60° 的构造断层。注入是否会活化该断层？应如何调整注入方案？",
+          "gate_status": "failed",
+          "physics_status": "violation",
+          "physics_blocking": true,
+          "retry_count": 2,
+          "response_chars": 166,
+          "error": ""
+        }
+      ],
+      "environment": "本地模型（cloud 客户端已禁用，三组同口径）",
+      "note": "小样本诊断，不是基准。看的是闸门是否仍然拦得住，不是 Faithfulness 的绝对值。",
+      "partial": ".ablation\\online_baseline_probe.jsonl"
+    },
+    "no_physics_gate@probe": {
+      "arm": "no_physics_gate",
+      "case_set": "probe",
+      "changes": [
+        "physics_deep.assess 的 blocking 恒为 False（数值保留）",
+        "拦住但被放行: 断层活化：注入压力 420 bar 使断层面（倾角 60°）滑移比达到 2.199（≥1 即滑动），临界孔隙压力 363.445 bar，当前余量 110.945 bar",
+        "拦住但被放行: 断层活化：注入压力 420 bar 使断层面（倾角 60°）滑移比达到 2.199（≥1 即滑动），临界孔隙压力 363.445 bar，当前余量 110.945 bar",
+        "拦住但被放行: 断层活化：注入压力 420 bar 使断层面（倾角 60°）滑移比达到 2.199（≥1 即滑动），临界孔隙压力 363.445 bar，当前余量 110.945 bar",
+        "拦住但被放行: 断层活化：注入压力 420 bar 使断层面（倾角 60°）滑移比达到 2.199（≥1 即滑动），临界孔隙压力 363.445 bar，当前余量 110.945 bar"
+      ],
+      "cases": 1,
+      "passed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "case_id": "probe-fault-blocking",
+          "question": "某盐水层封存场地，埋深 2500 m，注入压力 420 bar，存在一条倾角 60° 的构造断层。注入是否会活化该断层？应如何调整注入方案？",
+          "gate_status": "passed",
+          "physics_status": "pass",
+          "physics_blocking": false,
+          "retry_count": 2,
+          "response_chars": 1897,
+          "error": ""
+        }
+      ],
+      "environment": "本地模型（cloud 客户端已禁用，三组同口径）",
+      "note": "小样本诊断，不是基准。看的是闸门是否仍然拦得住，不是 Faithfulness 的绝对值。",
+      "partial": ".ablation\\online_no_physics_gate_probe.jsonl"
+    },
+    "no_rewrite@probe": {
+      "arm": "no_rewrite",
+      "case_set": "probe",
+      "changes": [
+        "core.gates.MAX_REPORT_REWRITES = 0（低分直接 fail，不重写）"
+      ],
+      "cases": 1,
+      "passed": 0,
+      "failed": 1,
+      "results": [
+        {
+          "case_id": "probe-fault-blocking",
+          "question": "某盐水层封存场地，埋深 2500 m，注入压力 420 bar，存在一条倾角 60° 的构造断层。注入是否会活化该断层？应如何调整注入方案？",
+          "gate_status": "failed",
+          "physics_status": "violation",
+          "physics_blocking": true,
+          "retry_count": 1,
+          "response_chars": 166,
+          "error": ""
+        }
+      ],
+      "environment": "本地模型（cloud 客户端已禁用，三组同口径）",
+      "note": "小样本诊断，不是基准。看的是闸门是否仍然拦得住，不是 Faithfulness 的绝对值。",
+      "partial": ".ablation\\online_no_rewrite_probe.jsonl"
+    },
+    "no_rewrite": {
+      "arm": "no_rewrite",
+      "case_set": "golden",
+      "changes": [
+        "core.gates.MAX_REPORT_REWRITES = 0（低分直接 fail，不重写）"
+      ],
+      "cases": 1,
+      "passed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "case_id": "ccus-01-pressure-management",
+          "question": "CO2 注入导致地层压力持续升高时，可以怎样做压力管理来降低断层再活化和盖层破裂风险？",
+          "gate_status": "passed",
+          "physics_status": "warning",
+          "physics_blocking": false,
+          "retry_count": 1,
+          "response_chars": 1362,
+          "error": ""
+        }
+      ],
+      "environment": "本地模型（cloud 客户端已禁用，三组同口径）",
+      "note": "小样本诊断，不是基准。看的是闸门是否仍然拦得住，不是 Faithfulness 的绝对值。",
+      "partial": ".ablation\\online_no_rewrite.jsonl"
+    }
+  },
+  "offline": {
+    "graph": "D:\\python-learn\\petro-rag-agent\\lightrag_storage\\graph_chunk_entity_relation.graphml",
+    "nodes": 4988,
+    "edges": 5128,
+    "arms": [
+      {
+        "arm": "alias_merge",
+        "question": "别名合并对连通性的贡献",
+        "with_merge": {
+          "nodes": 4419,
+          "edges": 4763,
+          "components": 1087,
+          "largest": 2829,
+          "largest_ratio": 0.6402,
+          "isolated": 822,
+          "isolated_ratio": 0.186,
+          "top": [
+            2829,
+            24,
+            16,
+            10,
+            10,
+            9,
+            8,
+            8,
+            7,
+            7
+          ]
+        },
+        "without_merge": {
+          "nodes": 4826,
+          "edges": 4850,
+          "components": 1256,
+          "largest": 2905,
+          "largest_ratio": 0.6019,
+          "isolated": 929,
+          "isolated_ratio": 0.1925,
+          "top": [
+            2905,
+            24,
+            21,
+            16,
+            11,
+            11,
+            10,
+            9,
+            9,
+            9
+          ]
+        },
+        "delta": {
+          "components": 169,
+          "largest": -76,
+          "nodes_merged": 407
+        },
+        "verdict": "合并 407 个节点，分量 1256 → 1087，最大分量 2905 → 2829"
+      },
+      {
+        "arm": "type_constraint",
+        "question": "八类实体约束的遵守率（上界，非因果）",
+        "off_schema_nodes": 552,
+        "off_schema_ratio": 0.1107,
+        "off_schema_edges_touching": 622,
+        "distribution": {
+          "unknown": 415,
+          "other": 101,
+          "institution": 19,
+          "person": 5,
+          "scenario": 4,
+          "application": 2,
+          "expression": 2,
+          "figure": 2,
+          "simulation": 1,
+          "researchproject": 1
+        },
+        "graph_if_enforced": {
+          "nodes": 4436,
+          "edges": 4506,
+          "components": 1221,
+          "largest": 2759,
+          "largest_ratio": 0.622,
+          "isolated": 1019,
+          "isolated_ratio": 0.2297
+        },
+        "graph_now": {
+          "nodes": 4988,
+          "edges": 5128,
+          "components": 1226,
+          "largest": 3073,
+          "largest_ratio": 0.6161,
+          "isolated": 892,
+          "isolated_ratio": 0.1788
+        },
+        "verdict": "552 个节点（11.1%）不在八类之内，牵动 622 条边；约束是提示词，没有代码闸门"
+      },
+      {
+        "arm": "curated_ontology",
+        "question": "策展本体对六个维度的贡献",
+        "dimensions": {
+          "reservoir": {
+            "before": 286,
+            "after": 316,
+            "ratio": 1.1
+          },
+          "fault": {
+            "before": 62,
+            "after": 87,
+            "ratio": 1.4
+          },
+          "caprock": {
+            "before": 18,
+            "after": 58,
+            "ratio": 3.22
+          },
+          "wellbore": {
+            "before": 107,
+            "after": 132,
+            "ratio": 1.23
+          },
+          "monitoring": {
+            "before": 186,
+            "after": 213,
+            "ratio": 1.15
+          },
+          "regulation": {
+            "before": 149,
+            "after": 171,
+            "ratio": 1.15
+          }
+        },
+        "verdict": "reservoir 286→316 · fault 62→87 · caprock 18→58 · wellbore 107→132 · monitoring 186→213 · regulation 149→171"
+      }
+    ]
+  }
+}
