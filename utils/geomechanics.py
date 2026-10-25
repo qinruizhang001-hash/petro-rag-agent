@@ -28,16 +28,19 @@ CCUS 项目里最常见的诱发地震与泄漏通道不是"把盖层压出裂�
 ## 这个模块不是什么
 
 - 不是三维应力场反演。输入是一维的（梯度或实测值），不做井壁崩落/诱导缝反演。
-- 不做孔隙弹性耦合。注入引起的应力路径（Δσ/ΔP）按恒定总应力处理，
-  即只考虑孔隙压力对有效应力的影响。真实储层里总应力也会变，量级通常是
-  孔隙压力变化的一小部分（Biot 系数 < 1），但对临界状态附近的项目不可忽略。
-  这个简化在 ``limitations`` 里明确返回，不藏在文档里。
+- 不做**应力转移**。``utils/poroelastic.py`` 给了注入层内部的单轴应变应力
+  路径（总应力随孔隙压力上升），但它只在注入层成立；盖层与隔层的应力变化
+  由三维孔隙弹性解决定，可以在某些位置**降低** σ_h 从而促进滑动，本项目
+  没有地质力学求解器，不建模。因此判定闸门仍走"总应力不变"的保守口径，
+  耦合口径作为第二个数返回（见 ``coupled`` 字段）。
 """
 from __future__ import annotations
 
 import math
 import os
 from dataclasses import asdict, dataclass
+
+from utils import poroelastic as pe
 
 # ─── 版本 ────────────────────────────────────────────────
 # 与 physics_rules.RULES_VERSION 分开：两套判据的改动节奏不同，
@@ -403,10 +406,93 @@ def critical_pore_pressure_optimal(state: StressState,
 # ══════════════════════════════════════════════════════════
 # 主判定：注入引起的断层活化
 # ══════════════════════════════════════════════════════════
+def _severity(verdict: str) -> int:
+    """判定的严重度序，用于比较两个口径谁更宽松。"""
+    return {"stable": 0, "near_critical": 1, "reactivated": 2,
+            "tensile_opening": 3}.get(verdict, 0)
+
+
+def _coupled_path(state: StressState, delta_pp_mpa: float, dip_deg: float,
+                  azimuth_deg: float, params: StressParams,
+                  poro: pe.PoroelasticParams | None,
+                  environ: dict | None) -> dict:
+    """
+    单轴应变孔隙弹性口径下的同一套判据（见 ``utils/poroelastic.py``）。
+
+    与保守口径的唯一区别是：注入后**总应力也变了**，所以 σn 与 τ 都要用
+    新的应力状态重算，而不是只把 Pp 换掉。重算而不是套修正系数，是因为
+    剪应力 τ = √(s(1−s))·|σh − σv| 会随 σh 上升而下降 —— 只改 Pp 会漏掉
+    这一项，而它和正应力项同向，漏掉就等于把耦合的好处算了一半。
+    """
+    pp = poro or pe.load_poroelastic_params(environ)
+    after = pe.stress_after_injection(
+        state.sv, state.shmin, state.shmax, state.pp, delta_pp_mpa, pp
+    )
+    coupled_state = StressState(
+        depth_m=state.depth_m, sv=after["sv"], shmin=after["shmin"],
+        shmax=after["shmax"], pp=after["pp"],
+        regime=classify_regime(after["sv"], after["shmax"], after["shmin"]),
+    )
+    plane = plane_stress(dip_deg, azimuth_deg, coupled_state)
+    sigma_n = plane["sigma_n_mpa"]
+    tau = plane["tau_mpa"]
+    eff = sigma_n - coupled_state.pp
+
+    if eff <= 0:
+        slip_tendency = float("inf")
+    elif tau <= params.cohesion:
+        slip_tendency = 0.0
+    else:
+        slip_tendency = tau / eff
+    slip_ratio = (slip_tendency / params.friction
+                  if slip_tendency != float("inf") else float("inf"))
+    pp_crit = critical_pore_pressure(coupled_state, sigma_n, tau, params)
+    # 与保守口径同一套阈值语义：余量从**原始**孔隙压力算起，吃掉 80% 报 near_critical
+    margin_from_original = pp_crit - state.pp
+
+    if coupled_state.pp >= sigma_n:
+        verdict = "tensile_opening"
+    elif slip_ratio >= 1.0:
+        verdict = "reactivated"
+    elif margin_from_original != float("inf") and margin_from_original > 0 \
+            and delta_pp_mpa >= 0.8 * margin_from_original:
+        verdict = "near_critical"
+    else:
+        verdict = "stable"
+
+    return {
+        "verdict": verdict,
+        "slip_ratio": _round(slip_ratio),
+        "sigma_n_mpa": round(sigma_n, 2),
+        "sigma_n_eff_mpa": round(eff, 2),
+        "tau_mpa": round(tau, 2),
+        "pp_crit_bar": _round(pp_crit * BAR_PER_MPA),
+        "margin_bar": _round((pp_crit - coupled_state.pp) * BAR_PER_MPA),
+        "delta_sigma_h_bar": round(after["delta_sigma_h_mpa"] * BAR_PER_MPA, 1),
+        "path_ratio": round(after["path_ratio"], 4),
+        "effective_path_ratio": round(after["effective_path_ratio"], 4),
+        # 输入压力低于原始孔隙压力时，应力路径把 σh 往下带，耦合口径反而更严重。
+        # 这不是异常输入（枯竭工况就是这样），但方向必须显式标出来，
+        # 否则"耦合口径更宽松"这句话会被无条件套用。
+        "depressurisation": delta_pp_mpa < 0,
+        "state": coupled_state.as_dict(),
+        "params": pe.manifest(pp, environ)["parameters"],
+        "assumed": pe._assumed(environ),
+        "note": (
+            "单轴应变应力路径只对注入层本身成立；盖层与隔层的应力转移未建模，"
+            "那部分可以在局部降低水平应力、促进滑动，所以这个口径的余量"
+            "不能当作场地安全裕度"
+            + ("；本次输入压力低于原始孔隙压力，应力路径反向（σh 下降），"
+               "耦合口径比保守口径更严重" if delta_pp_mpa < 0 else "")
+        ),
+    }
+
+
 def fault_reactivation(depth_m: float, injection_pressure_bar: float,
                        dip_deg: float = 60.0, azimuth_deg: float = 90.0,
                        params: StressParams | None = None,
-                       environ: dict | None = None) -> dict:
+                       environ: dict | None = None,
+                       poro: pe.PoroelasticParams | None = None) -> dict:
     """
     注入压力抬升孔隙压力后，一条给定产状的断层会不会滑动。
 
@@ -433,6 +519,7 @@ def fault_reactivation(depth_m: float, injection_pressure_bar: float,
           "applied_overpressure_bar": float,
           "consistent": bool,
           "polygon": {...},
+          "coupled": {...},          # 单轴应变孔隙弹性口径，见 utils/poroelastic.py
           "assumptions": [...], "limitations": [...],
           "version": "2026.10-g1",
           "params": {...},
@@ -504,6 +591,7 @@ def fault_reactivation(depth_m: float, injection_pressure_bar: float,
         mechanism = "shear"
 
     polygon = stress_polygon(state, p)
+    coupled = _coupled_path(state, applied, dip_deg, azimuth_deg, p, poro, environ)
 
     return {
         "verdict": verdict,
@@ -530,11 +618,13 @@ def fault_reactivation(depth_m: float, injection_pressure_bar: float,
         "applied_overpressure_bar": round(applied * BAR_PER_MPA, 1),
         "consistent": consistent,
         "polygon": polygon,
+        "coupled": coupled,
         "optimal_dip_deg": optimal_dip(state, p, azimuth_deg),
         "assumptions": _assumed(p, environ),
         "limitations": [
             "一维应力模型：Shmin/SHmax 由 Sv 按比例给出，不是实测。",
-            "孔隙弹性耦合未建模：假定注入只改变孔隙压力，总应力不变。",
+            "孔隙弹性只建模注入层内部的单轴应变应力路径（coupled 字段）；"
+            "盖层与隔层的应力转移未建模，那部分可以在局部降低 σh 并促进滑动。",
             "断层按平面、无黏聚力处理；实际断裂带宽度与结构面粗糙度未考虑。",
             "未考虑断层渗透性随剪切的演化（剪胀/剪缩对压力的反馈）。",
         ],
@@ -579,6 +669,15 @@ def render_block(result: dict) -> str:
             "- 前提：以下参数用了默认假设值，不是实测 —— "
             + "、".join(result["assumptions"])
             + "。结论仅在这些假设成立时有效。"
+        )
+    cp = result.get("coupled") or {}
+    if cp:
+        same = cp.get("verdict") == result["verdict"]
+        lines.append(
+            f"- 孔隙弹性口径（单轴应变，Δσh/ΔP = {cp.get('path_ratio')}）："
+            f"滑移比 {cp.get('slip_ratio')}，余量 {cp.get('margin_bar')} bar，"
+            f"判定 {cp.get('verdict')}"
+            + ("（与保守口径一致）" if same else "（比保守口径宽松，仅对注入层成立）")
         )
     if not result["polygon"]["ok"]:
         lines.append(

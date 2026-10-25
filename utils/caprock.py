@@ -202,6 +202,7 @@ def caprock_integrity(
     plume_radius_m: float = 500.0,
     reservoir_thickness_m: float = 50.0,
     porosity: float = 0.2,
+    trap_area_m2: float | None = None,
     params: CaprockParams | None = None,
     stress_params: gm.StressParams | None = None,
     relperm_params: rp.RelPermParams | None = None,
@@ -226,7 +227,13 @@ def caprock_integrity(
         buoyancy_bar      该柱高产生的浮力
         margin_bar        P_c − P_b
         mechanical        {shmin_bar, limit_bar, margin_bar, ok}
-        breakthrough_days 动态模式下的突破时间（天）；静态模式为 None
+        breakthrough_days 动态模式下的**前沿扫掠**时间（天）：CO₂ 前缘扫过
+                          羽流半径所需时间。**这不是盖层突破时间** —— 盖层
+                          突破看的是柱高长到 h_max，见 ``trap`` 的 fill_days。
+                          两个事件量级差两个数量级，混用会把乐观的那个当结论。
+        trap              {trap_area_m2, column_height_m, plume_column_height_m,
+                          column_ratio, fill_days_early, fill_days_late,
+                          governs, note}；未给 ``trap_area_m2`` 时为 None
         sensitivity       IFT 20/25/30 三档对应的 P_c 与 H_max
         assumptions / limitations / version / params
     """
@@ -259,12 +266,44 @@ def caprock_integrity(
     breakthrough_days = None
     column_height = co2_column_height_m
     dynamic_note = ""
+    trap = None
 
     if column_height is None and injection_rate_m3_per_day:
-        column_height, breakthrough_days, dynamic_note = _dynamic_column(
+        column_height, breakthrough_days, dynamic_note, eval_days = _dynamic_column(
             injection_rate_m3_per_day, plume_radius_m, reservoir_thickness_m,
             porosity, drho, pc, rpp,
         )
+        if trap_area_m2:
+            # 同一时刻、同一批物质，换一个面积口径：一维把 CO₂ 摊在 πr² 上，
+            # 圈闭把它聚在 A_trap 上。两者是几何上下限，不是一个比另一个"准"。
+            h_trap = trap_column_m(injection_rate_m3_per_day, trap_area_m2,
+                                   porosity, rpp.swr, eval_days)
+            # 柱高长到可封上限 h_max 需要多久，两个几何各算一次。
+            # 一维口径的柱高其实不依赖孔隙度：H = q·t/A（体积除以面积），
+            # 因为"等效柱高"已经把孔隙度折进去了 —— 这一点容易写错，
+            # 写成 q·t/(A·φ) 会把时间高估 5 倍。
+            plume_area = math.pi * float(plume_radius_m) ** 2
+            days_trap_fill = trap_breakthrough_days(
+                h_max, trap_area_m2, porosity, rpp.swr, injection_rate_m3_per_day)
+            days_plume_fill = h_max * plume_area / float(injection_rate_m3_per_day)
+            trap = {
+                "trap_area_m2": round(float(trap_area_m2), 1),
+                "column_height_m": round(h_trap, 2),
+                "plume_column_height_m": round(float(column_height), 2),
+                "column_ratio": round(h_trap / float(column_height), 2)
+                if float(column_height) > 0 else None,
+                "fill_days_early": round(days_trap_fill, 1),
+                "fill_days_late": round(days_plume_fill, 1),
+                "governs": "trap" if h_trap >= float(column_height) else "plume",
+                "note": (
+                    "圈闭口径是**保守**（更早突破）的一侧，一维口径是乐观的一侧；"
+                    "若构造存在溢出点，柱高会被溢出高度截住，圈闭口径反而偏悲观。"
+                    "两个 fill_days 是柱高长到可封上限所需时间，"
+                    "与 breakthrough_days（CO₂ 前沿扫过羽流半径）不是同一个事件"
+                ),
+            }
+            if h_trap > float(column_height):
+                column_height = h_trap
 
     if column_height is None:
         return {
@@ -318,6 +357,7 @@ def caprock_integrity(
             "ok": mech_margin >= 0,
         },
         "breakthrough_days": breakthrough_days,
+        "trap": trap,
         "dynamic_note": dynamic_note,
         "summary": _summary(verdict, pc, h_max, column_height, margin, mech_margin),
         "sensitivity": _sensitivity(p, drho),
@@ -330,13 +370,17 @@ def caprock_integrity(
 
 def _dynamic_column(rate_m3_per_day: float, plume_radius_m: float,
                     thickness_m: float, porosity: float, drho: float,
-                    pc_bar: float, rpp: rp.RelPermParams) -> tuple[float, float, str]:
+                    pc_bar: float, rpp: rp.RelPermParams) -> tuple[float, float, str, float]:
     """
     由注入速率推算当前柱高与突破时间。
 
     几何假设：径向羽流，等效为一维线性驱替（面积 A = πr²，长度 L）。
     这是把径向问题压成一维的常用简化，代价是忽略了近井高速区与
     远场低速区的差异。写进 note，不当作事实。
+
+    第四个返回值是**这个柱高对应的物理时刻**（天）。没有它，圈闭口径
+    就只能拿另一个时刻的柱高来比，比出来的差值是几何差异还是时间差异
+    就分不清了。
     """
     area = math.pi * float(plume_radius_m) ** 2
     pore_volume = area * float(thickness_m) * float(porosity)
@@ -346,8 +390,8 @@ def _dynamic_column(rate_m3_per_day: float, plume_radius_m: float,
     days_to_breakthrough = t_breakthrough_d * pore_volume / float(rate_m3_per_day)
 
     # 当前（突破前）柱高：用驱替剖面折算
-    profile = flow1d.solve(n_cells=200, t_end=min(0.9 * t_breakthrough_d, 0.49),
-                           params=rpp)
+    t_eval = min(0.9 * t_breakthrough_d, 0.49)
+    profile = flow1d.solve(n_cells=200, t_end=t_eval, params=rpp)
     h = flow1d.co2_column_height(profile["sg"], 1.0 / 200, thickness_m, porosity)
 
     note = (
@@ -355,7 +399,39 @@ def _dynamic_column(rate_m3_per_day: float, plume_radius_m: float,
         f"孔隙度 {porosity:.2f} 折算为一维线性驱替；"
         f"突破时间按解析前沿速度 {front['dfg_front']:.2f} 计"
     )
-    return h, round(days_to_breakthrough, 1), note
+    return h, round(days_to_breakthrough, 1), note, t_eval * pore_volume / float(rate_m3_per_day)
+
+
+def trap_column_m(rate_m3_per_day: float, trap_area_m2: float, porosity: float,
+                  swr: float, days: float) -> float:
+    """
+    圈闭聚集口径下的 CO₂ 柱高（m）：
+
+        h(t) = q·t / (A_trap·φ·(1−S_wr))
+
+    与一维口径的区别不在公式，在**面积**：一维口径把 CO₂ 摊在 πr² 的整个
+    羽流范围里，圈闭口径把它聚在一个封闭构造上。真实情况在两者之间，
+    构造越紧闭越靠近后者。这是同一批物质、同一个时刻的两个几何极限，
+    不是两个模型。
+
+    ``φ(1−S_wr)`` 是 CO₂ 能占的孔隙体积分数：驱替把水推到束缚水，
+    所以侵入区的含气饱和度上限就是 1−S_wr。
+    """
+    if trap_area_m2 <= 0:
+        raise ValueError("圈闭面积必须为正")
+    accessible = float(porosity) * (1.0 - float(swr))
+    if accessible <= 0:
+        raise ValueError("φ(1−S_wr) 必须为正：检查孔隙度与束缚水饱和度")
+    return float(rate_m3_per_day) * float(days) / (float(trap_area_m2) * accessible)
+
+
+def trap_breakthrough_days(h_max_m: float, trap_area_m2: float, porosity: float,
+                           swr: float, rate_m3_per_day: float) -> float:
+    """圈闭口径下柱高长到 ``h_max`` 需要多少天（即毛细管突破的**早**界）。"""
+    if rate_m3_per_day <= 0:
+        raise ValueError("注入速率必须为正")
+    accessible = float(porosity) * (1.0 - float(swr))
+    return float(h_max_m) * float(trap_area_m2) * accessible / float(rate_m3_per_day)
 
 
 def _sensitivity(p: CaprockParams, drho: float) -> list[dict]:
@@ -397,9 +473,10 @@ def _limitations() -> list[str]:
         "界面张力不建模为 T/P 函数，用文献中值 + 三档敏感性。",
         "孔喉半径若来自默认值而非 MICP 实测，结论只能算假设下的量级判断。",
         # 方向性偏差必须写清楚：不是"可能有误差"，而是"误差朝乐观那一侧"
-        "**忽略重力分异 → CO₂ 柱高被低估 → 突破时间偏长**：一维模型把 CO₂ "
-        "均匀铺在羽流范围内，真实 CO₂ 会上浮并在盖层下聚集，柱高可高出数倍。"
-        "所以本模块算出的突破时间是**上限**（偏乐观），不能当成安全裕度。",
+        "**未含重力分异时，一维口径把 CO₂ 摊在 πr² 的羽流范围里 → 柱高被低估 → "
+        "突破时间偏长**：真实 CO₂ 会上浮并在盖层下聚集。给 ``trap_area_m2`` 时"
+        "同时算圈闭口径，两个口径构成突破时间的区间（圈闭为早界、一维为晚界）；"
+        "**不给圈闭面积时只剩乐观的那一侧**，此时的突破时间是上限，不能当安全裕度。",
     ]
 
 
@@ -433,7 +510,19 @@ def render_block(result: dict) -> str:
         f"（CO₂ {result['co2_density_kg_m3']:.0f} kg/m³，Peng-Robinson）",
     ]
     if result.get("breakthrough_days") is not None:
-        lines.append(f"- 按给定注入速率，预计 {result['breakthrough_days']:.0f} 天突破")
+        lines.append(
+            f"- 按给定注入速率，CO₂ 前缘约 {result['breakthrough_days']:.0f} 天扫过羽流边界"
+            "（前沿扫掠，不是盖层突破）"
+        )
+    trap = result.get("trap") or {}
+    if trap:
+        lines.append(
+            f"- 圈闭口径（面积 {trap['trap_area_m2']:.0f} m²）：同一时刻柱高 "
+            f"{trap['column_height_m']:.0f} m（一维口径 {trap['plume_column_height_m']:.0f} m，"
+            f"{trap['column_ratio']}×）；柱高长到可封上限需 "
+            f"{trap['fill_days_early']:.0f} 天，一维口径需 {trap['fill_days_late']:.0f} 天，"
+            f"早界为保守侧"
+        )
     if result["assumptions"]:
         lines.append(
             "- 前提：以下参数用了默认假设值，不是实测 —— "

@@ -154,6 +154,10 @@ def assess(depth_m: float | None,
     policy = []
     if geo is not None:
         policy.append("输入提及断层 → 用默认应力剖面判定并允许阻断")
+        policy.append(
+            "断层判定走保守口径（总应力不变）；孔隙弹性应力路径只作参考，"
+            "因为它仅对注入层成立、不含盖层与隔层的应力转移"
+        )
         if geo.get("blocking"):
             pl = geo["plane"]
             if geo.get("mechanism") == "tensile":
@@ -191,7 +195,9 @@ def assess(depth_m: float | None,
         "relperm": rel,
         "policy": policy,
         "assumptions": sorted(set(
-            (geo or {}).get("assumptions", []) + cap.get("assumptions", [])
+            (geo or {}).get("assumptions", [])
+            + cap.get("assumptions", [])
+            + ((geo or {}).get("coupled") or {}).get("assumed", [])
         )),
         "version": DEEP_VERSION,
     }
@@ -264,7 +270,7 @@ def render_facts(result: dict) -> list[str]:
     geo = result.get("geomechanics")
     if geo:
         st, pl = geo["state"], geo["plane"]
-        facts.append(
+        line = (
             f"断层稳定性：倾角 {pl['dip_deg']:.0f}° 的断层面在 {st['depth_m']:.0f} m 处 "
             f"σn = {pl['sigma_n_mpa']:.1f} MPa、τ = {pl['tau_mpa']:.1f} MPa；"
             f"注入后滑移比 {_fmt(geo['slip_ratio'], 2)}（≥1 即滑动），临界孔隙压力 "
@@ -272,6 +278,17 @@ def render_facts(result: dict) -> list[str]:
             f"判定：{_GEO_VERDICT_CN.get(geo['verdict'], geo['verdict'])}"
             f"（前提：Shmin/SHmax 由 Sv 按比例假设，非实测）"
         )
+        # 两个口径结论不同时才加这一句：一致时加只会让正文变长、信息量为零。
+        # 必须留在同一行 —— 7B 按行抄，"仅对注入层成立"离开数字就成了免责声明。
+        coupled = geo.get("coupled") or {}
+        if coupled and coupled.get("verdict") != geo["verdict"]:
+            line += (
+                f"；计入注入层孔隙弹性应力路径后滑移比 {_fmt(coupled['slip_ratio'], 2)}、"
+                f"余量 {_fmt(coupled['margin_bar'])} bar，判定："
+                f"{_GEO_VERDICT_CN.get(coupled['verdict'], coupled['verdict'])}"
+                f"（该口径只对注入层成立，不含应力转移）"
+            )
+        facts.append(line)
 
     cap = result.get("caprock") or {}
     if cap.get("entry_pressure_bar"):
@@ -285,6 +302,15 @@ def render_facts(result: dict) -> list[str]:
                 f"；本次柱高 {cap['column_height_m']:.0f} m → 浮力 "
                 f"{cap['buoyancy_bar']:.1f} bar，余量 {cap['margin_bar']:.1f} bar，"
                 f"判定：{_CAP_VERDICT_CN.get(cap['verdict'], cap['verdict'])}"
+            )
+        trap = cap.get("trap") or {}
+        if trap:
+            line += (
+                f"；圈闭口径（面积 {trap['trap_area_m2']:.0f} m²）同一时刻柱高 "
+                f"{trap['column_height_m']:.0f} m（一维口径 "
+                f"{trap['plume_column_height_m']:.0f} m，{trap['column_ratio']}×），"
+                f"长到可封上限需 {trap['fill_days_early']:.0f} 天（一维口径 "
+                f"{trap['fill_days_late']:.0f} 天，早界为保守侧）"
             )
         line += "（前提：孔喉半径与接触角取文献默认值，非 MICP 实测）"
         facts.append(line)

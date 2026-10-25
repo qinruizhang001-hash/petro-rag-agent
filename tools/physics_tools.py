@@ -379,6 +379,13 @@ def fault_stability(
         f"{result['pp_crit_bar']} bar，余量 {result['margin_bar']} bar"
         f"（按假设应力剖面计算，非实测）"
     )
+    coupled = result.get("coupled") or {}
+    if coupled and coupled.get("verdict") != result["verdict"]:
+        result["text"] += (
+            f"；若计入注入层内的孔隙弹性应力路径（Δσh/ΔP="
+            f"{coupled.get('path_ratio')}），判定变为 {coupled.get('verdict')}、"
+            f"余量 {coupled.get('margin_bar')} bar —— 该口径只对注入层成立"
+        )
     return result
 
 
@@ -388,6 +395,7 @@ def caprock_check(
     temperature_celsius: float = 60.0,
     co2_column_height_m: float | None = None,
     injection_rate_m3_per_day: float | None = None,
+    trap_area_m2: float | None = None,
 ) -> dict:
     """
     盖层封闭性判定：毛细管突破（Laplace/Washburn）与力学失效（σhmin + T0）
@@ -395,6 +403,10 @@ def caprock_check(
 
     不给柱高也不给注入速率时返回 ``verdict="no_data"``，只给突破压力与
     可封柱高 —— "没算"和"算出来不合格"必须能区分。
+
+    ``trap_area_m2`` 给出圈闭面积时，同时算圈闭聚集口径的柱高与突破时间，
+    与一维口径构成区间。一维口径把 CO₂ 摊在整个羽流面积上，柱高偏小、
+    突破时间偏长 —— 那是**乐观**的一侧；圈闭口径是保守的一侧。
     """
     from utils.caprock import caprock_integrity
 
@@ -404,11 +416,20 @@ def caprock_check(
         temperature_celsius=temperature_celsius,
         co2_column_height_m=co2_column_height_m,
         injection_rate_m3_per_day=injection_rate_m3_per_day,
+        trap_area_m2=trap_area_m2,
     )
     result["text"] = result.get("summary") or (
         f"盖层突破压力 {result['entry_pressure_bar']:.0f} bar，"
         f"可封 CO₂ 柱高 {result['max_column_height_m']:.0f} m"
     )
+    trap = result.get("trap") or {}
+    if trap:
+        result["text"] += (
+            f"；圈闭口径同一时刻柱高 {trap['column_height_m']:.0f} m"
+            f"（一维口径 {trap['plume_column_height_m']:.0f} m），"
+            f"长到可封上限需 {trap['fill_days_early']:.0f} 天，"
+            f"一维口径需 {trap['fill_days_late']:.0f} 天（早界为保守侧）"
+        )
     return result
 
 

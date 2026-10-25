@@ -265,5 +265,46 @@ class EvaluateIntegrationTests(unittest.TestCase):
         self.assertEqual(r["deep"]["version"], pd.DEEP_VERSION)
 
 
+class StressPathFactTests(unittest.TestCase):
+    """
+    两个应力路径结论不同时，报告事实行必须同时给出，且必须同处一行。
+
+    7B 是按行抄的：把"仅对注入层成立"另起一行，正文里就只剩"判定：未活化"，
+    读者会把它当成整个场地的结论 —— 那正是这段代码存在的意义所在。
+    """
+
+    def _fault_line(self, pressure: float) -> str:
+        r = pd.assess(2500.0, pressure, text="场地内存在一条断层，倾角 60°")
+        lines = [f for f in pd.render_facts(r) if f.startswith("断层稳定性")]
+        self.assertEqual(len(lines), 1)
+        return lines[0]
+
+    def test_both_paths_appear_when_they_disagree(self):
+        line = self._fault_line(380.0)
+        self.assertIn("孔隙弹性应力路径", line)
+        self.assertIn("只对注入层成立", line)
+
+    def test_single_path_when_they_agree(self):
+        """两个口径一致时不加那半句：加进去只增加长度、不增加信息。
+
+        300 bar 是注入工况（附加压力 +47.5 bar），两个口径都判 stable ——
+        用降压工况测这条会顺带把"应力路径反向"的分支混进来。
+        """
+        line = self._fault_line(300.0)
+        self.assertNotIn("孔隙弹性应力路径", line)
+
+    def test_policy_states_which_path_gates(self):
+        r = pd.assess(2500.0, 380.0, text="场地内存在一条断层，倾角 60°")
+        joined = " ".join(r["policy"])
+        self.assertIn("保守口径", joined)
+        self.assertIn("应力转移", joined)
+
+    def test_poroelastic_assumptions_join_the_manifest(self):
+        """Biot 系数与泊松比没有实测来源，必须出现在汇总假设里。"""
+        r = pd.assess(2500.0, 380.0, text="场地内存在一条断层，倾角 60°")
+        self.assertIn("alpha", r["assumptions"])
+        self.assertIn("poisson", r["assumptions"])
+
+
 if __name__ == "__main__":
     unittest.main()

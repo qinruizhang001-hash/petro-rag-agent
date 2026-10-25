@@ -288,6 +288,8 @@ def get_fault_stability(
         "给 co2_column_height_m 或 injection_rate_m3_per_day 时给出判定结论，"
         "都不给时只返回突破压力与可封柱高（verdict='no_data'）。"
         "Δρ 由 Peng-Robinson 状态方程算出，不是常数。"
+        "给 trap_area_m2 时同时算圈闭聚集口径：同一批物质按封闭构造面积聚集，"
+        "柱高更高、突破更早，与一维口径构成区间（早界为保守侧）。"
         "**孔喉半径与接触角取文献默认值**（10 nm / 30°），非 MICP 实测。"
     ),
 )
@@ -297,6 +299,7 @@ def get_caprock_integrity(
     temperature_celsius: float = 60.0,
     co2_column_height_m: float | None = None,
     injection_rate_m3_per_day: float | None = None,
+    trap_area_m2: float | None = None,
 ) -> dict:
     """盖层封闭性判定（毛细管 + 力学两条路径）。"""
     from tools.physics_tools import caprock_check
@@ -306,6 +309,7 @@ def get_caprock_integrity(
         temperature_celsius=temperature_celsius,
         co2_column_height_m=co2_column_height_m,
         injection_rate_m3_per_day=injection_rate_m3_per_day,
+        trap_area_m2=trap_area_m2,
     )
 
 

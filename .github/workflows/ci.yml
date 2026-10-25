@@ -294,7 +294,8 @@ jobs:
       # 蒙特卡洛不确定性量化 / 地应力与断层活化 / CO₂ 物性 /
       # 相渗与两相流 / 盖层封闭性 / 储层模拟器契约 / 深层物理接线 /
       # 先验分布与参数相关性（copula）/ Sobol 敏感性 / 风险决策阈值 /
-      # 注入策略优化（约束求解，含与 UQ 判据的逐样本一致性）），
+      # 注入策略优化（约束求解，含与 UQ 判据的逐样本一致性）/
+      # 孔隙弹性应力路径（与保守口径的单调性对比）），
       # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       #
@@ -337,6 +338,7 @@ jobs:
             tests.test_sensitivity \
             tests.test_risk_policy \
             tests.test_optimize \
+            tests.test_poroelastic \
             tests.test_graph_stubs
 
   unit-deps:
