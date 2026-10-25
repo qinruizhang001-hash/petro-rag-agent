@@ -1036,8 +1036,8 @@ setx OLLAMA_HOST 0.0.0.0:11434
        ▼                                  ▼
 ┌──────────────────────┐      ┌────────────────────────────────┐
 │ backend  gunicorn    │      │ frontend  Streamlit 监控台      │
-│  2 × UvicornWorker   │      │  API_BASE_URL=http://backend:8000│
-│  WEB_CONCURRENCY=2   │      │  服务端代发请求，带 Bearer token │
+│  1 × UvicornWorker   │      │  API_BASE_URL=http://backend:8000│
+│  WEB_CONCURRENCY=1   │      │  服务端代发请求，带 Bearer token │
 └──────────┬───────────┘      └────────────────────────────────┘
            │ host.docker.internal:11434
            ▼
@@ -1269,7 +1269,7 @@ cp project_history.md user_profile.md state/
 | `/health` says `degraded` with `chroma` failing | `chroma_petro/` missing or the collection is empty | check `CCUS_COLLECTION`; the probe prints the collections it did find |
 | `Connection error` on the first assessment | the backend cannot reach the host Ollama | three causes, in order of likelihood: Ollama is not running (`curl 127.0.0.1:11434/api/tags` on the host); it is bound to `127.0.0.1` instead of `0.0.0.0` (set `OLLAMA_HOST=0.0.0.0:11434` and restart it); or the model name does not match (`ollama list` vs `LOCAL_MODEL` in `.env.docker`) |
 | Worker killed mid-assessment | gunicorn `timeout` below the real runtime | it is 900 s in `gunicorn.conf.py`; do not lower it |
-| Backend restarts / `Killed` under load | too many workers, each holding a private 2.2 GB reranker | keep `WEB_CONCURRENCY=2`; the startup line in `docker compose logs backend` prints the arithmetic against `/proc/meminfo` |
+| Backend restarts / `Killed` under load | each worker holds a private 2.2 GB reranker | worker count is already pinned to 1, so this is a memory budget problem, not a worker-count one — give the container more memory. If you set `CHECKPOINT_ALLOW_MULTI_WORKER=1` after switching savers, budget 2.6 GB per worker; the startup line in `docker compose logs backend` prints the arithmetic against `/proc/meminfo` |
 | Every assessment takes minutes | the host Ollama is on CPU, not CUDA | check `ollama ps` on the host shows the model in VRAM; a 4 GB `size_vram` means GPU, a low number means CPU |
 | Report has no citations | `lightrag_storage/` empty | build the graph from the corpus on the host |
 
@@ -2702,7 +2702,7 @@ Closing the rest needs two things this pipeline does not do: **cross-paper entit
 - **The simulator adapter ships a contract, not a simulator.** `ExternalResultBackend` validates and consumes a result file; there is no online coupling, no time-stepping handshake, and no convergence control passed to a real solver. If no external result is supplied, the analytic backend answers and the response says `degraded: true` with the reason.
 - **A verdict the gate could not compute is never shown to the reviewer.** When the parameters are insufficient the gate's block is omitted from the review prompt entirely, instead of being passed along as "unverifiable". This is deliberate (an empty verdict reads as a failed check to a small model, and cost a healthy report 4 points before it was fixed), but it means the reviewer's score for sparse inputs is based on the literature and the report alone — the "no physics check was possible" fact lives in `physics_check` for the human, not in the scoring.
 - **The gate's claim detection is regex-based.** It handles direction and negation, but a creative sentence ("the caprock would only fail under conditions this project does not reach") reads as an acknowledgment. The model layer is the backstop — which is exactly why the gate runs *first* and the model *second*.
-- **The API runs a single worker.** Concurrent requests are not supported: a second worker would load a second copy of the 2.3 GB reranker, the same memory ceiling documented in the Testing section.
+- **The API runs a single worker, and concurrency comes from asyncio rather than processes.** Requests are served on the event loop with the blocking work in `asyncio.to_thread`, so a second request does not wait for the first — but there is no process-level redundancy: if that one worker dies, in-flight assessments die with it. Going to two processes would require a non-SQLite checkpointer first (see [Human-in-the-loop](#human-in-the-loop)), and would then load a second copy of the 2.2 GB reranker.
 - File memory is single-process only. Writes are protected by a lock within one process, but there is no cross-process locking — two backend instances sharing the same two `.md` files could interleave.
 - **Streaming does not make the pipeline faster, only more legible.** Retrieval dominates (~2 min of reranking on the densified graph), so the first token still lands well past a minute and the report itself streams for ~10 s. What changes is that node-level progress starts at 0.04 s.
 - **The streamed request runs without a checkpointer.** `SqliteSaver` is sync-only, so `/api/analyze` uses a separately compiled graph and a dropped client means the work is discarded. The HITL path *does* checkpoint, because pausing across hours requires it.

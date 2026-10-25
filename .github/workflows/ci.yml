@@ -247,6 +247,14 @@ jobs:
             || { echo "::error::frontend and backend must share one env_file for API_TOKEN"; exit 1; }
           echo "Container deployment files OK."
 
+      - name: Guard the README's own numbers
+        run: |
+          # 中文注释：README 用五处声明同一个测试总数，曾经分别写着 1080、1106、
+          # 989 —— 三个不同的数并存了几个月。没有断言在核对，所以没有东西会失败。
+          # 这里只查**内部一致性**（各处是否说同一个数、分项之和是否等于总数），
+          # 不查"是否等于真实测试数" —— 那要装 torch，与本 job 的前提冲突。
+          python scripts/check_readme_numbers.py
+
       - name: Guard the package boundary (no logic back-flow into the entry shim)
         run: |
           set -e
