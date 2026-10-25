@@ -57,6 +57,7 @@ from ui_components import (
     fmt_s,
     fmt_tok,
     pipeline_html,
+    plan_figure,
     pressure_figure,
     risk_radar_figure,
     sobol_figure,
@@ -171,6 +172,129 @@ def _render_decision(decision: dict) -> None:
         st.caption(f"阈值来路：{provenance}")
     for note in decision.get("notes") or []:
         st.caption(f"· {note}")
+
+
+_PLAN_STYLE = {
+    "ok": ("✅", "#1a7f37", "有可行方案"),
+    "infeasible": ("⚠️", "#bf8700", "能力不足，无可行方案"),
+    "no_injection": ("⛔", "#cf222e", "无可行方案（注不进）"),
+}
+
+
+def _render_plan(plan: dict) -> None:
+    """
+    注入策略块：推荐方案 + 与当前方案的逐项对比 + 压力-风险曲线。
+
+    这一块是整份看板里唯一回答"那该怎么办"的地方。所以它不能只给一个
+    "推荐 316 bar"——必须同时给出：当前是什么、风险从多少降到多少、
+    加了几口井、这个数在什么条件下成立（``notes``）、以及每个常数的来路
+    （``provenance``）。少任何一项，读者都只能选择"信"或"不信"。
+    """
+    status = str(plan.get("status") or "ok")
+    icon, color, label = _PLAN_STYLE.get(status, ("•", "#57606a", status))
+    rec = plan.get("recommended") or {}
+    cur = plan.get("current") or {}
+    phys = plan.get("physics") or {}
+    ver = plan.get("verification") or {}
+    head = plan.get("headroom") or {}
+
+    st.markdown(
+        f"<div style='display:flex;align-items:baseline;gap:.6rem;"
+        f"padding:.5rem .75rem;border-left:3px solid {color};"
+        f"background:rgba(127,127,127,.08);border-radius:4px;margin:.4rem 0'>"
+        f"<span style='font-size:1.05rem;font-weight:600;color:{color}'>"
+        f"{icon} 注入策略：{label}</span>"
+        f"<span style='opacity:.75;font-size:.85rem'>"
+        f"风险预算 {float(plan.get('p_target') or 0) * 100:.0f}% · "
+        f"{int(plan.get('n') or 0)} 次抽样 · "
+        f"{plan.get('dist_label') or '±5% 均匀扰动'}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    if rec:
+        cur_n = int(cur.get("n_wells") or 1) if cur else None
+        cur_p = float(cur.get("pressure_bar") or 0.0) if cur else None
+        cur_q = float(cur.get("rate_mt_per_year") or 0.0) if cur else None
+        cur_risk = float((cur.get("risk") or {}).get("p") or 0.0) * 100 if cur else None
+        rec_n = int(rec.get("n_wells") or 0)
+        rec_p = float(rec.get("pressure_bar") or 0.0)
+        rec_q = float(rec.get("rate_mt_per_year") or 0.0)
+        rec_risk = float((rec.get("risk") or {}).get("p") or 0.0) * 100
+
+        c1, c2, c3, c4 = st.columns(4)
+        # delta 用"变化量"而不是"当前值"：这个位置的语义是"相对现状改了多少"，
+        # 写"当前 1 口"会让读者以为 1 口是差值。
+        c1.metric(
+            "推荐井数", f"{rec_n} 口",
+            delta=(f"{rec_n - cur_n:+d} 口" if cur_n is not None else None),
+            delta_color="inverse",
+        )
+        c2.metric(
+            "井底压力上限", f"{rec_p:.0f} bar",
+            delta=(f"{rec_p - cur_p:+.0f} bar" if cur_p is not None else None),
+            delta_color="inverse",
+        )
+        c3.metric(
+            "注入速率", f"{rec_q:.2f} Mt/yr",
+            delta=(f"{rec_q - cur_q:+.2f} Mt/yr" if cur_q is not None else None),
+            delta_color="off",
+        )
+        c4.metric(
+            "推荐方案压裂概率", f"{rec_risk:.1f}%",
+            delta=(f"{rec_risk - cur_risk:+.1f} pp" if cur_risk is not None else None),
+            delta_color="inverse",
+        )
+
+        frac_break = float(phys.get("fracture_bar") or 0.0)
+        if frac_break > 0:
+            st.caption(
+                f"井底压力为破裂压力 {frac_break:.0f} bar 的 "
+                f"{float(rec.get('pressure_bar') or 0) / frac_break * 100:.0f}%；"
+                f"静水压力 {float(phys.get('hydrostatic_bar') or 0):.0f} bar，"
+                f"注入指数 {float(phys.get('injectivity_m3_per_day_per_bar') or 0):.0f} m³/(d·bar)"
+                f"（表皮系数 {float(phys.get('skin') or 0):g}）"
+            )
+        if ver:
+            st.caption(
+                f"样本外复核（独立种子）：命中 {int(ver.get('hits') or 0)}/{int(ver.get('n') or 0)}，"
+                f"P = {float(ver.get('p') or 0) * 100:.1f}%"
+                f"（95% 上界 {float(ver.get('p_upper') or 0) * 100:.1f}%）"
+                + ("" if ver.get("agrees", True) else " · ⚠️ 与样本内差异超出二项噪声，方案贴着阈值")
+            )
+        if head.get("fraction") is not None and status == "ok" and head["fraction"] >= 0.02:
+            st.caption(
+                f"该井数下风险预算允许的最高压力 "
+                f"{float(head.get('pressure_max_bar') or 0):.0f} bar，"
+                f"对应速率上限 {float(head.get('rate_max_mt_per_year') or 0):.2f} Mt/yr"
+                f"（比当前目标多 {head['fraction'] * 100:.0f}%）"
+            )
+        elif head.get("shortfall_mt_per_year"):
+            st.caption(
+                f"仍低于目标 {float(head['shortfall_mt_per_year']):.2f} Mt/yr："
+                "这是注入能力（渗透率 × 厚度）受限，不是风险受限"
+            )
+
+    if plan.get("frontier"):
+        st.plotly_chart(
+            plan_figure(plan),
+            width="stretch",
+            config={"displayModeBar": False},
+            key="plan_frontier",
+        )
+
+    if plan.get("text"):
+        st.caption(f"🧭 {plan['text']}")
+
+    if plan.get("notes"):
+        with st.expander("这个建议在什么条件下成立（必读）"):
+            for note in plan["notes"]:
+                st.markdown(f"- {note}")
+    prov = plan.get("provenance") or {}
+    if prov:
+        with st.expander("数值来路"):
+            for key, value in prov.items():
+                st.markdown(f"- **{key}**：{value}")
 
 
 st.set_page_config(
@@ -870,6 +994,15 @@ def render_board(meta: dict) -> None:
                 with st.expander("敏感性分析的局限与提示"):
                     for note in sensitivity["notes"]:
                         st.markdown(f"- {note}")
+
+        # ─── 注入策略：闭环的最后一段 ─────────────────────
+        # 上面每一块都在描述"现状有多危险"，这一块是"改成什么"。
+        # 放在最后而不是最前：读者要先接受诊断，才看得懂处方为什么长这样。
+        plan = uq.get("plan") or done_.get("injection_plan") or {}
+        if plan and plan.get("text"):
+            st.markdown('<div class="panel-title">注入策略优化（闭环）</div>',
+                        unsafe_allow_html=True)
+            _render_plan(plan)
 
     st.markdown('<div class="panel-title">全链路耗时（节点墙钟）</div>',
                 unsafe_allow_html=True)

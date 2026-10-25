@@ -54,6 +54,7 @@ from nodes.aggregate_support import (
     extract_depth,
     extract_pressure_temperature,
     get_client_specs,
+    plan_payload,
     strip_tool_json,
     uq_payload,
 )
@@ -61,6 +62,7 @@ from tools.physics_tools import (
     co2_density_uq,
     injection_risk_sensitivity,
     injection_risk_uq,
+    optimize_injection_strategy,
 )
 from utils.branch_merge import compose_branch_inputs, parallel_timing_of
 from utils.pinn_query import extract_pinn_query
@@ -553,6 +555,22 @@ def aggregate_report(state: AgentState, config=None):
         except Exception as e:
             log.warning(f"  [Warning] 敏感性分析失败（不影响报告）: {e}")
 
+    # 注入策略优化：UQ 说"有多危险"，这里说"改成什么才不危险"。
+    #
+    # 确定性触发的理由比上面两条更强：这一步是**闭环**的唯一环节。前面
+    # 所有工具都只产出诊断（风险 47%、敏感性排名、告警等级），如果交给
+    # 7B 决定要不要优化，报告就会停在"建议进一步评估"—— 那是任何一份
+    # 不做事也能写出来的结论。而且模型自己"优化"出的速率无法回代核对，
+    # 与"数值不可幻觉"的承诺直接冲突。
+    if p_val is not None and depth_val is not None:
+        try:
+            uq_summary["plan"] = plan_payload(
+                optimize_injection_strategy(depth_val, p_val)
+            )
+            log.info(f"  [UQ] 注入策略：{uq_summary['plan']['text']}")
+        except Exception as e:
+            log.warning(f"  [Warning] 注入策略优化失败（不影响报告）: {e}")
+
     if uq_summary:
         log.info(
             f"  [UQ] 不确定性量化完成："
@@ -639,6 +657,12 @@ def aggregate_report(state: AgentState, config=None):
     decision = uq_summary.get("decision") or {}
     if decision.get("text"):
         tool_facts.append(f"风险决策：{decision['text']}")
+    # 策略建议进 tool_facts 的理由与上面几条相同：报告的忠实度核对以
+    # tool_facts 为证据源，不写进来的"推荐 2 口井 / 316 bar"会被判成编造，
+    # 而这恰好是整份报告里读者最该据以行动的一句。
+    plan = uq_summary.get("plan") or {}
+    if plan.get("text"):
+        tool_facts.append(f"注入策略优化：{plan['text']}")
 
     # ─── 深层物理：断层活化 / 盖层封闭性 / 两相流 ────────────
     # **确定性触发**，不进规划器（与注入风险 UQ 同一条理由）：只要参数里
@@ -790,6 +814,9 @@ def aggregate_report(state: AgentState, config=None):
         # 它会被前端做成徽标、被审计单独查询，混在 uq_summary 里既不好取
         # 也容易在裁剪字段时丢掉。
         "risk_decision": uq_summary.get("decision") or {},
+        # 注入策略：UQ 说"有多危险"、risk_decision 说"要不要告警"，
+        # 这里说"改成什么"。三件事三份字段，前端与审计各取所需。
+        "injection_plan": uq_summary.get("plan") or {},
         # 深层物理判定（断层活化 / 盖层封闭性 / 两相流）。与 ``uq_summary``
         # 同理：报告正文是模型转述，可能漏写或改写；这个字段是规则引擎的
         # 原始结论，前端与审计只读它。``status="no_data"`` 表示参数不足，

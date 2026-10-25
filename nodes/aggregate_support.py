@@ -124,6 +124,92 @@ def chart_payload(result: dict | None) -> dict:
     return {k: result.get(k) for k in keep if k in result}
 
 
+_RISK_KEYS = ("hits", "n", "p", "p_ci", "p_upper", "pressure_bar")
+
+
+def _slim_risk(risk: dict | None) -> dict:
+    """
+    风险子结构只保留四个数。
+
+    完整结构里还挂着 ``decision``（含 thresholds / notes / rule），那是给
+    报告和告警徽标用的顶层字段。每个方案都带一份会让 ``well_options``
+    从 4 KB 涨到 20 KB，而前端画表只用得到概率与区间。
+    """
+    if not risk:
+        return {}
+    return {k: risk.get(k) for k in _RISK_KEYS if risk.get(k) is not None}
+
+
+def plan_payload(plan: dict | None) -> dict:
+    """
+    把注入策略优化的结果裁成可 JSON 序列化的结构。
+
+    裁的是**重复**，不是**依据**：``provenance``（每个常数的来路）、
+    ``notes``（建议成立的条件）、``frontier``（压力-风险曲线）都保留 ——
+    这三样恰好是"读者能不能判断该不该信"的全部信息。去掉它们，
+    面板就只剩一个"推荐 2 口井、316 bar"，与一句编出来的建议没有区别。
+    """
+    if not plan:
+        return {}
+    out = {
+        k: plan.get(k) for k in (
+            "status", "depth_m", "n", "rel_sigma", "dist", "dist_label",
+            "corr", "independent", "p_target", "years", "binding", "text",
+            "notes", "provenance", "headroom",
+        ) if plan.get(k) is not None
+    }
+    physics = plan.get("physics") or {}
+    out["physics"] = {
+        k: physics.get(k) for k in (
+            "hydrostatic_bar", "fracture_bar", "cap_bar",
+            "injectivity_m3_per_day_per_bar", "density_kg_m3",
+            "permeability_md", "thickness_m", "temperature_celsius",
+            "skin", "cap_ratio", "fracture_ratio",
+        ) if physics.get(k) is not None
+    }
+    out["limit"] = dict(plan.get("limit") or {})
+
+    current = plan.get("current") or {}
+    if current:
+        out["current"] = {
+            **{k: current.get(k) for k in (
+                "pressure_bar", "n_wells", "rate_m3_per_day",
+                "rate_mt_per_year", "verdict",
+            ) if current.get(k) is not None},
+            "risk": _slim_risk(current.get("risk")),
+        }
+
+    out["well_options"] = [
+        {
+            **{k: o.get(k) for k in (
+                "n_wells", "pressure_bar", "pressure_needed_bar",
+                "rate_m3_per_day", "rate_mt_per_year",
+                "per_well_mt_per_year", "binding", "meets_target",
+            ) if o.get(k) is not None},
+            "risk": _slim_risk(o.get("risk")),
+            "risk_at_needed": _slim_risk(o.get("risk_at_needed")),
+        }
+        for o in (plan.get("well_options") or [])
+    ]
+
+    rec = plan.get("recommended") or {}
+    if rec:
+        out["recommended"] = {
+            **{k: rec.get(k) for k in (
+                "n_wells", "pressure_bar", "rate_m3_per_day",
+                "rate_mt_per_year", "per_well_mt_per_year", "binding",
+            ) if rec.get(k) is not None},
+            "risk": _slim_risk(rec.get("risk")),
+            "risk_if_pressed": _slim_risk(rec.get("risk_if_pressed")),
+        }
+    out["verification"] = _slim_risk(plan.get("verification"))
+    if plan.get("verification"):
+        out["verification"]["seed"] = plan["verification"].get("seed")
+        out["verification"]["agrees"] = plan["verification"].get("agrees")
+    out["frontier"] = list(plan.get("frontier") or [])
+    return out
+
+
 def uq_payload(uq: dict | None) -> dict:
     """
     把不确定性量化结果裁成可 JSON 序列化的结构。
@@ -188,6 +274,12 @@ def uq_payload(uq: dict | None) -> dict:
                 "notes", "text",
             ) if decision.get(k) is not None
         }
+
+    # 注入策略：与 decision 并列，理由相同 —— 前端做"推荐方案"卡片时
+    # 不该先去 injection 里翻，而它回答的是第三个问题（改成什么）。
+    plan = uq.get("plan") or {}
+    if plan:
+        out["plan"] = plan
     return out
 
 

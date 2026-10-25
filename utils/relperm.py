@@ -235,25 +235,38 @@ def bl_front(params: RelPermParams | None = None) -> dict:
 
 
 def injectivity_index(k_md: float, h_m: float, mu_mpa_s: float,
-                      re_m: float = 500.0, rw_m: float = 0.1) -> dict:
+                      re_m: float = 500.0, rw_m: float = 0.1,
+                      skin: float = 0.0) -> dict:
     """
     径向稳态注入指数（Darcy）：
 
-        J = q/ΔP = 2π·k·h / (μ · ln(re/rw))      [m³/(s·Pa)]
+        J = q/ΔP = 2π·k·h / (μ · (ln(re/rw) + S))      [m³/(s·Pa)]
 
-    这是"注得进去吗"的量级估计，不是产能预测：它假定单相、稳态、均质、
-    无表皮。真实注入能力受相渗、压裂、非均质控制，量级可能差几倍。
+    这是"注得进去吗"的量级估计，不是产能预测：它假定单相、稳态、均质。
+    真实注入能力受相渗、压裂、非均质、非达西控制，量级可能差几倍。
+
+    ``skin`` 是表皮系数（默认 0 = 理想完井）。S>0 表示井周污染/射孔不完善，
+    按 ``ln(re/rw)/(ln(re/rw)+S)`` 衰减：S=5 时注入能力约剩 63%。
+    默认 0 是**乐观**方向 —— 调用方若把它当作"可实现速率"引用，
+    必须先说明这一点（``core.optimize`` 就是这么做的）。
     """
     if k_md <= 0 or h_m <= 0 or mu_mpa_s <= 0:
         raise ValueError("k / h / μ 必须为正")
+    if skin < 0:
+        raise ValueError(f"表皮系数不能为负（负值意味着增产措施），收到 {skin}")
     k = k_md * 9.869233e-16          # 1 mD = 9.869233e-16 m²
     mu = mu_mpa_s * 1e-3             # mPa·s → Pa·s
-    j = 2.0 * math.pi * k * h_m / (mu * math.log(re_m / rw_m))
+    ln_term = math.log(re_m / rw_m) + float(skin)
+    j = 2.0 * math.pi * k * h_m / (mu * ln_term)
+    assumptions = "单相、稳态、均质；实际注入能力受相渗与非均质控制"
+    assumptions += "、无表皮" if skin <= 0 else f"、含表皮 S={skin:g}"
     return {
         "J_m3_per_s_per_pa": j,
         # 常用工程单位：m³/(d·MPa)
         "J_m3_per_day_per_mpa": j * 86400.0 * 1e6,
-        "assumptions": "单相、稳态、均质、无表皮；实际注入能力受相渗与非均质控制",
+        "ln_term": ln_term,
+        "skin": float(skin),
+        "assumptions": assumptions,
     }
 
 

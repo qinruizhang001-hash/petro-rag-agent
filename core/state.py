@@ -147,6 +147,14 @@ class AgentState(TypedDict):
     # ``resolved=False`` 表示概率的置信区间跨越阈值边界 —— 等级仍给出，
     # 但不可单独据此下结论（100 次模拟下 5% 与 8% 的区别在噪声里）。
     risk_decision: dict
+    # ─── 注入策略（闭环优化）───
+    # aggregate 节点产出：{status, current, limit, well_options, recommended,
+    # headroom, verification, frontier, physics, notes, text, provenance}。
+    # 它回答的是第三个问题：``uq_summary`` 说"概率是多少"、``risk_decision``
+    # 说"要不要告警"，这里说"改成什么才不危险"。
+    # ``status`` 三态必须能区分：``ok`` / ``infeasible``（风险可行但能力不够）
+    # / ``no_injection``（连注都注不进）—— 三者对应的整改方向完全不同。
+    injection_plan: dict
     # ─── 深层物理判定（断层活化 / 盖层封闭性 / 两相流）───
     # aggregate 节点产出：{status, blocking, geomechanics, caprock, relperm,
     # policy, assumptions, version}。``status="no_data"`` 表示参数不足未算，

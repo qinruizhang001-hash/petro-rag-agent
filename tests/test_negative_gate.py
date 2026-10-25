@@ -243,6 +243,27 @@ class GraphNegativeGateTests(unittest.TestCase):
         # 初稿 + 两次重写：物理否决在预算内一直是 rewrite，用尽才 fail。
         self.assertEqual(final.get("retry_count"), 2)
 
+    def test_injection_plan_is_produced_by_the_graph_not_just_imported(self):
+        """
+        闭环优化的接线：图里必须真的产出 ``injection_plan``。
+
+        这个断言看起来平淡，防的却是这个项目已经踩过一次的坑 ——
+        "模块写好了、import 也加了、但没人调用"。只测 ``optimize_plan``
+        本身发现不了这种情况：它单测全绿，而报告里根本没有建议。
+        所以这里从整图的**最终状态**读，并确认它进了 ``tool_facts``
+        （没进 tool_facts 的内容在忠实度评估眼里就是"无出处"）。
+        """
+        final = self._run(SAFE_PARAMS, SAFE_REPORT)
+        plan = final.get("injection_plan") or {}
+        self.assertTrue(plan, "图跑完了却没有 injection_plan")
+        self.assertEqual(plan.get("status"), "ok")
+        self.assertTrue(plan.get("recommended"))
+        self.assertTrue(plan.get("text"))
+        facts = " ".join(final.get("tool_facts") or [])
+        self.assertIn("注入策略优化", facts)
+        # 策略建议与 UQ 摘要必须指向同一份数据，否则前端两处会显示不同结论
+        self.assertEqual((final.get("uq_summary") or {}).get("plan"), plan)
+
 
 if __name__ == "__main__":
     unittest.main()

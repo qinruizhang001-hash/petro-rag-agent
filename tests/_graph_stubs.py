@@ -77,6 +77,9 @@ def install_leaf_stubs() -> list[str]:
         # "cannot import name X from 'tools.physics_tools' (unknown location)" ——
         # "unknown location" 说的就是替身没有 __file__，很容易被误读成打包问题。
         injection_risk_sensitivity=_fake_sensitivity,
+        # 注入策略优化同理：aggregate 会确定性调用它（闭环的唯一环节），
+        # 替身缺这个属性时整图 import 就崩，而报错是 "(unknown location)"。
+        optimize_injection_strategy=_fake_optimize,
     )
     _install(
         "tools.knowledge_tools",
@@ -159,6 +162,69 @@ def _fake_sensitivity(depth_m, pressure_bar, **_kwargs) -> dict:
         "variance": 1.0,
         "mean": 0.2,
         "notes": [],
+    }
+
+
+def _fake_optimize(depth_m, pressure_bar=None, **_kwargs) -> dict:
+    """
+    注入策略优化替身：结构真、数字假。
+
+    被测的是"aggregate 会不会把推荐方案写进 tool_facts 与 Prompt"，
+    不是"优化器解得对不对"—— 后者由 tests/test_optimize.py 用可回代的
+    等式（q = n·J·(p−P_h)）与解析基准负责。在这里跑 1000 次抽样只会让
+    整图测试慢一个量级，还测不到任何新东西。
+    """
+    p_h = 0.101 * float(depth_m)
+    return {
+        "status": "ok",
+        "depth_m": float(depth_m),
+        "n": 1000,
+        "rel_sigma": 0.05,
+        "dist": "uniform",
+        "dist_label": "±5% 均匀扰动",
+        "corr": [[1.0, 0.0], [0.0, 1.0]],
+        "independent": True,
+        "p_target": 0.05,
+        "years": 20.0,
+        "binding": "risk",
+        "text": (
+            f"当前井底压力 {pressure_bar} bar 对应 1.00 Mt/yr，"
+            "未观测到压裂（0/1000 次，95% 上界 0.4%）；"
+            "推荐 1 口井、井底压力 280 bar，速率 1.00 Mt/yr"
+        ),
+        "notes": ["注入指数按无表皮计算（skin=0），这是乐观假设"],
+        "provenance": {"fracture_ratio": "1.5× 静水压力", "constraint": "Wilson 上界"},
+        "physics": {
+            "hydrostatic_bar": p_h,
+            "fracture_bar": 1.5 * p_h,
+            "cap_bar": 1.5 * p_h,
+            "injectivity_m3_per_day_per_bar": 500.0,
+            "density_kg_m3": 700.0,
+        },
+        "current": {
+            "pressure_bar": pressure_bar,
+            "n_wells": 1,
+            "rate_m3_per_day": 1000.0,
+            "rate_mt_per_year": 1.0,
+            "verdict": "ok",
+            "risk": {"hits": 0, "n": 1000, "p": 0.0, "p_ci": [0.0, 0.004],
+                     "p_upper": 0.004},
+        },
+        "limit": {"pressure_bar": 280.0, "k_max": 36, "hits": 36,
+                  "p_upper": 0.049, "binding": "risk", "feasible": True},
+        "well_options": [],
+        "recommended": {
+            "n_wells": 1, "pressure_bar": 280.0, "rate_m3_per_day": 1000.0,
+            "rate_mt_per_year": 1.0, "per_well_mt_per_year": 1.0,
+            "binding": "risk",
+            "risk": {"hits": 36, "n": 1000, "p": 0.036, "p_ci": [0.026, 0.049],
+                     "p_upper": 0.049},
+        },
+        "headroom": {"fraction": 0.0, "rate_mt_per_year": 0.0},
+        "verification": {"hits": 40, "n": 1000, "p": 0.04,
+                         "p_ci": [0.029, 0.054], "p_upper": 0.054,
+                         "seed": 7920, "agrees": True},
+        "frontier": [],
     }
 
 

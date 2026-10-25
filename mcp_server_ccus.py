@@ -153,6 +153,44 @@ def assess_injection_uncertainty(
 
 
 @server.tool(
+    name="optimize_injection_plan",
+    description=(
+        "从'诊断'到'处方'：给定储层埋深与当前井底压力（或目标速率），"
+        "在风险预算内反解注入方案 —— 推荐井数、井底压力上限、对应速率，"
+        "并与当前方案逐项对比。约束用概率的 95% Wilson 上界（不是点估计），"
+        "因此'P=4.9% 低于 5%'这种在 n=100 下站不住的说法会被拒绝。"
+        "默认 1000 次抽样（约束判定需要比报告更高的分辨率）。"
+        "返回 status：ok / infeasible（风险可行但注入能力不够）/ "
+        "no_injection（连注都注不进），以及 current / recommended / "
+        "well_options / frontier / notes / provenance。"
+        "速率是**压力约束下的上限**（未计井筒摩阻、非达西、井间干扰），"
+        "引用时必须带这句限定。"
+    ),
+)
+def optimize_injection_plan(
+    depth_m: float,
+    injection_pressure_bar: float | None = None,
+    storage_rate_mt_per_year: float | None = None,
+    risk_budget: float = 0.05,
+    n_simulations: int = 1000,
+    corr: float | None = None,
+    skin: float = 0.0,
+) -> dict:
+    """注入策略优化（井数 / 井底压力上限 / 速率）。"""
+    from tools.physics_tools import optimize_injection_strategy
+
+    return optimize_injection_strategy(
+        depth_m,
+        injection_pressure_bar=injection_pressure_bar,
+        storage_rate_mt_per_year=storage_rate_mt_per_year,
+        p_target=risk_budget,
+        n=n_simulations,
+        corr=corr,
+        skin=skin,
+    )
+
+
+@server.tool(
     name="predict_pressure_pinn",
     description=(
         "用一维扩散方程 dP/dt = D·d²P/dx²（D = 0.1 m²/s）的物理信息神经网络，"
@@ -278,6 +316,9 @@ def _selftest() -> int:
 
     print("\n=== assess_injection_uncertainty ===")
     print(assess_injection_uncertainty(2500, 250))
+
+    print("\n=== optimize_injection_plan ===")
+    print(optimize_injection_plan(2500, 380)["text"])
 
     print("\n=== get_fault_stability ===")
     print(get_fault_stability(2500, 250)["text"])

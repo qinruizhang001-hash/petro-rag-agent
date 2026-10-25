@@ -336,6 +336,81 @@ def sobol_figure(sensitivity: dict, height: int = 260) -> go.Figure:
         yaxis=dict(gridcolor="rgba(0,0,0,0)", autorange="reversed"),
     )
     return fig
+def plan_figure(plan: dict, height: int = 300) -> go.Figure:
+    """
+    注入压力 → 压裂概率曲线，标出风险预算线与推荐点。
+
+    为什么画曲线而不是只画推荐点：这条曲线**不是单调缓升**的，它在
+    一段很宽的区间里是平的（0%），然后在一个窄带里从 0 跳到 1。
+    只看"推荐 316 bar、风险 4%"的人会以为压力可以随便加一点，
+    而看到曲线的人会立刻明白"再加 30 bar 就到顶了"。
+
+    阴影是 95% 区间而不是标准差：n=1000 时区间只有几个百分点宽，
+    画 ±1σ 会显得比实际更窄。
+    """
+    rows = plan.get("frontier") or []
+    fig = go.Figure()
+    if not rows:
+        fig.update_layout(height=height, margin=dict(l=8, r=8, t=8, b=8))
+        return fig
+
+    x = [float(r.get("pressure_bar") or 0.0) for r in rows]
+    p = [float(r.get("p_leak") or 0.0) * 100 for r in rows]
+    lo = [float(r.get("p_lo") or 0.0) * 100 for r in rows]
+    hi = [float(r.get("p_hi") or 0.0) * 100 for r in rows]
+    rate = [float(r.get("rate_mt_per_year") or 0.0) for r in rows]
+
+    fig.add_trace(go.Scatter(
+        x=x, y=hi, mode="lines", line=dict(width=0),
+        hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=lo, mode="lines", line=dict(width=0), fill="tonexty",
+        fillcolor="rgba(44,111,187,.18)", name="95% 区间",
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=p, mode="lines+markers", name="压裂概率",
+        line=dict(color="rgba(207,34,46,.85)", width=2),
+        marker=dict(size=5),
+        customdata=rate,
+        hovertemplate=(
+            "井底压力 %{x:.0f} bar<br>压裂概率 %{y:.1f}%<br>"
+            "单井速率 %{customdata:.2f} Mt/yr<extra></extra>"
+        ),
+    ))
+
+    target = float(plan.get("p_target") or 0.0) * 100
+    if target > 0:
+        fig.add_hline(
+            y=target, line_dash="dash", line_color="rgba(87,96,106,.9)",
+            annotation_text=f"风险预算 {target:.0f}%",
+            annotation_position="top left",
+            annotation_font=dict(size=10),
+        )
+
+    rec = plan.get("recommended") or {}
+    if rec.get("pressure_bar"):
+        fig.add_vline(
+            x=float(rec["pressure_bar"]), line_dash="dot",
+            line_color="rgba(26,127,55,.9)",
+            annotation_text=f"推荐 {float(rec['pressure_bar']):.0f} bar",
+            annotation_position="top right",
+            annotation_font=dict(size=10),
+        )
+
+    fig.update_layout(
+        height=height,
+        margin=dict(l=8, r=8, t=28, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", y=1.16, x=0, font=dict(size=10)),
+        xaxis=dict(title="井底压力（bar）", gridcolor=GRID),
+        yaxis=dict(title="压裂概率（%）", gridcolor=GRID, rangemode="tozero"),
+        hovermode="x unified",
+    )
+    return fig
+
+
 # ─── 图 3：Token 分布 ────────────────────────────────────
 def token_figure(breakdown: list[dict]) -> go.Figure:
     """按阶段堆叠：输入 vs 输出。输入通常占大头，所以两个都要画。"""

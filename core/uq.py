@@ -940,6 +940,11 @@ def uq_block(uq_summary: dict) -> str:
     if decision.get("text"):
         lines.append(f"- 决策判定：{decision['text']}")
 
+    # ─── 注入策略优化（从"诊断"到"处方"）────────────
+    plan = uq_summary.get("plan") or {}
+    if plan.get("text"):
+        lines.append(f"- 注入策略优化：{plan['text']}")
+
     if len(lines) == 1:
         return ""
 
@@ -953,18 +958,31 @@ def uq_block(uq_summary: dict) -> str:
         "3. 若给出风险判断，必须同时给出概率（如\"压裂风险概率 12%\"），"
         "不要用\"存在一定风险\"这种无法证伪的措辞。",
     ]
+    # 编号用计数器而不是 ``5 if ... else 4``：多加一条要求时后者会静默重号，
+    # 而重号在 Prompt 里表现为"两条要求都叫 4"，模型会只照做一条。
+    index = 4
     if sens.get("text"):
         lines.append(
-            "4. 敏感性排名必须按上面给出的顺序写，**禁止自行重排或补充**"
+            f"{index}. 敏感性排名必须按上面给出的顺序写，**禁止自行重排或补充**"
             "未列出的参数；一阶指数与总效应指数要分开表述，"
             "二者的差值代表参数间交互作用，不要合并成一个\"影响因子\"。"
         )
+        index += 1
     if decision.get("text"):
         lines.append(
-            f"{5 if sens.get('text') else 4}. 决策判定（{decision.get('level', '')}）"
+            f"{index}. 决策判定（{decision.get('level', '')}）"
             "必须单独成段写明：触发了哪条阈值规则、概率是多少、"
             "以及概率的置信区间 —— 阈值是**风险接受准则**而不是物理常数，"
             "报告里必须让读者看出这一点。"
+        )
+        index += 1
+    if plan.get("text"):
+        lines.append(
+            f"{index}. 注入策略建议必须照抄上面的井数与井底压力上限，"
+            "**禁止自行给出未列出的注入速率、井数或压力值**；"
+            "若推荐方案的风险仍高于预算，必须写明\"无可行方案\"，"
+            "不得用折中值代替。速率是**压力约束下的上限**"
+            "（未计井筒摩阻与非达西效应），引用时必须带上这句限定。"
         )
     lines.append("")
     return "\n".join(lines)

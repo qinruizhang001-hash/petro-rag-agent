@@ -158,5 +158,48 @@ class TestTokenFigure(unittest.TestCase):
         self.assertEqual(fig.data[0].y[0], 0)
 
 
+class TestPlanFigure(unittest.TestCase):
+    """压力-风险曲线：三条 trace（上界带、下界带、主曲线）+ 两条参考线。"""
+
+    PLAN = {
+        "p_target": 0.05,
+        "recommended": {"pressure_bar": 316.3},
+        "frontier": [
+            {"pressure_bar": 252.6, "p_leak": 0.0, "p_lo": 0.0, "p_hi": 0.004,
+             "rate_mt_per_year": 0.0},
+            {"pressure_bar": 300.0, "p_leak": 0.004, "p_lo": 0.0, "p_hi": 0.011,
+             "rate_mt_per_year": 4.2},
+            {"pressure_bar": 352.9, "p_leak": 0.036, "p_lo": 0.026, "p_hi": 0.049,
+             "rate_mt_per_year": 8.9},
+        ],
+    }
+
+    def test_empty_frontier_returns_blank_figure(self):
+        fig = ui.plan_figure({})
+        self.assertEqual(len(fig.data), 0)
+
+    def test_main_curve_is_percent_not_fraction(self):
+        # 画成 0.036 会让整条曲线贴在 x 轴上，看起来像"没有风险"
+        fig = ui.plan_figure(self.PLAN)
+        main = [t for t in fig.data if t.name == "压裂概率"][0]
+        self.assertAlmostEqual(main.y[-1], 3.6)
+
+    def test_band_is_filled(self):
+        fig = ui.plan_figure(self.PLAN)
+        band = [t for t in fig.data if t.fill == "tonexty"]
+        self.assertEqual(len(band), 1)
+
+    def test_budget_line_and_recommendation_marker(self):
+        fig = ui.plan_figure(self.PLAN)
+        shapes = fig.layout.shapes or []
+        self.assertEqual(len(shapes), 2)     # 一条水平预算线、一条垂直推荐线
+
+    def test_missing_recommendation_still_renders(self):
+        plan = dict(self.PLAN)
+        plan.pop("recommended")
+        fig = ui.plan_figure(plan)
+        self.assertEqual(len([t for t in fig.data if t.name == "压裂概率"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

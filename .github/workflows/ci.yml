@@ -293,7 +293,8 @@ jobs:
       # PINN 问句抽取 / 经验库解析与排序 / 时间维度冲突检测 /
       # 蒙特卡洛不确定性量化 / 地应力与断层活化 / CO₂ 物性 /
       # 相渗与两相流 / 盖层封闭性 / 储层模拟器契约 / 深层物理接线 /
-      # 先验分布与参数相关性（copula）/ Sobol 敏感性 / 风险决策阈值），
+      # 先验分布与参数相关性（copula）/ Sobol 敏感性 / 风险决策阈值 /
+      # 注入策略优化（约束求解，含与 UQ 判据的逐样本一致性）），
       # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       #
@@ -335,6 +336,7 @@ jobs:
             tests.test_uq_advanced \
             tests.test_sensitivity \
             tests.test_risk_policy \
+            tests.test_optimize \
             tests.test_graph_stubs
 
   unit-deps:
@@ -487,6 +489,15 @@ jobs:
             || { echo "::error::api_server.py must expose the pinn field"; exit 1; }
           grep -q '"pinn"' app.py \
             || { echo "::error::app.py must surface the pinn value"; exit 1; }
+          # 中文注释：注入策略是这份系统唯一"给出行动"的结论。后端算了、
+          # 前端没画，等于闭环断在最后一步 —— 而页面看起来一切正常，
+          # 只是少了一块。所以这里同时钉住"后端下发"与"前端渲染"。
+          grep -q '"injection_plan"' api_server.py \
+            || { echo "::error::api_server.py must expose the injection_plan field"; exit 1; }
+          grep -q 'injection_plan' app.py \
+            || { echo "::error::app.py must surface the injection plan"; exit 1; }
+          grep -q 'plan_figure' app.py \
+            || { echo "::error::app.py must draw the pressure-risk frontier"; exit 1; }
           # 中文注释：后端必须从 workflow 取图，不能回退到 multi_agent_ccus 兼容入口
           # （否则哪天入口 shim 被删，后端会在运行时才炸）。
           grep -q 'from workflow import' api_server.py \

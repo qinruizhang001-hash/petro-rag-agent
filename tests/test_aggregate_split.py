@@ -19,6 +19,7 @@ from nodes.aggregate_support import (
     chart_payload,
     extract_depth,
     extract_pressure_temperature,
+    plan_payload,
     strip_tool_json,
     uq_payload,
 )
@@ -154,6 +155,53 @@ class SupportTests(unittest.TestCase):
         kept = chart_payload({"status": "ok", "rel_path": "a.png", "junk": 1})
         self.assertEqual(kept["rel_path"], "a.png")
         self.assertNotIn("junk", kept)
+
+    def test_uq_payload_carries_the_plan_block(self):
+        """策略建议必须原样透传：前端"推荐方案"卡片只读这一处。"""
+        plan = {"status": "ok", "text": "推荐 2 口井", "recommended": {"n_wells": 2}}
+        payload = uq_payload({"plan": plan})
+        self.assertEqual(payload["plan"], plan)
+
+    def test_plan_payload_slims_risk_but_keeps_evidence(self):
+        """
+        裁的是重复，不是依据：``notes`` / ``provenance`` / ``frontier`` 必须留。
+
+        这三样是"读者能不能判断该不该信"的全部信息。把它们裁掉，面板就只剩
+        一句"推荐 2 口井、316 bar"，与一句编出来的建议没有区别。
+        """
+        full = {
+            "status": "ok",
+            "text": "x",
+            "notes": ["n1"],
+            "provenance": {"fracture_ratio": "1.5×"},
+            "frontier": [{"pressure_bar": 300.0, "p_leak": 0.1}],
+            "physics": {"hydrostatic_bar": 252.6, "injectivity_m3_per_day_per_bar": 524.2},
+            "limit": {"pressure_bar": 352.9},
+            "current": {"pressure_bar": 380.0, "rate_mt_per_year": 18.9,
+                        "risk": {"hits": 503, "n": 1000, "p": 0.503,
+                                 "p_ci": [0.47, 0.53], "p_upper": 0.53,
+                                 "decision": {"level": "alert", "notes": ["x"]}}},
+            "well_options": [{"n_wells": 2, "risk": {"p": 0.036},
+                              "risk_at_needed": {"p": 0.0}}],
+            "recommended": {"n_wells": 2, "pressure_bar": 316.3,
+                            "risk": {"p": 0.0, "decision": {"level": "ok"}}},
+            "verification": {"p": 0.0, "hits": 0, "n": 1000, "seed": 7961,
+                             "agrees": True},
+            "headroom": {"fraction": 0.57},
+        }
+        slim = plan_payload(full)
+        self.assertEqual(slim["notes"], ["n1"])
+        self.assertEqual(slim["provenance"]["fracture_ratio"], "1.5×")
+        self.assertEqual(len(slim["frontier"]), 1)
+        # 嵌套的 decision 不进网络：每个方案带一份会把体积放大数倍
+        self.assertNotIn("decision", slim["current"]["risk"])
+        self.assertNotIn("decision", slim["recommended"]["risk"])
+        self.assertEqual(slim["current"]["risk"]["p"], 0.503)
+        self.assertEqual(slim["verification"]["agrees"], True)
+
+    def test_plan_payload_of_empty_is_empty(self):
+        self.assertEqual(plan_payload(None), {})
+        self.assertEqual(plan_payload({}), {})
 
 
 if __name__ == "__main__":

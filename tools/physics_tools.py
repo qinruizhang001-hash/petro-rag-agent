@@ -413,6 +413,74 @@ def caprock_check(
 
 
 # ══════════════════════════════════════════════════════════
+# 注入策略优化（从"诊断"到"处方"）
+# ══════════════════════════════════════════════════════════
+def optimize_injection_strategy(
+    depth_m: float,
+    injection_pressure_bar: float | None = None,
+    storage_rate_mt_per_year: float | None = None,
+    well_counts: tuple[int, ...] = (1, 2, 4, 8),
+    p_target: float | None = None,
+    years: float = 20.0,
+    rel_sigma: float = DEFAULT_REL_SIGMA,
+    n: int = 1000,
+    seed: int | None = None,
+    dist: str = DEFAULT_DIST,
+    corr: float | list[list[float]] | None = None,
+    permeability_md: float = 100.0,
+    thickness_m: float = 50.0,
+    temperature_celsius: float = 60.0,
+    skin: float = 0.0,
+    cap_ratio: float = 1.0,
+    rate_cap_mt_per_year: float | None = None,
+) -> dict:
+    """
+    给定当前方案，反解一个满足风险预算的注入方案（井数 / 井底压力 / 速率）。
+
+    与 ``injection_risk_uq`` 的关系：那个工具回答"当前方案有多危险"，
+    这个工具回答"改成什么才不危险"。两者用**同一套判据与同一批抽样**
+    （同 seed 下压裂命中数逐样本相等，见 ``tests/test_optimize.py``），
+    所以报告里同时引用两个结论时不会互相矛盾。
+
+    为什么 ``n`` 默认 1000 而不是 100：约束用的是 Wilson 95% 上界，
+    n=100 时上界 ≤5% 只允许 0 次命中（0/100 的上界 3.6%，1/100 是 5.5%），
+    约束会退化成"一个样本都不许越界"。1000 次纯 Python 约几十毫秒。
+
+    返回 ``core.optimize.optimize_plan`` 的结构 + ``text``。``status`` 三态：
+    ``ok`` / ``infeasible``（能力不足）/ ``no_injection``（连注都注不进）。
+    """
+    from core.optimize import optimize_plan
+
+    log.info(
+        f"  [Tool 调用] 注入策略优化：埋深 {depth_m} m、"
+        f"{'井底压力 ' + str(injection_pressure_bar) + ' bar' if injection_pressure_bar else '目标速率 ' + str(storage_rate_mt_per_year) + ' Mt/yr'}，"
+        f"风险预算 {p_target if p_target is not None else '默认(warn)'}，"
+        f"{n} 次抽样..."
+    )
+    result = optimize_plan(
+        depth_m,
+        injection_pressure_bar=injection_pressure_bar,
+        storage_rate_mt_per_year=storage_rate_mt_per_year,
+        well_counts=well_counts,
+        p_target=p_target,
+        years=years,
+        rel_sigma=rel_sigma,
+        n=n,
+        seed=seed,
+        dist=dist,
+        corr=_as_corr_matrix(corr),
+        permeability_md=permeability_md,
+        thickness_m=thickness_m,
+        temperature_celsius=temperature_celsius,
+        skin=skin,
+        cap_ratio=cap_ratio,
+        rate_cap_mt_per_year=rate_cap_mt_per_year,
+    )
+    log.info(f"  [Tool 调用] 注入策略 → {result['text']}")
+    return result
+
+
+# ══════════════════════════════════════════════════════════
 # 兼容旧接口
 # ══════════════════════════════════════════════════════════
 def pressure_interval_text(depth_m: float, injection_pressure_bar: float,
