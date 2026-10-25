@@ -135,10 +135,18 @@ class AgentState(TypedDict):
     temporal_context: str
     temporal_stats: dict           # {claims, conflicts, entities}
     # ─── 不确定性量化（Monte Carlo）───
-    # aggregate 节点产出：{density: {...}, injection: {...}}，每项含
-    # mean / p5 / p95 / std / n / rel_sigma / text。数值全部来自代码模拟，
-    # 模型只负责转述，不负责计算。
+    # aggregate 节点产出：{density: {...}, injection: {...}, sensitivity: {...},
+    # decision: {...}}。每项含 mean / p5 / p95 / std / n / rel_sigma /
+    # dist_label / text。数值全部来自代码模拟，模型只负责转述，不负责计算。
+    # ``dist_label`` 不能省：同样写"±5%"，均匀与正态的 90% 区间差一倍宽。
     uq_summary: dict
+    # ─── 风险决策（UQ 概率 × 阈值）───
+    # 由 ``core.risk_policy.decide`` 产出：{level, triggered, resolved, p,
+    # p_ci, rule, thresholds, notes, text}。与 ``uq_summary`` 分开是因为
+    # 它回答的是另一个问题：UQ 说"概率是多少"，这里说"要不要告警"。
+    # ``resolved=False`` 表示概率的置信区间跨越阈值边界 —— 等级仍给出，
+    # 但不可单独据此下结论（100 次模拟下 5% 与 8% 的区别在噪声里）。
+    risk_decision: dict
     # ─── 深层物理判定（断层活化 / 盖层封闭性 / 两相流）───
     # aggregate 节点产出：{status, blocking, geomechanics, caprock, relperm,
     # policy, assumptions, version}。``status="no_data"`` 表示参数不足未算，

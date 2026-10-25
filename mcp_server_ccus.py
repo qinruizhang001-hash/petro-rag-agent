@@ -119,10 +119,15 @@ def get_co2_density(
 @server.tool(
     name="assess_injection_uncertainty",
     description=(
-        "给定储层埋深与注入压力，用 100 次蒙特卡洛（深度与压力各 ±5% 1σ）"
-        "评估注入可行性的概率分布，返回 ok / risky / under 三类结局的概率。"
+        "给定储层埋深与注入压力，用 100 次蒙特卡洛（深度与压力各 ±5% 均匀扰动，"
+        "即 ±5% 是误差边界而非 1σ）评估注入可行性的概率分布，"
+        "返回 ok / risky / under 三类结局的概率，以及按阈值判定的告警等级"
+        "（level / resolved / p_ci，阈值是风险接受准则、可用环境变量覆盖）。"
         "ok = 压力介于静水压力与破裂压力之间；risky = 超过破裂压力（有压裂风险）；"
         "under = 低于静水压力（注不进）。"
+        "corr 可给深度与压力的相关系数（默认 None = 独立，这是一个假设）；"
+        "include_sensitivity=True 时额外返回 Sobol 一阶/总效应指数，"
+        "回答'压裂概率主要是深度还是压力造成的'。"
     ),
 )
 def assess_injection_uncertainty(
@@ -130,14 +135,21 @@ def assess_injection_uncertainty(
     injection_pressure_bar: float,
     uncertainty: float = 0.05,
     n_simulations: int = 100,
+    corr: float | None = None,
+    include_sensitivity: bool = False,
 ) -> dict:
-    """注入风险的概率分布（蒙特卡洛）。"""
-    from tools.physics_tools import injection_risk_uq
+    """注入风险的概率分布（蒙特卡洛）+ 决策判定 + 可选敏感性分析。"""
+    from tools.physics_tools import injection_risk_sensitivity, injection_risk_uq
 
-    return injection_risk_uq(
+    out = injection_risk_uq(
         depth_m, injection_pressure_bar,
-        rel_sigma=uncertainty, n=n_simulations,
+        rel_sigma=uncertainty, n=n_simulations, corr=corr,
     )
+    if include_sensitivity:
+        out["sensitivity"] = injection_risk_sensitivity(
+            depth_m, injection_pressure_bar, rel_sigma=uncertainty
+        )
+    return out
 
 
 @server.tool(

@@ -288,6 +288,54 @@ def uq_figure(
     return fig
 
 
+# ─── 图 4b：Sobol 敏感性（一阶 vs 总效应）────────────────
+def sobol_figure(sensitivity: dict, height: int = 260) -> go.Figure:
+    """
+    每个参数两根条：一阶指数（单独贡献）与总效应（含交互）。
+
+    为什么两根都要画：只画"贡献度"时，读者会以为排名第一的那个参数就是
+    唯一要紧的。而两根条的**长度差**才是关键 —— 差得大说明这个参数只在和
+    别的参数组合时才起作用（典型如"深度 × 压力"：单独动任何一个都不越界，
+    两个一起偏才越界）。这种情况下"只补测排名第一的参数"往往解决不了问题。
+    """
+    names = list(sensitivity.get("names") or [])
+    first = sensitivity.get("first_order") or {}
+    total = sensitivity.get("total_order") or {}
+    ranking = sensitivity.get("ranking") or names
+
+    fig = go.Figure()
+    if not names:
+        fig.update_layout(height=height, margin=dict(l=8, r=8, t=8, b=8))
+        return fig
+
+    # 按总效应从大到小排：图上从上到下就是"该先补测谁"
+    ordered = [n for n in ranking if n in names]
+    fig.add_bar(
+        name="一阶（单独贡献）",
+        y=ordered,
+        x=[float(first.get(n, 0.0)) * 100 for n in ordered],
+        orientation="h",
+        marker_color="rgba(44,111,187,.65)",
+        hovertemplate="%{y}：一阶 %{x:.1f}%<extra></extra>",
+    )
+    fig.add_bar(
+        name="总效应（含交互）",
+        y=ordered,
+        x=[float(total.get(n, 0.0)) * 100 for n in ordered],
+        orientation="h",
+        marker_color="rgba(207,34,46,.55)",
+        hovertemplate="%{y}：总效应 %{x:.1f}%<extra></extra>",
+    )
+    fig.update_layout(
+        height=height,
+        margin=dict(l=8, r=8, t=8, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        barmode="group",
+        legend=dict(orientation="h", y=1.14, x=0, font=dict(size=10)),
+        xaxis=dict(title="方差贡献（%）", gridcolor=GRID, range=[0, 100]),
+        yaxis=dict(gridcolor="rgba(0,0,0,0)", autorange="reversed"),
+    )
+    return fig
 # ─── 图 3：Token 分布 ────────────────────────────────────
 def token_figure(breakdown: list[dict]) -> go.Figure:
     """按阶段堆叠：输入 vs 输出。输入通常占大头，所以两个都要画。"""

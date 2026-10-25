@@ -59,6 +59,7 @@ from ui_components import (
     pipeline_html,
     pressure_figure,
     risk_radar_figure,
+    sobol_figure,
     stratigraphy_figure,
     timing_figure,
     token_figure,
@@ -110,6 +111,67 @@ def _num(value, nd: int = 2) -> str:
         return f"{float(value):.{nd}f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+# 决策等级 → (图标, 颜色)。红=告警、黄=提示、绿=正常，与工业界 HMI 一致；
+# 不用红绿之外的颜色，因为这里唯一的语义就是"要不要停下来处理"。
+_DECISION_STYLE = {
+    "alert": ("🚨", "#cf222e", "告警"),
+    "warn": ("⚠️", "#bf8700", "提示"),
+    "ok": ("✅", "#1a7f37", "正常"),
+}
+
+
+def _render_decision(decision: dict) -> None:
+    """
+    决策判定块：等级徽标 + 概率及其置信区间 + 阈值规则 + 来路。
+
+    为什么把阈值来路也显示出来：读者看到"告警（阈值 20%）"的第一反应是
+    "20% 是谁定的"。如果界面上不写"这是政策选择、可配置"，这个数就会被
+    当成标准规定引用出去 —— 而它并不是。
+    """
+    level = str(decision.get("level") or "ok")
+    icon, color, label = _DECISION_STYLE.get(level, ("•", "#57606a", level))
+    p = decision.get("p")
+    ci = decision.get("p_ci") or []
+    n = decision.get("n") or 0
+    resolved = decision.get("resolved", True)
+
+    ci_text = ""
+    if isinstance(ci, (list, tuple)) and len(ci) == 2:
+        try:
+            ci_text = (f"（95% 区间 {float(ci[0]) * 100:.1f}%–"
+                       f"{float(ci[1]) * 100:.1f}%，{int(n)} 次模拟）")
+        except (TypeError, ValueError):
+            ci_text = ""
+
+    st.markdown(
+        f"<div style='display:flex;align-items:baseline;gap:.6rem;"
+        f"padding:.5rem .75rem;border-left:3px solid {color};"
+        f"background:rgba(127,127,127,.08);border-radius:4px;margin:.4rem 0'>"
+        f"<span style='font-size:1.05rem;font-weight:600;color:{color}'>"
+        f"{icon} 风险决策：{label}</span>"
+        f"<span style='font-family:ui-monospace,monospace'>"
+        f"P({decision.get('label') or '压裂风险'}) = "
+        f"{float(p) * 100:.1f}%</span>"
+        f"<span style='opacity:.75;font-size:.85rem'>{ci_text}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    if not resolved:
+        # 不可区分必须显式说：100 次模拟下 5% 与 8% 的差别在噪声里，
+        # 界面若只显示"提示"而不说这句，读者会以为这个等级是确定的。
+        st.caption(
+            "⚠️ 该概率的 95% 区间跨越了判定边界，当前模拟次数下等级与相邻等级"
+            "不可区分；要下结论请提高模拟次数（见下方提示）。"
+        )
+    st.caption(f"规则：{decision.get('rule') or '—'}")
+    provenance = (decision.get("thresholds") or {}).get("provenance")
+    if provenance:
+        st.caption(f"阈值来路：{provenance}")
+    for note in decision.get("notes") or []:
+        st.caption(f"· {note}")
+
 
 st.set_page_config(
     page_title="CCUS 评估监控台",
@@ -773,12 +835,41 @@ def render_board(meta: dict) -> None:
                     min(max(float(prob), 0.0), 1.0),
                     text=f"{UQ_VERDICT_LABELS.get(key, key)} — {prob * 100:.0f}%",
                 )
+            # 扰动口径与相关性都从结果里取：写死"±5% 扰动"会在换了分布或
+            # 加了相关系数之后变成一句谎话，而这种错不会报异常。
             st.caption(
                 f"标称判定：{injection_uq.get('verdict_label', '—')}；"
-                f"深度 {injection_uq.get('depth_m', 0):.0f} m / 注入压力 "
-                f"{injection_uq.get('injection_pressure_bar', 0):.0f} bar；"
-                f"深度与压力各 ±{(injection_uq.get('rel_sigma') or 0) * 100:.0f}% 扰动。"
+                f"深度 {_num(injection_uq.get('depth_m'), 0)} m / 注入压力 "
+                f"{_num(injection_uq.get('injection_pressure_bar'), 0)} bar；"
+                f"深度与压力各{injection_uq.get('dist_label') or '±5% 均匀扰动'}；"
+                + ("两参数按独立抽样（这是一个假设）。"
+                   if injection_uq.get("independent", True)
+                   else f"两参数相关系数 {_num((injection_uq.get('corr') or [[1, 0]])[0][1], 2)}"
+                        f"（实测 {_num(((injection_uq.get('corr_empirical') or [[1, 0]])[0] or [0, 0])[1], 2)}）。")
             )
+
+        # ─── 决策判定：概率 → 要不要告警 ─────────────────
+        # 单独一块而不是塞进上面的 caption：这是"结论"，上面那堆是"证据"。
+        decision = uq.get("decision") or {}
+        if decision:
+            _render_decision(decision)
+
+        # ─── 敏感性：谁造成的不确定 ──────────────────────
+        sensitivity = uq.get("sensitivity") or {}
+        if sensitivity and sensitivity.get("text"):
+            st.markdown('<div class="panel-title">敏感性分析（Sobol 方差分解）</div>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(
+                sobol_figure(sensitivity),
+                width="stretch",
+                config={"displayModeBar": False},
+                key="uq_sobol",
+            )
+            st.caption(f"🔍 {sensitivity['text']}")
+            if sensitivity.get("notes"):
+                with st.expander("敏感性分析的局限与提示"):
+                    for note in sensitivity["notes"]:
+                        st.markdown(f"- {note}")
 
     st.markdown('<div class="panel-title">全链路耗时（节点墙钟）</div>',
                 unsafe_allow_html=True)

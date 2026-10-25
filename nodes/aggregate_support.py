@@ -131,6 +131,15 @@ def uq_payload(uq: dict | None) -> dict:
     保留 ``samples``（100 个浮点，约 1 KB）：前端画分布直方图要靠它。
     只给 mean/p5/p95 的话，看板上只能显示三个数字，"分布"这件事就丢了 ——
     而分布恰恰是 UQ 唯一比点估计多出来的信息。
+
+    v1.7 新增的四类字段各有必须保留的理由：
+
+    - ``dist`` / ``dist_label``：不写分布名，"±5%"在均匀与正态下差一倍宽，
+      看板上就没法和报告正文对齐口径；
+    - ``corr`` / ``independent`` / ``corr_empirical``：独立抽样是一个**假设**，
+      前端必须能显示"这次是按独立算的"还是"按 ρ=0.9 算的"；
+    - ``sensitivity``：Sobol 的排名是给读者的行动建议，不是调试信息；
+    - ``decision``：告警等级与阈值，看板要能直接做徽标。
     """
     if not uq:
         return {}
@@ -138,6 +147,8 @@ def uq_payload(uq: dict | None) -> dict:
         "mean", "p5", "p50", "p95", "std", "cv", "n", "rel_sigma", "unit",
         "text", "nominal", "ci_level", "probabilities", "counts",
         "verdict", "verdict_label", "depth_m", "injection_pressure_bar",
+        "dist", "dist_label", "corr", "independent", "corr_empirical", "priors",
+        "decision",
     )
     out: dict = {}
     for key in ("density", "injection"):
@@ -153,6 +164,30 @@ def uq_payload(uq: dict | None) -> dict:
         if samples:
             slim["samples"] = [round(float(v), 4) for v in samples]
         out[key] = slim
+
+    # 敏感性分析：结构是 dict-of-dict，不能套上面的 keep 白名单，
+    # 但也不能整包透传 —— ``first_order_raw`` 之类的调试字段没必要过网络。
+    sens = uq.get("sensitivity") or {}
+    if sens:
+        out["sensitivity"] = {
+            k: sens.get(k) for k in (
+                "n_base", "evaluations", "variance", "mean", "names",
+                "first_order", "total_order", "interaction",
+                "first_order_se", "total_order_se",
+                "ranking", "event", "event_probability", "notes", "text",
+            ) if sens.get(k) is not None
+        }
+
+    # 决策判定：顶层放一份，前端不必先钻进 injection 里找。
+    decision = uq.get("decision") or {}
+    if decision:
+        out["decision"] = {
+            k: decision.get(k) for k in (
+                "level", "level_label", "triggered", "resolved", "metric",
+                "label", "p", "p_ci", "hits", "n", "rule", "thresholds",
+                "notes", "text",
+            ) if decision.get(k) is not None
+        }
     return out
 
 

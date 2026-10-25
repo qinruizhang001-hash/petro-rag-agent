@@ -261,6 +261,9 @@ def _review_payload(values: dict, thread_id: str, pending: bool) -> dict:
         # ─── 时间维度记忆 + 不确定性量化 ───
         "temporal": _temporal_of(values),
         "uq": _uq_of(values),
+        # 风险决策单独给一份：它回答的是"要不要告警"，与"概率是多少"
+        # 是两个问题，前端做徽标时不该先去 uq 里翻。
+        "risk_decision": values.get("risk_decision") or {},
         # ─── 物理一致性校验（规则引擎）───
         "physics_check": _physics_of(values),
         # ─── 质量闸门（passed / rewrite / failed + 失败原因）───
@@ -308,6 +311,7 @@ async def analyze_sync(request: ProjectRequest):
             # ─── 时间维度记忆 + 不确定性量化 ───
             "temporal": _temporal_of(final_state),
             "uq": _uq_of(final_state),
+            "risk_decision": final_state.get("risk_decision") or {},
             # ─── 物理一致性校验 + 质量闸门 + 人类在环 ───
             "physics_check": _physics_of(final_state),
             "quality_gate": _gate_of(final_state),
@@ -446,6 +450,7 @@ async def _event_stream(user_input: str, thread_id: str):
                 # ─── 时间维度记忆 + 不确定性量化 ───
                 "temporal": _temporal_of(node_outputs),
                 "uq": _uq_of(node_outputs),
+                "risk_decision": node_outputs.get("risk_decision") or {},
                 # ─── 物理一致性校验 + 质量闸门 + 人类在环 ───
                 "physics_check": _physics_of(node_outputs),
                 "quality_gate": _gate_of(node_outputs),

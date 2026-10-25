@@ -29,12 +29,15 @@
 from __future__ import annotations
 
 import pressure_model as pm
+from core.risk_policy import decide
+from core.sensitivity import DEFAULT_BASE, sobol_event
 from core.uq import (
+    DEFAULT_DIST,
     DEFAULT_N,
     DEFAULT_REL_SIGMA,
-    draw_relative,
+    JointSampler,
+    Marginal,
     format_interval,
-    make_rng,
     monte_carlo,
     summarize,
 )
@@ -50,6 +53,23 @@ _VERDICT_LABELS = {
     "risky": "压裂风险",
     "under": "压力不足（注不进）",
 }
+
+
+def _as_corr_matrix(corr) -> list[list[float]] | None:
+    """
+    把"标量相关系数"或"2×2 矩阵"统一成矩阵；``None`` 表示独立。
+
+    只接受 2 个参数的相关（深度、压力），所以标量形式是安全的：
+    二维情形下一个数就足以描述相关结构，让调用方去写 2×2 矩阵只是徒增出错面。
+    """
+    if corr is None:
+        return None
+    if isinstance(corr, (int, float)):
+        rho = float(corr)
+        if not -1.0 <= rho <= 1.0:
+            raise ValueError(f"相关系数必须在 [-1, 1] 内，收到 {rho}")
+        return [[1.0, rho], [rho, 1.0]]
+    return corr
 
 
 # ══════════════════════════════════════════════════════════
@@ -79,12 +99,18 @@ def co2_density_uq(
     n: int = DEFAULT_N,
     seed: int | None = None,
     keep_samples: bool = False,
+    dist: str = DEFAULT_DIST,
 ) -> dict:
     """
     密度 + 不确定性。扰动的是**压力输入**（现场最容易波动、也最常被问到的量），
     温度按标称值处理。
 
-    返回 ``summarize`` 结构（mean / p5 / p95 / cv / text …）。
+    ``dist`` 默认均匀（压力表误差有量程边界）。若把压力理解为"多个独立小误差
+    的叠加"则用 ``normal``；若关心的是**密度**本身跨井/跨层的乘性差异，
+    用 ``lognormal`` 更贴切（密度恒正、右偏）。三者给出的 90% 区间宽度不同，
+    所以 ``dist_label`` 会随结果一起返回并被写进文案。
+
+    返回 ``summarize`` 结构（mean / p5 / p95 / cv / dist_label / text …）。
     """
     result = monte_carlo(
         lambda p: co2_density_value(p, temperature_celsius),
@@ -92,6 +118,7 @@ def co2_density_uq(
         rel_sigma=rel_sigma,
         n=n,
         seed=seed,
+        dist=dist,
         lower_bound=1e-9,
         keep_samples=keep_samples,
     )
@@ -183,6 +210,9 @@ def injection_risk_uq(
     rel_sigma: float = DEFAULT_REL_SIGMA,
     n: int = DEFAULT_N,
     seed: int | None = None,
+    dist: str = DEFAULT_DIST,
+    corr: float | list[list[float]] | None = None,
+    with_decision: bool = True,
 ) -> dict:
     """
     注入风险的概率分布：同时扰动**深度**与**注入压力**，统计三种结局的频率。
@@ -191,21 +221,38 @@ def injection_risk_uq(
     设备（压力），误差来源独立。只扰动压力会得到一个偏窄的风险分布，
     让"压裂概率"看起来比实际低。
 
-    返回::
+    相关性（``corr``）
+    ------------------
+    默认 ``None`` = **独立**。这是一个假设，不是事实，所以它会被写进返回值
+    （``independent`` / ``corr`` / ``corr_empirical``）。什么时候该给相关：
+    当深度和压力来自**同一次解释**时（例如压力由深度乘压力梯度算出来的），
+    两者误差同向，独立抽样会低估"深度偏大且压力偏高"这种共同越界的概率。
+    实测（见 tests/test_uq_advanced.py）：ρ=0.9 时 P(risky) 与 ρ=0 的差异
+    在阈值附近可达数个百分点，足以改变决策等级。
 
-        {"n", "rel_sigma", "probabilities": {"ok": .76, "risky": .12, "under": .12},
-         "counts", "text", "verdict", ...}
+    ``corr`` 可给标量（两参数的相关系数）或 2×2 矩阵。
+
+    返回
+    ----
+    ``{"n", "rel_sigma", "dist", "dist_label", "probabilities", "counts",
+       "verdict", "text", "decision", "corr", "independent", "corr_empirical",
+       "priors"}``
 
     其中 ``verdict`` 是标称值下的确定性判定（与 ``pressure_model.verdict_of``
-    一致），概率则说明"这个判定有多稳"。
+    一致），概率说明"这个判定有多稳"，``decision`` 说明"这个概率是否越过
+    告警线"——三者是三个不同的问题，混在一句"存在一定风险"里就全丢了。
     """
     n = max(2, int(n))
-    rng = make_rng(seed)
+    matrix = _as_corr_matrix(corr)
+    dims = [
+        {"name": "深度", "kind": dist, "rel_sigma": rel_sigma},
+        {"name": "注入压力", "kind": dist, "rel_sigma": rel_sigma},
+    ]
+    sampler = JointSampler(dims, corr=matrix, seed=seed)
 
     counts: dict[str, int] = {}
     for _ in range(n):
-        d = float(depth_m) * (1.0 + draw_relative(rng, rel_sigma))
-        p = float(injection_pressure_bar) * (1.0 + draw_relative(rng, rel_sigma))
+        d, p = sampler.draw_values([float(depth_m), float(injection_pressure_bar)])
         label = pm.verdict_of(d, p)
         counts[label] = counts.get(label, 0) + 1
 
@@ -216,15 +263,18 @@ def injection_risk_uq(
         f"{_VERDICT_LABELS.get(k, k)} {v * 100:.0f}%"
         for k, v in sorted(probabilities.items(), key=lambda kv: -kv[1])
     )
+    dist_label = Marginal(dist, rel_sigma).perturbation_label()
+    corr_note = "" if sampler.independent else f"，深度与压力相关系数 {matrix[0][1]:.2f}"
     text = (
         f"{detail}（标称判定：{_VERDICT_LABELS.get(nominal_verdict, nominal_verdict)}；"
-        f"{n} 次蒙特卡洛，深度与压力各 ±{rel_sigma * 100:.0f}% 扰动）"
+        f"{n} 次蒙特卡洛，深度与压力各{dist_label}{corr_note}）"
     )
 
-    return {
+    out = {
         "n": n,
         "rel_sigma": float(rel_sigma),
-        "dist": "normal",
+        "dist": dist,
+        "dist_label": dist_label,
         "counts": counts,
         "probabilities": probabilities,
         "verdict": nominal_verdict,
@@ -233,7 +283,57 @@ def injection_risk_uq(
         "injection_pressure_bar": float(injection_pressure_bar),
         "unit": "",
         "text": text,
+        # 相关性的口径必须随结果返回：默认独立这件事本身就是一个假设
+        "corr": matrix,
+        "independent": sampler.independent,
+        "corr_empirical": sampler.empirical_correlation(
+            n=2000, seed=seed
+        ) if not sampler.independent else [[1.0, 0.0], [0.0, 1.0]],
+        "priors": sampler.describe(),
     }
+    if with_decision:
+        try:
+            out["decision"] = decide(probabilities, n)
+        except Exception as e:      # 阈值配置错误不该让整份报告消失
+            log.warning(f"  [Warning] 决策判定失败（保留概率结果）: {e}")
+    return out
+
+
+def injection_risk_sensitivity(
+    depth_m: float,
+    injection_pressure_bar: float,
+    rel_sigma: float = DEFAULT_REL_SIGMA,
+    n_base: int = DEFAULT_BASE,
+    seed: int | None = None,
+    dist: str = DEFAULT_DIST,
+    event: str = "risky",
+) -> dict:
+    """
+    对"是否压裂"这个**风险指标**做 Sobol 敏感性分析：深度和压力各占多少。
+
+    为什么需要它：蒙特卡洛能说"压裂概率 12%"，但说不出"这 12% 主要是深度
+    的不确定性造成的，还是压力的"。这两个答案对应的行动完全不同 ——
+    前者要去补测深度（地震/测井），后者要去校压力表或降注入压力。
+    没有这一步，UQ 只是把点估计换成了区间，读者仍然不知道该动哪个参数。
+
+    被分解的是**事件指示函数** ``1[判定 == risky]``，不是压力值本身：
+    报告关心的是"结论会不会翻"，而不是"压力算出来差几 bar"。
+
+    返回 ``sobol_indices`` 结构 + ``text``。**输入假定独立**：这里没有
+    相关矩阵参数，因为 Sobol 指数在相关输入下没有定义（见 core.sensitivity）。
+    """
+    dims = [
+        {"name": "深度", "kind": dist, "rel_sigma": rel_sigma},
+        {"name": "注入压力", "kind": dist, "rel_sigma": rel_sigma},
+    ]
+    return sobol_event(
+        lambda values: pm.verdict_of(values[0], values[1]),
+        dims,
+        [float(depth_m), float(injection_pressure_bar)],
+        target=event,
+        n_base=n_base,
+        seed=seed,
+    )
 
 
 # ══════════════════════════════════════════════════════════

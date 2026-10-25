@@ -57,7 +57,11 @@ from nodes.aggregate_support import (
     strip_tool_json,
     uq_payload,
 )
-from tools.physics_tools import co2_density_uq, injection_risk_uq
+from tools.physics_tools import (
+    co2_density_uq,
+    injection_risk_sensitivity,
+    injection_risk_uq,
+)
 from utils.branch_merge import compose_branch_inputs, parallel_timing_of
 from utils.pinn_query import extract_pinn_query
 from utils.tokens import record_llm_usage, record_usage_payload
@@ -512,6 +516,9 @@ def aggregate_report(state: AgentState, config=None):
             "std": density_result.get("std"),
             "n": density_result.get("n"),
             "rel_sigma": density_result.get("rel_sigma"),
+            # 分布口径必须跟着数字走：前端与报告都靠它说明"±5%"是哪一种
+            "dist": density_result.get("dist"),
+            "dist_label": density_result.get("dist_label"),
             "unit": density_result.get("unit", "kg/m³"),
             "text": density_result.get("text", ""),
             "samples": density_result.get("samples"),
@@ -524,8 +531,27 @@ def aggregate_report(state: AgentState, config=None):
                 depth_val, p_val, rel_sigma=0.05, n=100
             )
             log.info(f"  [UQ] 注入风险分布：{uq_summary['injection']['text']}")
+            decision = uq_summary["injection"].get("decision") or {}
+            if decision:
+                uq_summary["decision"] = decision
+                if decision.get("level") == "alert":
+                    log.warning(f"  [UQ] {decision['text']}")
+                else:
+                    log.info(f"  [UQ] 决策判定：{decision['text']}")
         except Exception as e:
             log.warning(f"  [Warning] 注入风险蒙特卡洛失败（不影响报告）: {e}")
+
+    # 敏感性分析：回答"是谁造成的不确定"，决定报告里该建议补测哪个参数。
+    # 与 UQ 同一条确定性触发理由 —— 让 7B 决定"要不要做敏感性分析"，
+    # 它会在信息看着够用的时候跳过，而那时恰恰最需要知道排名。
+    if p_val is not None and depth_val is not None:
+        try:
+            uq_summary["sensitivity"] = injection_risk_sensitivity(
+                depth_val, p_val
+            )
+            log.info(f"  [UQ] 敏感性：{uq_summary['sensitivity']['text']}")
+        except Exception as e:
+            log.warning(f"  [Warning] 敏感性分析失败（不影响报告）: {e}")
 
     if uq_summary:
         log.info(
@@ -604,6 +630,15 @@ def aggregate_report(state: AgentState, config=None):
     injection_uq = uq_summary.get("injection") or {}
     if injection_uq.get("text"):
         tool_facts.append(f"注入风险概率分布：{injection_uq['text']}")
+    # 敏感性与决策也进 tool_facts，理由同密度/压力：``probability_source``
+    # 只从 tool_facts 等字段拼装，不进这里的内容在忠实度评估眼里就是"无出处"，
+    # 模型照抄反而会被判成编造。
+    sens = uq_summary.get("sensitivity") or {}
+    if sens.get("text"):
+        tool_facts.append(f"敏感性分析（Sobol）：{sens['text']}")
+    decision = uq_summary.get("decision") or {}
+    if decision.get("text"):
+        tool_facts.append(f"风险决策：{decision['text']}")
 
     # ─── 深层物理：断层活化 / 盖层封闭性 / 两相流 ────────────
     # **确定性触发**，不进规划器（与注入风险 UQ 同一条理由）：只要参数里
@@ -751,6 +786,10 @@ def aggregate_report(state: AgentState, config=None):
         # 不确定性量化结果：结构化字段，供 API / 前端 / 评审直接消费。
         # 报告正文里那段话是模型转述，可能被漏写；这个字段才是数值的可靠来源。
         "uq_summary": uq_payload(uq_summary),
+        # 风险决策：UQ 说"概率是多少"，这里说"要不要告警"。单独成字段是因为
+        # 它会被前端做成徽标、被审计单独查询，混在 uq_summary 里既不好取
+        # 也容易在裁剪字段时丢掉。
+        "risk_decision": uq_summary.get("decision") or {},
         # 深层物理判定（断层活化 / 盖层封闭性 / 两相流）。与 ``uq_summary``
         # 同理：报告正文是模型转述，可能漏写或改写；这个字段是规则引擎的
         # 原始结论，前端与审计只读它。``status="no_data"`` 表示参数不足，

@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-829%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-940%20unit-brightgreen">
 </p>
 
 ---
@@ -88,8 +88,8 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **829 unit tests, 758 of them on every push** | 625 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
-| 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI, 100 runs |
+| 3 | **940 unit tests, 869 of them on every push** | 736 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
+| 4 | **Temporal conflict detection + Monte Carlo UQ** | latest-timestamp wins · mean + 90 % CI over 100 runs · 5 priors · Gaussian-copula correlation · Sobol first-order/total · probability → ok/warn/alert with a Wilson interval |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
 
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**829 unit tests, of which 758 run on every push** (625 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**940 unit tests, of which 869 run on every push** (736 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 41 that need matplotlib/plotly to actually build the figures · 16 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -170,12 +170,15 @@ Three details that decide whether this works or quietly misfires:
 - **The notice is injected after context pruning**, because it is an instruction. A
   summariser rewrites "必须用最新数据" into "存在历史差异" and the constraint evaporates.
 
-**Uncertainty layer** (`core/uq.py` + `tools/physics_tools.py`): every physical tool now
-perturbs its input 100 times and reports a distribution.
+**Uncertainty layer** (`core/uq.py` + `core/sensitivity.py` + `core/risk_policy.py`):
+every physical tool perturbs its input 100 times and reports a distribution, a sensitivity
+ranking, and a decision level.
 
 ```text
-250 bar / 80 ℃  →  661 kg/m³（90 % CI 644–681，100 次蒙特卡洛，输入 ±5 % 扰动）
-2500 m / 250 bar →  注入可行 44 % · 压力不足 56 %（标称判定：压力不足）
+250 bar / 80 ℃   →  661 kg/m³（90 % CI 643–681，100 次蒙特卡洛，输入 ±5 % 均匀扰动）
+2500 m / 375 bar →  注入可行 53 % · 压裂风险 47 %（标称判定：注入可行）
+                    决策：告警 P(压裂风险)=47.0 %（95 % 区间 37.5 %–56.7 %）达到告警阈值 20 %
+                    敏感性：深度 一阶 32 %／总效应 70 %；注入压力 一阶 31 %／总效应 68 %
 ```
 
 The perturbation is **uniform ±5 %** — an instrument error bound, not a 1σ. Treating ±5 %
@@ -189,6 +192,60 @@ The report prompt gets both constraints as generated text (`core/uq.uq_block`), 
 `aggregate` re-appends the interval by code if the model writes only the mean. Measured
 behaviour: local 7B drops injected numbers from the prose roughly every other run, which
 is why the numeric fallback is not optional.
+
+**Four things that were missing, and what each one changes**
+
+1. **Priors are not all uniform.** `Marginal` implements five: `uniform` (bounded, δ is the
+   bound), `normal` (δ is 1σ), `lognormal` (δ is σ in log space — the right shape for
+   permeability, injectivity and rate, which are positive and multiplicative), `triangular`
+   (min / mode / max, the shape expert judgement actually produces) and `beta` (bounded with
+   a tunable interior mode). Each carries a `perturbation_label()` that goes into the report,
+   because "±5 %" without a distribution name is unreadable: the same ±5 % is a ±4.5 %
+   interval under uniform and ±8.2 % under normal. Tests pin each prior's variance to its
+   analytic value (δ/√3, δ, √(e^{δ²}−1), δ/√6, δ/√5) — a silent change of what `rel_sigma`
+   means would otherwise pass every test and only widen the intervals.
+
+2. **Inputs can be correlated.** Independence is an assumption, not a fact: the same density
+   log drives both σv and σhmin, and the same depth interpretation drives both pore pressure
+   and temperature. `JointSampler` injects a correlation matrix with a **Gaussian copula**
+   (`z = L·g` → `u_i = Φ(z_i)` → `ε_i = F_i⁻¹(u_i)`), which changes the joint structure and
+   **leaves each marginal untouched** — otherwise "adding correlation" and "changing the
+   prior" get mixed together and the report cannot attribute the wider interval to either.
+   The ρ you pass is the **latent** correlation, not the Pearson correlation of the marginals:
+   for uniform marginals the two differ by `ρ_edge = (6/π)·arcsin(ρ/2)` (ρ=0.8 → 0.786),
+   which is asserted in the tests. The measured value is returned alongside the requested one
+   (`corr_empirical`), so a report never quotes a number nobody verified.
+   It matters: at 2500 m / 375 bar, P(fracture) is **47 % independent and 20 % at ρ=0.9** —
+   positive correlation is *protective* here, because a deeper reservoir raises the fracture
+   pressure at the same time as the injection pressure. Independence was over-predicting risk
+   by 27 percentage points, silently.
+
+3. **Sensitivity (Sobol), not just spread.** Monte Carlo says how uncertain the answer is; it
+   does not say *which input* caused it, and those two answers lead to different actions
+   (re-survey the depth vs. recalibrate the gauge). `core/sensitivity.py` implements
+   Saltelli's first-order and total-effect estimators with Latin-hypercube base samples,
+   validated against analytic benchmarks (`f = x₁ + 2x₂` → S = 0.20/0.80 with no interaction;
+   `f = x₁x₂` → S = 3/7, S_T = 4/7, interaction = 1/7). Two implementation details are load
+   bearing and both were caught by those benchmarks: the textbook estimator
+   `mean(f_B·(f_AB−f_A))/V` has enormous variance when the model mean dwarfs its spread
+   (it returned 0.569 for a true 0.80 on the additive case — it looked like "pressure doesn't
+   matter"), so the implemented one is centred; and Sobol assumes independent inputs, so a
+   non-identity correlation matrix **raises** rather than returning numbers that would be
+   quoted as findings.
+
+4. **The probability reaches a decision.** "12 % fracture risk" is not a conclusion; "12 %
+   versus our acceptance threshold" is. `core/risk_policy.py` maps `P(risky)` onto
+   ok / warn / alert and returns the rule, the thresholds, and their provenance. The
+   thresholds are **policy, not physics** — ISO 27914:2017 and DNV-RP-J203 require a
+   quantified acceptance criterion but do not prescribe one — so they are configurable
+   (`UQ_WARN_P_LEAK` / `UQ_ALERT_P_LEAK`), validated (inverted or out-of-range values raise),
+   and the report is told to say so. The default 5 % is a **resolution** argument, not a risk
+   argument: at N=100 that is five samples, the point below which a binomial proportion stops
+   carrying useful relative precision. And because a probability without its interval cannot
+   be thresholded honestly, every decision carries a Wilson 95 % interval and a `resolved`
+   flag — at 2500 m / 375 bar the true P(risky) is 0.4016 (analytic), yet three N=100 runs
+   returned 0.35, 0.43 and 0.47. Near a threshold, `resolved=False` says "indistinguishable at
+   this sample size" instead of pretending the point estimate is exact.
 
 ---
 
@@ -419,7 +476,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **829 unit tests** (758 in CI: 625 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **940 unit tests** (869 in CI: 736 stdlib-only · 76 dependency-backed without torch · 41 chart · 16 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -460,11 +517,13 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 **Before the refactor** — the same system, laid out as a chat window: one textarea, one red button, one column of prose, and the formation-pressure chart as a static PNG somewhere below the fold. Kept at `docs/legacy/ui-chatbot-input.png` and `docs/legacy/ui-chatbot-stream.png` because "it used to look like ChatGPT" is the claim the [console section](#console-ui--an-instrument-panel-not-a-chat-window) is answering.
 
-**Knowledge graph** — **4,826 entities / 5,008 relations** extracted by LightRAG from the full text of 22 CCUS papers. The drawn subgraph is the largest connected component (2,992 nodes / 4,311 edges, 62 % of the graph), which is the causal chain the retriever actually reasons over (`CO2 plume → caprock → fault → wellbore integrity → monitoring`). Its hubs are domain concepts, not metadata: `CO2` (252 edges), `Reservoir` (222), `CO2 Plume` (177), `Permeability` (164), `Fault` (91), `Caprock` (90), `Saline Aquifer` (73), `Pressure` (71).
+**Knowledge graph** — **4,826 entities / 5,008 relations** extracted by LightRAG from the full text of 22 CCUS papers. The figure draws the **top 700 nodes by degree** out of the largest connected component (2,992 nodes / 4,311 edges, 62 % of the graph), which is the causal chain the retriever actually reasons over (`CO2 plume → caprock → fault → wellbore integrity → monitoring`). Its hubs are domain concepts, not metadata: `CO2` (252 edges), `Reservoir` (222), `CO2 Plume` (177), `Permeability` (164), `Fault` (91), `Caprock` (90), `Saline Aquifer` (73), `Pressure` (71).
+
+The figure is a **degree-ranked subsample, not a thumbnail of the whole graph**, and the subtitle says so. Two reasons, both concrete. (a) At 2,992 nodes on a 1560×1000 canvas each node gets under 20×20 px, so the type colours in the legend cannot be told apart — the drawing stops carrying information. (b) The full SVG is **2.52 MB**, and CI has a guard that no tracked file may exceed 1 MB (`.github/workflows/ci.yml`, "Guard against corpus binaries"). That guard exists to catch accidentally committed corpora and models, and weakening it for a derived artefact is the wrong trade — so the renderer caps nodes, caps tooltip descriptions, and now prints its own byte size against the 1 MB limit. Result: 700 nodes, 1,597 edges, **720 KB**, ~10 s to regenerate instead of 9 minutes. Full graph: `--max-nodes 0` (≈9 min, and do not commit the output).
 
 Two things about this figure are worth saying out loud. First, `Poland` (100 edges) sits fifth: one long policy review contributes an entire country-specific subgraph, which is how a graph gets big without getting deeper. Second, **17.5 % of the nodes are isolated** and there are 322 multi-node components — reading nine times more text made connectivity *worse*, not better (15.5 % → 17.5 %), because the new material brought in many peripheral entities that nothing links to. Relation normalisation is now the top graph-quality item, ahead of adding papers.
 
-Regenerate with `python render_graph_svg.py` (≈9 min: it loads the graph and computes the layout); the SVG carries full relation descriptions on hover, so open the [raw file](docs/knowledge-graph.svg) rather than reading the thumbnail.
+Regenerate with `python render_graph_svg.py` (≈10 s; `--max-nodes N` to change the sample size). The SVG carries relation descriptions on hover, so open the [raw file](docs/knowledge-graph.svg) rather than reading the thumbnail.
 
 ---
 
@@ -1350,7 +1409,7 @@ The tools that compute something used to be imported directly by the aggregation
 | Tool | Returns | Backed by |
 |---|---|---|
 | `get_co2_density(pressure_bar, temperature_celsius)` | density in kg/m³ + the EOS name | `utils/co2_properties.py` |
-| `assess_injection_uncertainty(depth_m, injection_pressure_bar)` | probability of ok / risky / under over 100 Monte Carlo runs | `tools/physics_tools.py` |
+| `assess_injection_uncertainty(depth_m, injection_pressure_bar, corr=None, include_sensitivity=False)` | probability of ok / risky / under over 100 Monte Carlo runs, plus the ok/warn/alert decision with its Wilson interval; `corr` sets the depth–pressure correlation, `include_sensitivity` adds Sobol indices | `tools/physics_tools.py` |
 | `get_fault_stability(depth_m, injection_pressure_bar, dip_deg)` | slip ratio, critical pore pressure, margin, mechanism — **with the stress assumptions attached** | `utils/geomechanics.py` |
 | `get_caprock_integrity(depth_m, injection_pressure_bar, …)` | entry pressure, sealable column height, mechanical limit | `utils/caprock.py` |
 | `predict_pressure_pinn(x, t, scenario)` | pressure in bar + the analytic steady state for cross-checking | `pinn_model.py` |
@@ -1877,7 +1936,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **829 unit tests** (758 on every push), and a self-hosted end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **940 unit tests** (869 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -1935,6 +1994,11 @@ petro-rag-agent/
 │   ├── __init__.py           # HF_HUB_OFFLINE=1 + sys.path + logging (must run first)
 │   ├── config.py             # OpenAI clients, API keys, routing table, llm_chat / _streamed
 │   ├── state.py              # AgentState TypedDict only (zero dependencies)
+│   ├── gates.py              # quality-gate thresholds and pass/rewrite/fail verdicts
+│   ├── temporal.py           # same-well / same-parameter / different-time conflict detection
+│   ├── uq.py                 # Monte Carlo: 5 priors, Gaussian-copula correlation, Wilson intervals
+│   ├── sensitivity.py        # Sobol first-order / total-effect (Saltelli, Latin hypercube)
+│   ├── risk_policy.py        # P(risky) → ok/warn/alert, thresholds with provenance
 │   └── reranker.py           # Shared bge-reranker-v2-m3 singleton (2.3 GB, load once)
 ├── nodes/
 │   ├── memory_node.py        # memory_router → search_memory → inject_memory
@@ -2229,7 +2293,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Thirty-six suites (`tests/`). CI runs 758 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
+Forty-four suites (`tests/`). CI runs 869 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2244,6 +2308,9 @@ Thirty-six suites (`tests/`). CI runs 758 of those tests; the other 71 need torc
 - `test_caprock.py` — two independent failure paths, kept separate because they fail under different conditions: capillary breakthrough (`Pc = 2γcosθ/r`, 43.3 bar by hand) and mechanical failure (`P_inj ≥ σhmin + T_0`). Entry pressure must scale linearly with IFT and double when the pore throat halves; a contact angle ≥ 90° must raise rather than return a negative pressure; the verdict must flip at the boundary (0.98 vs 1.02 of the limit); and the gravity-segregation bias must be stated **with its direction**.
 - `test_reservoir_backend.py` — the simulator contract: every problem listed at once rather than the first, a non-converged result rejected (the numbers are still there and still look normal — that is the point), missing units rejected, `psi` and percentages rejected, non-monotonic time rejected, and the analytical backend's own output forced through the same validator so the contract is used on both sides. Also locks that a missing external file produces a message naming the schema and the adapter doc, and that the example JSON in `docs/simulator-adapter.md` still passes.
 - `test_physics_deep.py` — the **blocking policy**, which is where this layer can do the most damage: a default stress profile must never block a report that never mentioned a fault, a mentioned fault must be judged, and the two mechanisms must not be worded as one. It also pins the report fact lines — the assumption has to sit on the same line as the number, because a 7B model copies line by line and a caveat on its own line does not survive into the report.
+- `test_uq_advanced.py` — priors and correlation, both of which fail by *silently changing the meaning of a number*. Every prior's variance is pinned to its analytic value (δ/√3, δ, √(e^{δ²}−1), δ/√6, δ/√5), so redefining `rel_sigma` from "half-width" to "1σ" cannot pass while the report still says "±5 %". The copula is pinned by the relation `ρ_edge = (6/π)·arcsin(ρ/2)` (ρ=0.8 → 0.786, measured 0.787): it holds only if `Φ` and `F⁻¹` are both applied, so the tempting shortcut of using the latent `z` directly as ε fails here. Marginals are asserted to keep their own standard deviation after correlation is added — otherwise "adding correlation" and "changing the prior" get confused. Illegal correlation matrices are rejected (asymmetric, non-unit diagonal, out of range, and genuinely non-positive-definite) with one test that deliberately accepts three parameters pairwise correlated at 0.9, because high correlation is *not* the same as an invalid matrix (its eigenvalues are 2.8 and 0.1).
+- `test_sensitivity.py` — Sobol against analytic ground truth rather than against itself, because a sensitivity index is always a number between 0 and 1 and always looks plausible. `f = x₁ + 2x₂` must give S = 0.20/0.80 with no interaction; `f = x₁x₂` must give S = 3/7 and S_T = 4/7. The pair is deliberate: an implementation that forgets the `AB_i` matrices produces zero interaction and **still passes the additive case**, so only the product benchmark catches it. Correlated inputs must raise (Sobol is undefined there, and a computed index would be quoted as a finding), a constant model must report "variance is zero, indices undefined" rather than "nothing is sensitive", and the evaluation count must equal `n_base·(d+2)`.
+- `test_risk_policy.py` — the layer whose failure mode is *silence*: inverted thresholds make `alert` unreachable and the report simply loses a paragraph. So the assertions are mostly about error paths — inverted, equal, non-numeric and out-of-range env values all raise, a missing sample count is flagged rather than reported as a clean "ok", and a probability sitting exactly on the boundary comes back `resolved=False` with the reason. The defaults' provenance is asserted to say "not a standard", because the one thing that must not happen is a project policy being cited as an ISO requirement. It also checks the seam: `injection_risk_uq`'s probabilities feed `decide` without conversion, the decision's `p` equals the distribution's `risky`, and positive depth–pressure correlation lowers P(fracture) — the physical direction, not just a different number.
 - `test_logging_setup.py` — observability: every line carries timestamp, module, model and token fields; missing fields render `-` instead of raising; repeated configuration does not stack handlers (a duplication that only shows up as an unexpectedly large log file); `LOG_LEVEL` is honoured and an unknown level falls back to `INFO`.
 - `test_text_cleaning.py` — the ingestion front end, where failures are silent by construction: `permea-` / `ability` across a line break must become one word (a missed join sends "permea ability" to the embedding model and that chunk can never match "permeability" again); the arXiv watermark stamp and bare page numbers must go; the reference list must be cut **only** when the heading is in the latter half (a paper *about* citation analysis must not lose its body); and chunking must not drop a character when a page arrives as one giant paragraph. Also locks the ordering constraint — hyphenation must be repaired **before** whitespace is collapsed, because afterwards there is no `\n` left to anchor on.
 - `test_entity_aliases.py` — the merge rules, tested in **both directions**, because the two failure modes cost very different amounts. A missed merge leaves two nodes where there should be one (one edge lost). A wrong merge permanently fuses two distinct geological concepts, concatenates their descriptions, and cannot be undone. So the suite asserts what must merge (`CO2` / `Carbon Dioxide (CO2)` / `Carbon dioxide (CO2)`; `CCS` / seven spellings; `Fault` / `Faults`; `Cap Rock` / `Caprock`) **and** what must not (`Fault` vs `Pre-Existing Faults`, `Caprock` vs `Caprock Fracturing`). It also pins three traps: `Gas` must not singularise to `Ga`, two-character Chinese geology terms (`井筒` / `储层` / `断层` / `盖层`) must survive the "too short" filter, and `IPCC` typed as `organization` must not be deleted — the type is unreliable enough that deleting by type loses real policy entities.
@@ -2460,9 +2527,14 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - The chart tool and the consistency gate both assume a constant **1.5× hydrostatic** fracture gradient and a single overburden model. Real fracture pressure depends on the stress state, lithology, pore pressure and depletion history.
 - The gate checks **arithmetic and stated claims**, not geomechanics. A report can be perfectly consistent with a 1.5× gradient and still be wrong about the actual caprock. Consistency is necessary, not sufficient.
 
-**Next: uncertainty quantification (UQ).** Every number here is a point estimate presented with more confidence than the input deserves — the depth is often inferred, the fracture gradient is a range (1.4–1.8×), and density comes from a two-parameter fit. The plan is to propagate input distributions through the pressure model (Monte Carlo first, because the model is cheap) and report intervals rather than scalars, then let the gate reason about the **probability of exceeding fracture pressure** instead of a binary comparison. A binary "exceeded / not exceeded" is the wrong shape for a decision that has a cost curve: the difference between 0.6 and 0.95 probability of fracturing is the entire decision, and this system currently cannot express it.
+**The UQ layer is honest about its own limits — here is what it still cannot do.**
 
-**Next: a real physics-simulation interface.** Today the tool layer is a dictionary of Python functions. The intended next step is an adapter protocol — `validate()` / `run()` / `summarise()` — so a reservoir simulator (ECLIPSE, CMG, OpenGeoSys) or a geomechanical solver can sit behind the same Function-Calling contract with the same "numbers never come from the model" guarantee. That also forces two things the current design has never had to handle: **asynchronous tools** (a simulator run is minutes to hours, not milliseconds) and a **timeout/budget policy** for them.
+- **Correlation is declared, not inferred.** The copula takes a ρ you supply. Nothing in the pipeline estimates ρ from data, because the corpus does not carry paired measurements. A wrong ρ is a wrong joint structure with a correct-looking interval, so `corr_empirical` is returned next to the requested matrix rather than instead of it.
+- **No Shapley effects.** Sobol indices are undefined under correlated inputs and `core/sensitivity.py` raises instead of guessing. Attributing variance with correlated inputs needs Shapley effects, which cost a factor of *d* in model runs — affordable here (d=2), not yet implemented.
+- **The thresholds are ours, not a standard's.** ISO 27914 and DNV-RP-J203 require a quantified acceptance criterion and decline to give one. The 5 % / 20 % defaults are a resolution argument plus a policy choice; the report is instructed to say so, and `UQ_WARN_P_LEAK` / `UQ_ALERT_P_LEAK` override them.
+- **N=100 is too small to decide anything near a threshold.** The `resolved` flag exists precisely because it is: at 2500 m / 375 bar the true P(risky) is 0.4016 and three N=100 runs gave 0.35 / 0.43 / 0.47. `samples_needed()` says what would be required (±1 pp at p≈0.4 needs ≈9 200 runs); the pipeline does not yet raise N automatically when `resolved` is false.
+- **UQ runs on the cheap analytical model only.** Uncertainty is propagated through `pressure_model`, not through the simulator contract from the previous section. Propagating it through a solver needs a surrogate or a batched run mode, and neither exists.
+
 
 ### Known limitations
 
@@ -2498,6 +2570,7 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 ### Roadmap
 
 - [x] **Uncertainty quantification** — Monte Carlo over depth / fracture gradient / density; report intervals, not scalars (`core/uq.py`, percentile intervals rather than `mean ± zσ` because the verdict function is a step function)
+- [x] **UQ depth** — five priors (uniform / normal / lognormal / triangular / beta) with the distribution name in every report sentence; Gaussian-copula parameter correlation that leaves the marginals untouched; Sobol first-order and total-effect indices against analytic benchmarks (`core/sensitivity.py`); probability → ok/warn/alert with configurable, provenance-carrying thresholds and a Wilson interval on every decision (`core/risk_policy.py`)
 - [ ] **Probability-based gate** — replace `P_inj > P_frac` with `P(exceed) > threshold`, with the threshold exposed as config
 - [x] **Physics-simulation adapter** — `validate/run/summarise` protocol so a reservoir or geomechanical solver sits behind the same tool contract (`utils/reservoir_backend.py`, schema `ccus-sim-result/1`). Async execution and budgets are still open
 - [x] Density approximation replaced — but with **Peng-Robinson**, not Span–Wagner tables: accurate to <5 % away from the critical point, 10–15 % near it (Z_c is pinned at 0.307 vs the real 0.274). NIST tables remain the better answer for near-critical work
