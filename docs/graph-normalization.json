@@ -1,113 +1,235 @@
 {
   "before": {
-    "nodes": 422,
-    "edges": 419,
-    "components": 91,
-    "largest": 252,
-    "largest_ratio": 0.5972,
-    "isolated": 63,
+    "nodes": 4988,
+    "edges": 5128,
+    "components": 1226,
+    "largest": 3073,
+    "largest_ratio": 0.6161,
+    "isolated": 892,
     "top": [
-      252,
+      3073,
+      24,
+      21,
       16,
-      14,
-      7,
-      6,
-      6,
-      4,
-      4,
-      4,
-      3
+      11,
+      11,
+      10,
+      9,
+      9,
+      9
     ],
     "types": {
-      "technology": 115,
-      "parameter": 84,
-      "process": 71,
-      "geologicalbody": 70,
-      "material": 25,
-      "risk": 23,
-      "unknown": 17,
-      "regulation": 9,
-      "wellborecomponent": 4,
-      "transport": 3,
-      "other": 1
+      "parameter": 1328,
+      "technology": 984,
+      "geologicalbody": 866,
+      "process": 650,
+      "unknown": 415,
+      "material": 281,
+      "regulation": 161,
+      "other": 101,
+      "risk": 99,
+      "wellborecomponent": 67,
+      "institution": 19,
+      "person": 5,
+      "scenario": 4,
+      "application": 2,
+      "expression": 2,
+      "figure": 2,
+      "simulation": 1,
+      "researchproject": 1
     }
   },
   "projected": {
-    "nodes": 389,
-    "edges": 400,
-    "components": 84,
-    "largest": 244,
-    "largest_ratio": 0.6272,
+    "nodes": 4419,
+    "edges": 4763,
+    "components": 1087,
+    "largest": 2829,
+    "largest_ratio": 0.6402,
     "top": [
-      244,
-      11,
+      2829,
+      24,
+      16,
+      10,
+      10,
+      9,
+      8,
       8,
       7,
-      6,
-      6,
-      4,
-      4,
-      4,
-      3
+      7
     ]
   },
-  "actual": {
-    "nodes": 389,
-    "edges": 400,
-    "components": 84,
-    "largest": 244,
-    "largest_ratio": 0.6272,
-    "isolated": 61,
-    "top": [
-      244,
-      11,
-      8,
-      7,
-      6,
-      6,
-      4,
-      4,
-      4,
-      3
-    ],
-    "types": {
-      "technology": 105,
-      "parameter": 81,
-      "geologicalbody": 64,
-      "process": 63,
-      "risk": 23,
-      "material": 23,
-      "unknown": 16,
-      "regulation": 7,
-      "wellborecomponent": 3,
-      "transport": 3,
-      "other": 1
-    }
-  },
-  "deleted": 8,
-  "failed_delete": 0,
-  "merged": 17,
-  "failed_merge": 0,
   "plan": {
     "merges": [
+      {
+        "target": "2018 Directive 2018/2001 on Renewable Energy",
+        "sources": [
+          "2018 Directive 2018/2001 on Renewable Energy",
+          "2018 Directive 2018/2001 on renewable energy"
+        ]
+      },
+      {
+        "target": "2D Seismic Data",
+        "sources": [
+          "2D Seismic Data",
+          "2D Seismic Data (1970s–1980s)"
+        ]
+      },
+      {
+        "target": "3D CO2 Saturation Map",
+        "sources": [
+          "3D CO2 Saturation Map",
+          "3D Co2 Saturation Map"
+        ]
+      },
+      {
+        "target": "3D Digital Shadow",
+        "sources": [
+          "3D Digital Shadow",
+          "3d Digital Shadow"
+        ]
+      },
+      {
+        "target": "3D Seismic Survey",
+        "sources": [
+          "3D Seismic Survey",
+          "3D Seismic Surveys"
+        ]
+      },
+      {
+        "target": "ADAM Optimization Algorithm",
+        "sources": [
+          "ADAM Optimization Algorithm",
+          "Adam Optimization Algorithm"
+        ]
+      },
+      {
+        "target": "Anticline-Shaped Complex",
+        "sources": [
+          "Anticline-Shaped Complex",
+          "Anticline-shaped Complex"
+        ]
+      },
+      {
+        "target": "Aquifer",
+        "sources": [
+          "Aquifer",
+          "Aquifers"
+        ]
+      },
+      {
+        "target": "Area of Review",
+        "sources": [
+          "Area of Review",
+          "Area of Review (AOR)",
+          "Area of Review (AoR)",
+          "Areas of Review (AoR)"
+        ]
+      },
+      {
+        "target": "Attenuation Coefficient",
+        "sources": [
+          "Attenuation Coefficient",
+          "Attenuation Coefficients (μ)"
+        ]
+      },
+      {
+        "target": "Badenian Sandstones",
+        "sources": [
+          "Badenian Sandstones",
+          "Badenian sandstones"
+        ]
+      },
+      {
+        "target": "Baltic Basin",
+        "sources": [
+          "Baltic Basin",
+          "Baltic Basin (BB)"
+        ]
+      },
+      {
+        "target": "Basalt",
+        "sources": [
+          "Basalt",
+          "Basalts"
+        ]
+      },
+      {
+        "target": "Biot Coefficient",
+        "sources": [
+          "Biot Coefficient",
+          "Biot Coefficient (α)"
+        ]
+      },
+      {
+        "target": "Brie Saturation Model",
+        "sources": [
+          "Brie Saturation Model",
+          "Brie Saturation Models"
+        ]
+      },
+      {
+        "target": "Brine Film",
+        "sources": [
+          "Brine Film",
+          "Brine Films"
+        ]
+      },
+      {
+        "target": "Brunovistulicum",
+        "sources": [
+          "Brunovistulicum",
+          "Brunovistulicum (BV)"
+        ]
+      },
       {
         "target": "CCS",
         "sources": [
           "CCS",
           "Carbon Capture and Sequestration",
-          "Carbon Capture and Sequestration (CCS)",
-          "Carbon Capture and Sequestration (CCUS)",
+          "Carbon Capture and Sequestration Technology",
           "Carbon Capture and Storage",
           "Carbon Capture and Storage (C C S)",
           "Carbon Capture and Storage (CCS)",
-          "Carbon Capture and Storage (CCUS)"
+          "Carbon Dioxide Capture and Storage"
         ]
       },
       {
         "target": "CCUS",
         "sources": [
           "CCUS",
+          "CCUS (Carbon Capture and Storage)",
+          "CCUS (Carbon Capture, Utilisation, and Storage)",
+          "Carbon Capture, Utilization and Storage (CCUS)",
           "Carbon Capture, Utilization, and Storage (CCUS)"
+        ]
+      },
+      {
+        "target": "CCUS-Ready Coal Power",
+        "sources": [
+          "CCUS-Ready Coal Power",
+          "CCUS-ready coal power"
+        ]
+      },
+      {
+        "target": "CMG GEM",
+        "sources": [
+          "CMG GEM",
+          "CMG-GEM"
+        ]
+      },
+      {
+        "target": "CNF",
+        "sources": [
+          "CNF",
+          "CNFs"
+        ]
+      },
+      {
+        "target": "CNN",
+        "sources": [
+          "CNN",
+          "CNNs",
+          "Cnn"
         ]
       },
       {
@@ -115,50 +237,1127 @@
         "sources": [
           "CO2",
           "Carbon Dioxide",
-          "Carbon Dioxide (C O 2)"
+          "Carbon Dioxide (CO2)"
+        ]
+      },
+      {
+        "target": "CO2 EOR",
+        "sources": [
+          "CO2 EOR",
+          "CO2-EOR"
+        ]
+      },
+      {
+        "target": "CO2 Injection Well",
+        "sources": [
+          "CO2 Injection Well",
+          "CO2 Injection Wells"
+        ]
+      },
+      {
+        "target": "CO2 Injector",
+        "sources": [
+          "CO2 Injector",
+          "CO2 Injectors"
+        ]
+      },
+      {
+        "target": "CO2 Plume",
+        "sources": [
+          "CO2 Plume",
+          "CO2 Plumes"
+        ]
+      },
+      {
+        "target": "CO2 Saturated Brine",
+        "sources": [
+          "CO2 Saturated Brine",
+          "CO2-Saturated Brine",
+          "CO2-saturated Brine"
+        ]
+      },
+      {
+        "target": "CO2 Saturation",
+        "sources": [
+          "CO2 Saturation",
+          "CO2 Saturation (S)"
+        ]
+      },
+      {
+        "target": "CO2 Storage",
+        "sources": [
+          "CO2 Storage",
+          "CO₂ Storage"
+        ]
+      },
+      {
+        "target": "CO2 transport distance",
+        "sources": [
+          "CO2 Transport Distances",
+          "CO2 transport distance",
+          "CO₂ transport distance"
+        ]
+      },
+      {
+        "target": "CO2-Rich Fluid",
+        "sources": [
+          "CO2-Rich Fluid",
+          "CO2-Rich Fluids"
+        ]
+      },
+      {
+        "target": "CT Image",
+        "sources": [
+          "CT Image",
+          "CT Images"
+        ]
+      },
+      {
+        "target": "Calcite",
+        "sources": [
+          "Calcite",
+          "calcite"
+        ]
+      },
+      {
+        "target": "Calcium",
+        "sources": [
+          "Calcium",
+          "Calcium (Ca2+)"
+        ]
+      },
+      {
+        "target": "Caledonian Deformation Front",
+        "sources": [
+          "Caledonian Deformation Front",
+          "Caledonian Deformation Front (CDF)"
+        ]
+      },
+      {
+        "target": "Cambrian Deimena Formation Sands",
+        "sources": [
+          "Cambrian Deimena Formation Sands",
+          "Cambrian Deimena Formation sands"
+        ]
+      },
+      {
+        "target": "Cambrian and Devonian Sandstone Reservoirs",
+        "sources": [
+          "Cambrian and Devonian Sandstone Reservoirs",
+          "Cambrian and Devonian sandstone reservoirs"
+        ]
+      },
+      {
+        "target": "Capillary Pressure",
+        "sources": [
+          "Capillary Pressure",
+          "Capillary Pressures"
+        ]
+      },
+      {
+        "target": "Caprock",
+        "sources": [
+          "Cap Rock",
+          "Caprock"
+        ]
+      },
+      {
+        "target": "Caprock Fracturing",
+        "sources": [
+          "Cap Rock Fracturing",
+          "Caprock Fracturing"
+        ]
+      },
+      {
+        "target": "Carbon Price",
+        "sources": [
+          "Carbon Price",
+          "Carbon Prices"
+        ]
+      },
+      {
+        "target": "Carbonate",
+        "sources": [
+          "Carbonate",
+          "Carbonates"
+        ]
+      },
+      {
+        "target": "Carbonic Acid",
+        "sources": [
+          "Carbonic Acid",
+          "Carbonic Acid (H2CO3)"
+        ]
+      },
+      {
+        "target": "Carboniferous-Devonian Carbonates",
+        "sources": [
+          "Carboniferous-Devonian Carbonates",
+          "Carboniferous-Devonian carbonates"
+        ]
+      },
+      {
+        "target": "Carpathian Foredeep",
+        "sources": [
+          "Carpathian Foredeep",
+          "Carpathian Foredeep (CF)"
+        ]
+      },
+      {
+        "target": "Cement Sample",
+        "sources": [
+          "Cement Sample",
+          "Cement Samples"
+        ]
+      },
+      {
+        "target": "Chloride",
+        "sources": [
+          "Chloride",
+          "Chloride (Cl-)"
+        ]
+      },
+      {
+        "target": "Choszczno-Suliszewo Triassic-Jurassic Structure",
+        "sources": [
+          "Choszczno-Suliszewo Triassic-Jurassic Structure",
+          "Choszczno-Suliszewo Triassic-Jurassic structures"
+        ]
+      },
+      {
+        "target": "Cnn Model",
+        "sources": [
+          "CNN Models",
+          "Cnn Model"
+        ]
+      },
+      {
+        "target": "Coal Seam",
+        "sources": [
+          "Coal Seam",
+          "Coal Seams"
+        ]
+      },
+      {
+        "target": "Coal-Fired Power Plant",
+        "sources": [
+          "Coal-Fired Power Plant",
+          "coal-fired power plant"
+        ]
+      },
+      {
+        "target": "Coalition Structure",
+        "sources": [
+          "Coalition Structure",
+          "Coalition Structures"
+        ]
+      },
+      {
+        "target": "Compartment Offset",
+        "sources": [
+          "Compartment Offset",
+          "Compartment offset"
         ]
       },
       {
         "target": "Conditional Normalizing Flow",
         "sources": [
           "Conditional Normalizing Flow",
-          "Conditional Normalizing Flows"
+          "Conditional Normalizing Flows",
+          "Conditional Normalizing Flows (CNFs)"
+        ]
+      },
+      {
+        "target": "Conditional Porosity Maps",
+        "sources": [
+          "Conditional Porosity Maps",
+          "Conditional Porosity Maps (φcond)"
+        ]
+      },
+      {
+        "target": "Confidence Interval",
+        "sources": [
+          "Confidence Interval",
+          "Confidence Intervals"
+        ]
+      },
+      {
+        "target": "Constrained Markov Game",
+        "sources": [
+          "Constrained Markov Game",
+          "Constrained Markov Game (CMG)"
+        ]
+      },
+      {
+        "target": "Convolutional Neural Network",
+        "sources": [
+          "Convolutional Neural Network",
+          "Convolutional Neural Network (CNN)",
+          "Convolutional Neural Networks (CNN)"
+        ]
+      },
+      {
+        "target": "Core Sample",
+        "sources": [
+          "Core Sample",
+          "Core Samples"
+        ]
+      },
+      {
+        "target": "Coulomb Failure Criterion",
+        "sources": [
+          "Coulomb Failure Criterion",
+          "Coulomb's Failure Criterion"
+        ]
+      },
+      {
+        "target": "Crust",
+        "sources": [
+          "Crust",
+          "Crusts"
+        ]
+      },
+      {
+        "target": "DL-Based Surrogate Model",
+        "sources": [
+          "DL-Based Surrogate Model",
+          "DL-Based Surrogate Models"
+        ]
+      },
+      {
+        "target": "DNN Model",
+        "sources": [
+          "DNN Model",
+          "Dnn Models"
+        ]
+      },
+      {
+        "target": "Dalders Monocline",
+        "sources": [
+          "Dalders Monocline",
+          "Dalders Monocline (Faludden Formation)"
+        ]
+      },
+      {
+        "target": "Darcys-Law",
+        "sources": [
+          "Darcy's Law",
+          "Darcys-Law"
+        ]
+      },
+      {
+        "target": "Data Assimilation",
+        "sources": [
+          "Data Assimilation",
+          "Data Assimilation (ES-MDA)"
+        ]
+      },
+      {
+        "target": "Deep Learning Surrogate Model",
+        "sources": [
+          "Deep Learning Surrogate Model",
+          "Deep Learning Surrogate Models"
+        ]
+      },
+      {
+        "target": "Deep Learning-Based Surrogate Model",
+        "sources": [
+          "Deep Learning-Based Surrogate Model",
+          "Deep Learning-Based Surrogate Models"
+        ]
+      },
+      {
+        "target": "Deep Saline Aquifer",
+        "sources": [
+          "Deep Saline Aquifer",
+          "Deep Saline Aquifers"
+        ]
+      },
+      {
+        "target": "Deformation",
+        "sources": [
+          "Deformation",
+          "Deformations"
+        ]
+      },
+      {
+        "target": "Depleted Gas Field",
+        "sources": [
+          "Depleted Gas Field",
+          "Depleted gas fields"
         ]
       },
       {
         "target": "Depleted Hydrocarbon Field",
         "sources": [
           "Depleted Hydrocarbon Field",
-          "Depleted Hydrocarbon Fields"
+          "Depleted Hydrocarbon Fields",
+          "Depleted hydrocarbon fields"
+        ]
+      },
+      {
+        "target": "Depleted Oil and Gas Reservoir",
+        "sources": [
+          "Depleted Oil and Gas Reservoir",
+          "Depleted Oil and Gas Reservoirs"
+        ]
+      },
+      {
+        "target": "Deterministic Monitoring Result",
+        "sources": [
+          "Deterministic Monitoring Result",
+          "Deterministic Monitoring Results"
+        ]
+      },
+      {
+        "target": "Deterministic Result",
+        "sources": [
+          "Deterministic Result",
+          "Deterministic Results"
+        ]
+      },
+      {
+        "target": "Dolomite",
+        "sources": [
+          "Dolomite",
+          "dolomite"
+        ]
+      },
+      {
+        "target": "ECO2CEE Project",
+        "sources": [
+          "ECO2CEE Project",
+          "Eco2cee Project"
+        ]
+      },
+      {
+        "target": "ES-MDA Framework",
+        "sources": [
+          "ES-MDA Framework",
+          "Es-Mda Framework"
+        ]
+      },
+      {
+        "target": "East Avalonia",
+        "sources": [
+          "East Avalonia",
+          "East Avalonia (EA)"
+        ]
+      },
+      {
+        "target": "Effective Reaction Rate",
+        "sources": [
+          "Effective Reaction Rate",
+          "Effective Reaction Rate (reff)"
+        ]
+      },
+      {
+        "target": "Elbe–Odra Lineament",
+        "sources": [
+          "Elbe–Odra Lineament",
+          "Elbe–Odra Lineament (EOL)"
+        ]
+      },
+      {
+        "target": "Energy Security",
+        "sources": [
+          "Energy Security",
+          "Energy security"
+        ]
+      },
+      {
+        "target": "Ensemble Kalman Filter",
+        "sources": [
+          "Ensemble Kalman Filter",
+          "Ensemble Kalman Filter (EnKF)"
+        ]
+      },
+      {
+        "target": "Ensemble Smoother",
+        "sources": [
+          "Ensemble Smoother",
+          "Ensemble Smoother (ES)"
+        ]
+      },
+      {
+        "target": "Ensemble Smoother with Multiple Data Assimilation",
+        "sources": [
+          "Ensemble Smoother with Multiple Data Assimilation",
+          "Ensemble Smoother with Multiple Data Assimilation (ES-MDA)"
+        ]
+      },
+      {
+        "target": "Evaporation Front",
+        "sources": [
+          "Evaporation Front",
+          "Evaporation Fronts"
+        ]
+      },
+      {
+        "target": "Expected Project Value",
+        "sources": [
+          "Expected Project Value",
+          "Expected project value"
+        ]
+      },
+      {
+        "target": "FLAC3D",
+        "sources": [
+          "FLAC3D",
+          "Flac3d"
+        ]
+      },
+      {
+        "target": "FLAC3D Mechanical Simulator",
+        "sources": [
+          "FLAC3D Mechanical Simulator",
+          "Flac3d Mechanical Simulator"
+        ]
+      },
+      {
+        "target": "FLAC3D Simulator",
+        "sources": [
+          "FLAC3D Simulator",
+          "Flac3d Simulator"
+        ]
+      },
+      {
+        "target": "FNO",
+        "sources": [
+          "FNO",
+          "Fno"
         ]
       },
       {
         "target": "Fault",
         "sources": [
           "Fault",
+          "Fault (Core)",
+          "Fault (Damage Zone)",
           "Faults"
         ]
       },
       {
-        "target": "Geologic Carbon Storage",
+        "target": "Fault Stability",
         "sources": [
-          "Geologic Carbon Storage",
+          "Fault Stability",
+          "fault stability"
+        ]
+      },
+      {
+        "target": "Fault Zone",
+        "sources": [
+          "Fault Zone",
+          "Fault Zone (Modified Model)"
+        ]
+      },
+      {
+        "target": "Fennoscandia-Sarmatia Suture",
+        "sources": [
+          "Fennoscandia-Sarmatia Suture",
+          "Fennoscandia-Sarmatia Suture (FSS)"
+        ]
+      },
+      {
+        "target": "Ficks Law",
+        "sources": [
+          "Fick's Laws",
+          "Ficks Law"
+        ]
+      },
+      {
+        "target": "Fluid Saturation",
+        "sources": [
+          "Fluid Saturation",
+          "Fluid Saturations"
+        ]
+      },
+      {
+        "target": "Fluid-Flow Simulation",
+        "sources": [
+          "Fluid Flow Simulations",
+          "Fluid-Flow Simulation",
+          "Fluid-Flow-Simulation"
+        ]
+      },
+      {
+        "target": "Fluoride",
+        "sources": [
+          "Fluoride",
+          "Fluoride (F-)"
+        ]
+      },
+      {
+        "target": "Fore-Sudetic Monocline",
+        "sources": [
+          "Fore-Sudetic Monocline",
+          "Fore-Sudetic Monocline (FSM)"
+        ]
+      },
+      {
+        "target": "Fourier Neural Operator",
+        "sources": [
+          "Fourier Neural Operator",
+          "Fourier Neural Operators (FNO)"
+        ]
+      },
+      {
+        "target": "Fractal Logarithmic Permeability Field",
+        "sources": [
+          "Fractal Logarithmic Permeability Field",
+          "Fractal Logarithmic Permeability Fields"
+        ]
+      },
+      {
+        "target": "Fracture",
+        "sources": [
+          "Fracture",
+          "Fractures"
+        ]
+      },
+      {
+        "target": "Fracture Aperture",
+        "sources": [
+          "Fracture Aperture",
+          "Fracture Aperture (𝐸∗𝑑)"
+        ]
+      },
+      {
+        "target": "Free CO2 Mass",
+        "sources": [
+          "Free CO2 Mass",
+          "Free Co2 Mass"
+        ]
+      },
+      {
+        "target": "Full Physics Simulation",
+        "sources": [
+          "Full Physics Simulation",
+          "Full-Physics Simulation"
+        ]
+      },
+      {
+        "target": "Full-Order Model",
+        "sources": [
+          "Full-Order Model",
+          "Full-Order Models"
+        ]
+      },
+      {
+        "target": "GAS",
+        "sources": [
+          "GAS",
+          "Gas",
+          "Gas (Supercritical CO2)"
+        ]
+      },
+      {
+        "target": "GEOS",
+        "sources": [
+          "GEOS",
+          "Geos"
+        ]
+      },
+      {
+        "target": "GEOSX",
+        "sources": [
+          "GEOSX",
+          "GeosX",
+          "Geosx"
+        ]
+      },
+      {
+        "target": "Gas Network",
+        "sources": [
+          "Gas Network",
+          "Gas Network (Existing Infrastructure)"
+        ]
+      },
+      {
+        "target": "Gas-Liquid Interface",
+        "sources": [
+          "Gas-Liquid Interface",
+          "Gas-Liquid Interfaces",
+          "Gas-liquid Interface"
+        ]
+      },
+      {
+        "target": "Gaussian Mixture Models",
+        "sources": [
+          "Gaussian Mixture Models",
+          "Gaussian Mixture Models (GMM)"
+        ]
+      },
+      {
+        "target": "Generation-Hour Compensation",
+        "sources": [
+          "Generation-Hour Compensation",
+          "Generation-hour Compensation",
+          "Generation-hour compensation"
+        ]
+      },
+      {
+        "target": "Geological CO2 Storage",
+        "sources": [
+          "Geological CO2 Storage",
+          "Geological CO2 Storage (GCS)"
+        ]
+      },
+      {
+        "target": "Geological Carbon Storage",
+        "sources": [
+          "GCS",
           "Geologic Carbon Storage (GCS)",
+          "Geological Carbon Storage",
           "Geological Carbon Storage (GCS)"
         ]
       },
       {
-        "target": "IPCC",
+        "target": "Geological Formation",
         "sources": [
-          "IPCC",
-          "Intergovernmental Panel on Climate Change (IPCC)"
+          "Geological Formation",
+          "Geological Formations"
+        ]
+      },
+      {
+        "target": "Geomechanical Properties",
+        "sources": [
+          "Geomechanical Properties",
+          "Geomechanical properties"
+        ]
+      },
+      {
+        "target": "Geomodel",
+        "sources": [
+          "Geomodel",
+          "Geomodels"
+        ]
+      },
+      {
+        "target": "Geostatistical Model",
+        "sources": [
+          "Geostatistical Model",
+          "Geostatistical Models"
+        ]
+      },
+      {
+        "target": "Geothermal Gradient",
+        "sources": [
+          "Geothermal Gradient",
+          "Geothermal Gradients"
+        ]
+      },
+      {
+        "target": "Glass Bead",
+        "sources": [
+          "Glass Bead",
+          "Glass Beads"
+        ]
+      },
+      {
+        "target": "Glückstadt Graben",
+        "sources": [
+          "Glückstadt Graben",
+          "Glückstadt Graben (GG)"
+        ]
+      },
+      {
+        "target": "Grójec Fault",
+        "sources": [
+          "Grójec Fault",
+          "Grójec Fault (GF)"
+        ]
+      },
+      {
+        "target": "HMC Sampling",
+        "sources": [
+          "HMC Sampling",
+          "Hmc-Sampling"
+        ]
+      },
+      {
+        "target": "Halite Aggregate",
+        "sources": [
+          "Halite Aggregate",
+          "Halite Aggregates"
+        ]
+      },
+      {
+        "target": "Halite Crystal",
+        "sources": [
+          "Halite Crystal",
+          "Halite Crystals"
+        ]
+      },
+      {
+        "target": "Hamiltonian Monte Carlo",
+        "sources": [
+          "Hamiltonian Monte Carlo",
+          "Hamiltonian Monte Carlo (HMC)"
+        ]
+      },
+      {
+        "target": "Height",
+        "sources": [
+          "Height",
+          "Height (h)"
+        ]
+      },
+      {
+        "target": "High-Fidelity Model",
+        "sources": [
+          "High Fidelity Models",
+          "High-Fidelity Model"
+        ]
+      },
+      {
+        "target": "High-Fidelity Simulation",
+        "sources": [
+          "High-Fidelity Simulation",
+          "High-Fidelity Simulations"
+        ]
+      },
+      {
+        "target": "High-Resolution CT Image",
+        "sources": [
+          "High-Resolution CT Image",
+          "High-Resolution CT Images",
+          "High-resolution CT Images"
+        ]
+      },
+      {
+        "target": "Holy Cross Mountain",
+        "sources": [
+          "Holy Cross Mountain",
+          "Holy Cross Mountains"
+        ]
+      },
+      {
+        "target": "Inelastic Deformation",
+        "sources": [
+          "Inelastic Deformation",
+          "Inelastic Deformations"
+        ]
+      },
+      {
+        "target": "Injection Duration",
+        "sources": [
+          "Injection Duration",
+          "Injection Durations"
+        ]
+      },
+      {
+        "target": "Injection Period",
+        "sources": [
+          "Injection Period",
+          "Injection Period (t)"
+        ]
+      },
+      {
+        "target": "Injection Rate",
+        "sources": [
+          "Injection Rate",
+          "Injection Rate (𝑄)"
+        ]
+      },
+      {
+        "target": "Injection Well",
+        "sources": [
+          "Injection Well",
+          "Injection Wells"
+        ]
+      },
+      {
+        "target": "Injector",
+        "sources": [
+          "Injector",
+          "Injectors"
+        ]
+      },
+      {
+        "target": "Interpreted Saturation Field",
+        "sources": [
+          "Interpreted Saturation Field",
+          "Interpreted Saturation Fields"
+        ]
+      },
+      {
+        "target": "Investment Cost",
+        "sources": [
+          "Investment Cost",
+          "Investment Costs"
+        ]
+      },
+      {
+        "target": "Investment Probability",
+        "sources": [
+          "Investment Probability",
+          "Investment probability"
         ]
       },
       {
         "target": "Investment Timing",
         "sources": [
           "Investment Timing",
-          "Investment-Timing"
+          "Investment Timings",
+          "Investment timing"
+        ]
+      },
+      {
+        "target": "Investment-Cost Subsidy",
+        "sources": [
+          "Investment Cost Subsidies",
+          "Investment-Cost Subsidies",
+          "Investment-Cost Subsidy",
+          "Investment-cost subsidies"
+        ]
+      },
+      {
+        "target": "Iron",
+        "sources": [
+          "Iron",
+          "Iron (Fe2+)"
+        ]
+      },
+      {
+        "target": "K-Medoids Method",
+        "sources": [
+          "K-Medoids Method",
+          "k-Medoids Method"
+        ]
+      },
+      {
+        "target": "KC Model",
+        "sources": [
+          "KC Model",
+          "Kc Model"
+        ]
+      },
+      {
+        "target": "Kernel Density Estimates",
+        "sources": [
+          "Kernel Density Estimates",
+          "Kernel Density Estimates (KDE)"
+        ]
+      },
+      {
+        "target": "Kraków–Lubliniec Fault",
+        "sources": [
+          "Kraków–Lubliniec Fault",
+          "Kraków–Lubliniec Fault (KLF)"
+        ]
+      },
+      {
+        "target": "LBM Flow Solver",
+        "sources": [
+          "LBM Flow Solver",
+          "Lbm Flow Solver"
+        ]
+      },
+      {
+        "target": "Landowner",
+        "sources": [
+          "Landowner",
+          "Landowners"
+        ]
+      },
+      {
+        "target": "Lattice Boltzmann Method",
+        "sources": [
+          "Lattice Boltzmann Method",
+          "Lattice Boltzmann Method (LBM)"
+        ]
+      },
+      {
+        "target": "Least Squares Monte Carlo Algorithm",
+        "sources": [
+          "Least Squares Monte Carlo (LSMC) Algorithm",
+          "Least Squares Monte Carlo Algorithm"
+        ]
+      },
+      {
+        "target": "Least Squares Monte Carlo Method",
+        "sources": [
+          "Least Squares Monte Carlo (LSMC) Method",
+          "Least Squares Monte Carlo Method"
+        ]
+      },
+      {
+        "target": "Log K",
+        "sources": [
+          "Log K",
+          "Log k",
+          "log k"
+        ]
+      },
+      {
+        "target": "Log Kx",
+        "sources": [
+          "Log Kx",
+          "Log kx"
+        ]
+      },
+      {
+        "target": "Log-Permeability",
+        "sources": [
+          "Log-Permeability",
+          "Log-Permeability (log 𝑘)",
+          "Log-permeability"
+        ]
+      },
+      {
+        "target": "Log-Permeability Field",
+        "sources": [
+          "Log-Permeability Field",
+          "Log-permeability Field"
+        ]
+      },
+      {
+        "target": "Log10 ar",
+        "sources": [
+          "Log10 ar",
+          "log10 ar"
+        ]
+      },
+      {
+        "target": "Long Short Term Memory (LSTM) Network",
+        "sources": [
+          "Long Short Term Memory (LSTM) Network",
+          "Long Short-Term Memory (LSTM) Networks"
+        ]
+      },
+      {
+        "target": "Low-Resolution CT Image",
+        "sources": [
+          "Low-Resolution CT Image",
+          "Low-Resolution CT Images"
+        ]
+      },
+      {
+        "target": "MATLAB Reservoir Simulation Toolbox (MRST)",
+        "sources": [
+          "MATLAB Reservoir Simulation Toolbox (MRST)",
+          "Matlab Reservoir Simulation Toolbox (Mrst)"
+        ]
+      },
+      {
+        "target": "MUFITS Reservoir Simulator",
+        "sources": [
+          "MUFITS Reservoir Simulator",
+          "Mufits Reservoir Simulator"
+        ]
+      },
+      {
+        "target": "Macrocrystalline Core",
+        "sources": [
+          "Macrocrystalline Core",
+          "Macrocrystalline Cores"
+        ]
+      },
+      {
+        "target": "Mae Moh Mine",
+        "sources": [
+          "Mae Moh Mine",
+          "Mae Moh mine"
+        ]
+      },
+      {
+        "target": "Magnesium",
+        "sources": [
+          "Magnesium",
+          "Magnesium (Mg2+)"
+        ]
+      },
+      {
+        "target": "Markov Chain Monte Carlo",
+        "sources": [
+          "Markov Chain Monte Carlo",
+          "Markov Chain Monte Carlo (MCMC)"
+        ]
+      },
+      {
+        "target": "Markov Decision Process",
+        "sources": [
+          "Markov Decision Process",
+          "Markov Decision Process (MDP)"
+        ]
+      },
+      {
+        "target": "Markov Game",
+        "sources": [
+          "Markov Game",
+          "Markov Games"
+        ]
+      },
+      {
+        "target": "Mathematical Model",
+        "sources": [
+          "Mathematical Model",
+          "Mathematical Models"
+        ]
+      },
+      {
+        "target": "Mechanical Property",
+        "sources": [
+          "Mechanical Properties",
+          "Mechanical Property"
+        ]
+      },
+      {
+        "target": "Metaparameter",
+        "sources": [
+          "Metaparameter",
+          "Metaparameters"
+        ]
+      },
+      {
+        "target": "Micro-CT Images",
+        "sources": [
+          "Micro-CT Images",
+          "Micro-Ct Images"
+        ]
+      },
+      {
+        "target": "Micro-porous Texture",
+        "sources": [
+          "Micro-Porous Textures",
+          "Micro-porous Texture"
+        ]
+      },
+      {
+        "target": "Mineral Precipitation",
+        "sources": [
+          "Mineral Precipitation",
+          "Mineral Precipitations"
+        ]
+      },
+      {
+        "target": "Mobile CO2 Mass",
+        "sources": [
+          "Mobile CO2 Mass",
+          "Mobile Co2 Mass"
+        ]
+      },
+      {
+        "target": "Moldanubian Thrust",
+        "sources": [
+          "Moldanubian Thrust",
+          "Moldanubian Thrust (MT)"
+        ]
+      },
+      {
+        "target": "Mole Fraction",
+        "sources": [
+          "Mole Fraction",
+          "Mole Fraction (ci,α)",
+          "Mole Fractions"
+        ]
+      },
+      {
+        "target": "Momentum Conservation (Darcys Law)",
+        "sources": [
+          "Momentum Conservation (Darcy's Law)",
+          "Momentum Conservation (Darcys Law)"
         ]
       },
       {
@@ -169,10 +1368,264 @@
         ]
       },
       {
+        "target": "Monitoring Well Data",
+        "sources": [
+          "Monitoring Well Data",
+          "Monitoring-well Data"
+        ]
+      },
+      {
+        "target": "Monte Carlo Simulation",
+        "sources": [
+          "Monte Carlo Simulation",
+          "Monte Carlo Simulations"
+        ]
+      },
+      {
+        "target": "Multi-Agent Learning Network",
+        "sources": [
+          "Multi-Agent Learning Network",
+          "Multi-Agent Learning Networks"
+        ]
+      },
+      {
+        "target": "Multi-Agent Reinforcement Learning",
+        "sources": [
+          "Multi-Agent Reinforcement Learning",
+          "Multi-Agent Reinforcement Learning (M A R L)",
+          "Multi-Agent Reinforcement Learning (MARL)"
+        ]
+      },
+      {
+        "target": "Multi-Criteria Decision Analysis (MCDA)",
+        "sources": [
+          "Multi-Criteria Decision Analysis (M C D A)",
+          "Multi-Criteria Decision Analysis (MCDA)"
+        ]
+      },
+      {
+        "target": "NPV",
+        "sources": [
+          "NPV",
+          "NPV (Base Case)"
+        ]
+      },
+      {
+        "target": "Net Present Value",
+        "sources": [
+          "Net Present Value",
+          "Net Present Value (NPV)"
+        ]
+      },
+      {
+        "target": "Net-Zero Industry Act",
+        "sources": [
+          "Net-Zero Industry Act",
+          "Net-Zero Industry Act (NZIA)"
+        ]
+      },
+      {
+        "target": "Neural Network",
+        "sources": [
+          "Neural Network",
+          "Neural Networks"
+        ]
+      },
+      {
+        "target": "No-U-Turn Sampler",
+        "sources": [
+          "No-U-Turn Sampler",
+          "No-U-Turn Sampler (NUTS)"
+        ]
+      },
+      {
+        "target": "Non-Local Mean Filter",
+        "sources": [
+          "Non-Local Mean Filter",
+          "Non-Local Means Filter"
+        ]
+      },
+      {
+        "target": "Non-porous Texture",
+        "sources": [
+          "Non-Porous Textures",
+          "Non-porous Texture"
+        ]
+      },
+      {
+        "target": "Normal Fault",
+        "sources": [
+          "Normal Fault",
+          "Normal Faults"
+        ]
+      },
+      {
+        "target": "North Sea",
+        "sources": [
+          "North Sea",
+          "North Seas"
+        ]
+      },
+      {
+        "target": "Northern Lights Project",
+        "sources": [
+          "Northern Lights Project",
+          "Northern Lights Project (Norway)"
+        ]
+      },
+      {
+        "target": "Norwegian-Polish CCS Network",
+        "sources": [
+          "Norwegian-Polish CCS Network",
+          "Norwegian-Polish CCS network"
+        ]
+      },
+      {
+        "target": "Numerical Model",
+        "sources": [
+          "Numerical Model",
+          "Numerical model"
+        ]
+      },
+      {
+        "target": "OIL",
+        "sources": [
+          "OIL",
+          "Oil"
+        ]
+      },
+      {
+        "target": "ORLEN-Equinor Collaboration",
+        "sources": [
+          "ORLEN-Equinor Collaboration",
+          "ORLEN-Equinor collaboration"
+        ]
+      },
+      {
+        "target": "Observed CO2 Saturation History",
+        "sources": [
+          "Observed CO2 Saturation History",
+          "Observed CO2 Saturation History (d2)"
+        ]
+      },
+      {
+        "target": "Observed Porosity Value",
+        "sources": [
+          "Observed Porosity Value",
+          "Observed Porosity Value (d1)"
+        ]
+      },
+      {
+        "target": "Optimal NPV (ROM-RL)",
+        "sources": [
+          "Optimal NPV (Full-order)",
+          "Optimal NPV (ROM-RL)"
+        ]
+      },
+      {
+        "target": "P-Wave Velocity",
+        "sources": [
+          "P-Wave Velocity",
+          "P-wave velocity"
+        ]
+      },
+      {
+        "target": "P-Wave Velocity Change",
+        "sources": [
+          "P-Wave Velocity Change",
+          "P-Wave Velocity Changes"
+        ]
+      },
+      {
+        "target": "PCA Variables",
+        "sources": [
+          "PCA Variables",
+          "PCA Variables (ξ)"
+        ]
+      },
+      {
+        "target": "PLB",
+        "sources": [
+          "PLB",
+          "PLB (Polish Lowland Basin)"
+        ]
+      },
+      {
+        "target": "PNM",
+        "sources": [
+          "PNM",
+          "PNM (Pore Network Model)"
+        ]
+      },
+      {
         "target": "POMDP",
         "sources": [
           "POMDP",
           "Pomdp"
+        ]
+      },
+      {
+        "target": "Permeability",
+        "sources": [
+          "Permeability",
+          "Permeability (𝑘)"
+        ]
+      },
+      {
+        "target": "Permeability Field",
+        "sources": [
+          "Permeability Field",
+          "Permeability Fields"
+        ]
+      },
+      {
+        "target": "Permeability Map",
+        "sources": [
+          "Permeability Map",
+          "Permeability Maps"
+        ]
+      },
+      {
+        "target": "Perturbed Oil Price Trajectory",
+        "sources": [
+          "Perturbed Oil Price Trajectory",
+          "Perturbed Oil Price Trajectory (P∗)"
+        ]
+      },
+      {
+        "target": "Phase",
+        "sources": [
+          "Phase",
+          "Phase (w, g)"
+        ]
+      },
+      {
+        "target": "Phase Density",
+        "sources": [
+          "Phase Densities",
+          "Phase Density",
+          "Phase Density (ρα)"
+        ]
+      },
+      {
+        "target": "Phi",
+        "sources": [
+          "Phi",
+          "phi"
+        ]
+      },
+      {
+        "target": "Physics-Informed Neural Networks (PINN)",
+        "sources": [
+          "Physics-Informed Neural Networks (PINN)",
+          "Physics-Informed Neural Networks (PINNs)"
+        ]
+      },
+      {
+        "target": "Pipeline",
+        "sources": [
+          "Pipeline",
+          "Pipelines"
         ]
       },
       {
@@ -183,6 +1636,327 @@
         ]
       },
       {
+        "target": "Plume Location",
+        "sources": [
+          "Plume Location",
+          "Plume Locations"
+        ]
+      },
+      {
+        "target": "Poisson Ratio",
+        "sources": [
+          "Poisson Ratio",
+          "Poisson's Ratio",
+          "Poissons Ratio",
+          "Poissons ratio"
+        ]
+      },
+      {
+        "target": "Polish Lowland Basin",
+        "sources": [
+          "Polish Lowland Basin",
+          "Polish Lowlands Basin",
+          "Polish Lowlands Basin (PLB)"
+        ]
+      },
+      {
+        "target": "Pore",
+        "sources": [
+          "Pore",
+          "Pores"
+        ]
+      },
+      {
+        "target": "Pore Body",
+        "sources": [
+          "Pore Bodies",
+          "Pore Body"
+        ]
+      },
+      {
+        "target": "Pore Geometry",
+        "sources": [
+          "Pore Geometries",
+          "Pore Geometry"
+        ]
+      },
+      {
+        "target": "Pore Network",
+        "sources": [
+          "Pore Network",
+          "Pore Networks"
+        ]
+      },
+      {
+        "target": "Pore Network Modeling",
+        "sources": [
+          "Pore Network Modeling",
+          "Pore Network Modeling (PNM)"
+        ]
+      },
+      {
+        "target": "Pore Pressure",
+        "sources": [
+          "Pore Pressure",
+          "Pore Pressure (P)"
+        ]
+      },
+      {
+        "target": "Pore Size Distribution",
+        "sources": [
+          "Pore Size Distribution",
+          "Pore-Size Distribution"
+        ]
+      },
+      {
+        "target": "Pore Throat",
+        "sources": [
+          "Pore Throat",
+          "Pore Throats"
+        ]
+      },
+      {
+        "target": "Pore Volume",
+        "sources": [
+          "Pore Volume",
+          "Pore Volumes (PVs)"
+        ]
+      },
+      {
+        "target": "Pore-Throat Network Map",
+        "sources": [
+          "Pore-Throat Network Map",
+          "Pore-throat Network Map"
+        ]
+      },
+      {
+        "target": "Porosity",
+        "sources": [
+          "Porosity",
+          "Porosity (ϕ)",
+          "Porosity (𝜙)"
+        ]
+      },
+      {
+        "target": "Porosity Field",
+        "sources": [
+          "Porosity Field",
+          "Porosity Fields"
+        ]
+      },
+      {
+        "target": "Porosity Map",
+        "sources": [
+          "Porosity Map",
+          "Porosity Maps"
+        ]
+      },
+      {
+        "target": "Porosity Scale Factor",
+        "sources": [
+          "Porosity Scale Factor",
+          "Porosity Scale Factor (χ)"
+        ]
+      },
+      {
+        "target": "Post-Injection",
+        "sources": [
+          "Post-Injection",
+          "Post-injection"
+        ]
+      },
+      {
+        "target": "Post-Injection Period",
+        "sources": [
+          "Post-Injection Period",
+          "Post-injection Period"
+        ]
+      },
+      {
+        "target": "Posterior Ensemble",
+        "sources": [
+          "Posterior Ensemble",
+          "Posterior Ensembles"
+        ]
+      },
+      {
+        "target": "Posterior Standard Deviation",
+        "sources": [
+          "Posterior Standard Deviation",
+          "Posterior Standard Deviations"
+        ]
+      },
+      {
+        "target": "Pressure",
+        "sources": [
+          "Pressure",
+          "Pressure (pα)"
+        ]
+      },
+      {
+        "target": "Pressure Prediction",
+        "sources": [
+          "Pressure Prediction",
+          "Pressure Predictions"
+        ]
+      },
+      {
+        "target": "Pressure RMSE",
+        "sources": [
+          "Pressure RMSE",
+          "Pressure Rmse"
+        ]
+      },
+      {
+        "target": "Primary Production",
+        "sources": [
+          "Primary Production",
+          "Primary Production (PP)"
+        ]
+      },
+      {
+        "target": "Public-Private Partnerships",
+        "sources": [
+          "Public-Private Partnerships",
+          "Public-private partnerships"
+        ]
+      },
+      {
+        "target": "Pump",
+        "sources": [
+          "Pump",
+          "Pumps"
+        ]
+      },
+      {
+        "target": "Qinj",
+        "sources": [
+          "Qinj",
+          "qinj"
+        ]
+      },
+      {
+        "target": "Reactive Surface Area",
+        "sources": [
+          "Reactive Surface Area",
+          "Reactive Surface Areas"
+        ]
+      },
+      {
+        "target": "Real-Options Valuation",
+        "sources": [
+          "Real-Options Valuation",
+          "Real-options valuation"
+        ]
+      },
+      {
+        "target": "Real-options model",
+        "sources": [
+          "Real Options (RO) Models",
+          "Real-options model"
+        ]
+      },
+      {
+        "target": "Rectangular Cuboid Region",
+        "sources": [
+          "Rectangular Cuboid Region",
+          "Rectangular Cuboid Regions"
+        ]
+      },
+      {
+        "target": "Recurrent Neural Network (RNN)",
+        "sources": [
+          "Recurrent Neural Network (RNN)",
+          "Recurrent Neural Networks (RNN)"
+        ]
+      },
+      {
+        "target": "Reduced-Order Model",
+        "sources": [
+          "Reduced-Order Model",
+          "Reduced-Order Model (ROM)",
+          "Reduced-Order Models (ROMs)"
+        ]
+      },
+      {
+        "target": "Regulator",
+        "sources": [
+          "Regulator",
+          "Regulators"
+        ]
+      },
+      {
+        "target": "Regulatory Framework",
+        "sources": [
+          "Regulatory Framework",
+          "Regulatory Frameworks"
+        ]
+      },
+      {
+        "target": "Relative Permeability",
+        "sources": [
+          "Relative Permeabilities",
+          "Relative Permeability",
+          "Relative Permeability (krα)"
+        ]
+      },
+      {
+        "target": "Relative Permeability Curve",
+        "sources": [
+          "Relative Permeability Curve",
+          "Relative Permeability Curves"
+        ]
+      },
+      {
+        "target": "Remaining Oil Distribution",
+        "sources": [
+          "Remaining Oil Distribution",
+          "Remaining-Oil Distribution"
+        ]
+      },
+      {
+        "target": "ResNet",
+        "sources": [
+          "ResNet",
+          "Resnet"
+        ]
+      },
+      {
+        "target": "Reservoir Formation",
+        "sources": [
+          "Reservoir Formation",
+          "Reservoir Formations"
+        ]
+      },
+      {
+        "target": "Reservoir Model",
+        "sources": [
+          "Reservoir Model",
+          "Reservoir Models"
+        ]
+      },
+      {
+        "target": "Reservoir Pressure",
+        "sources": [
+          "Reservoir Pressure",
+          "Reservoir Pressures"
+        ]
+      },
+      {
+        "target": "Reservoir Realization",
+        "sources": [
+          "Reservoir Realization",
+          "Reservoir-Realizations"
+        ]
+      },
+      {
+        "target": "Reservoir Rock",
+        "sources": [
+          "Reservoir Rock",
+          "Reservoir Rocks"
+        ]
+      },
+      {
         "target": "Reservoir Simulation",
         "sources": [
           "Reservoir Simulation",
@@ -190,17 +1964,348 @@
         ]
       },
       {
+        "target": "Reservoir Thickness",
+        "sources": [
+          "Reservoir Thickness",
+          "Reservoir Thickness (B)"
+        ]
+      },
+      {
+        "target": "Resin",
+        "sources": [
+          "Resin",
+          "Resins"
+        ]
+      },
+      {
+        "target": "Reverse-Time Migration",
+        "sources": [
+          "Reverse Time Migration (RTM)",
+          "Reverse-Time Migration"
+        ]
+      },
+      {
+        "target": "Rheic Suture",
+        "sources": [
+          "Rheic Suture",
+          "Rheic Suture (RS)"
+        ]
+      },
+      {
+        "target": "Rock Physics Model",
+        "sources": [
+          "Rock Physics Model",
+          "Rock Physics Models"
+        ]
+      },
+      {
+        "target": "Rotliegend Formation",
+        "sources": [
+          "Rotliegend Formation",
+          "Rotliegend formation"
+        ]
+      },
+      {
+        "target": "Rotliegend Reservoir",
+        "sources": [
+          "Rotliegend Reservoir",
+          "Rotliegend Reservoirs"
+        ]
+      },
+      {
+        "target": "Rotliegend Volcaniclastics",
+        "sources": [
+          "Rotliegend Volcaniclastics",
+          "Rotliegend volcaniclastics"
+        ]
+      },
+      {
+        "target": "SGeMS",
+        "sources": [
+          "SGeMS",
+          "SgeMS"
+        ]
+      },
+      {
+        "target": "SMART-CS Initiative",
+        "sources": [
+          "SMART-CS Initiative",
+          "Smart Cs Initiative"
+        ]
+      },
+      {
+        "target": "SRL",
+        "sources": [
+          "SRL",
+          "Srl"
+        ]
+      },
+      {
+        "target": "SRL 2–3",
+        "sources": [
+          "SRL 2–3",
+          "Srl 2-3"
+        ]
+      },
+      {
+        "target": "Safe Multi-Agent Reinforcement Learning",
+        "sources": [
+          "Safe Multi-Agent Reinforcement Learning",
+          "Safe Multi-agent Reinforcement Learning (Safe MARL)"
+        ]
+      },
+      {
         "target": "Saline Aquifer",
         "sources": [
           "Saline Aquifer",
-          "Saline Aquifers"
+          "Saline Aquifers",
+          "saline aquifers"
+        ]
+      },
+      {
+        "target": "Saline Aquifer Storage",
+        "sources": [
+          "Saline Aquifer Storage",
+          "Saline-aquifer storage"
+        ]
+      },
+      {
+        "target": "Salt Cavern",
+        "sources": [
+          "Salt Cavern",
+          "Salt Caverns"
+        ]
+      },
+      {
+        "target": "Sandstone",
+        "sources": [
+          "Sandstone",
+          "Sandstones"
+        ]
+      },
+      {
+        "target": "Saturation",
+        "sources": [
+          "Saturation",
+          "Saturation (Sα)"
+        ]
+      },
+      {
+        "target": "Saturation Field",
+        "sources": [
+          "Saturation Field",
+          "Saturation Fields",
+          "Saturation-Fields"
+        ]
+      },
+      {
+        "target": "Saturation RMSE",
+        "sources": [
+          "Saturation RMSE",
+          "Saturation Rmse"
+        ]
+      },
+      {
+        "target": "Scenario",
+        "sources": [
+          "Scenario",
+          "Scenarios"
+        ]
+      },
+      {
+        "target": "Scenario #2",
+        "sources": [
+          "Scenario #2",
+          "Scenario #2 (Figure 8)"
+        ]
+      },
+      {
+        "target": "Scenario 1",
+        "sources": [
+          "Scenario #1",
+          "Scenario 1"
+        ]
+      },
+      {
+        "target": "Scenario 3",
+        "sources": [
+          "Scenario #3",
+          "Scenario 3"
+        ]
+      },
+      {
+        "target": "Scenario C2",
+        "sources": [
+          "Scenario C2",
+          "Scenario C2 (Figures 17 and 20)"
         ]
       },
       {
         "target": "Seismic Data",
         "sources": [
           "Seismic Data",
-          "Seismic Data (Noise)"
+          "Seismic Data (42 × 42 × 7)"
+        ]
+      },
+      {
+        "target": "Seismic Event",
+        "sources": [
+          "Seismic Event",
+          "Seismic Events",
+          "Seismic Events (Expected)",
+          "Seismic Events (Long-term)",
+          "Seismic Events (Short-term)",
+          "Seismic Events (Unexpected)"
+        ]
+      },
+      {
+        "target": "Seismic Image",
+        "sources": [
+          "Seismic Image",
+          "Seismic Images"
+        ]
+      },
+      {
+        "target": "Seismic Observation",
+        "sources": [
+          "Seismic Observation",
+          "Seismic Observations"
+        ]
+      },
+      {
+        "target": "Seismic Risk",
+        "sources": [
+          "Seismic Risk",
+          "Seismic Risks"
+        ]
+      },
+      {
+        "target": "Seismic Saturation",
+        "sources": [
+          "Seismic Saturation",
+          "Seismic Saturation (Seismic Data Only)",
+          "Seismic Saturation (Seismic Data)"
+        ]
+      },
+      {
+        "target": "Seismic Saturation Field",
+        "sources": [
+          "Seismic Saturation Field",
+          "Seismic Saturation Fields"
+        ]
+      },
+      {
+        "target": "Seismic Velocity",
+        "sources": [
+          "Seismic Velocities",
+          "Seismic Velocity"
+        ]
+      },
+      {
+        "target": "Shear Stress",
+        "sources": [
+          "Shear Stress",
+          "Shear Stress (𝜏𝑛)"
+        ]
+      },
+      {
+        "target": "Siderite",
+        "sources": [
+          "Siderite",
+          "siderite"
+        ]
+      },
+      {
+        "target": "Single Run (Pressure)",
+        "sources": [
+          "Single Run (CO2 Plume)",
+          "Single Run (Pressure)"
+        ]
+      },
+      {
+        "target": "Sorgenfrei–Tornquist Zone",
+        "sources": [
+          "Sorgenfrei–Tornquist Zone",
+          "Sorgenfrei–Tornquist Zone (STZ)"
+        ]
+      },
+      {
+        "target": "Spatial Real Options",
+        "sources": [
+          "Spatial Real Options",
+          "Spatial Real Options (SRO)"
+        ]
+      },
+      {
+        "target": "Spatial Real Options (SRO) Framework",
+        "sources": [
+          "Spatial Real Options (SRO) Framework",
+          "Spatial Real Options (SRO) framework"
+        ]
+      },
+      {
+        "target": "Steam Cracker",
+        "sources": [
+          "Steam Cracker",
+          "Steam Crackers"
+        ]
+      },
+      {
+        "target": "Storage Capacity",
+        "sources": [
+          "Storage Capacity",
+          "storage capacity"
+        ]
+      },
+      {
+        "target": "Storage Complex",
+        "sources": [
+          "Storage Complex",
+          "Storage Complexes"
+        ]
+      },
+      {
+        "target": "Storage Readiness Level",
+        "sources": [
+          "Storage Readiness Level",
+          "Storage Readiness Level (SRL)",
+          "Storage Readiness Levels"
+        ]
+      },
+      {
+        "target": "Stress",
+        "sources": [
+          "Stress",
+          "Stresses"
+        ]
+      },
+      {
+        "target": "Structural Trap",
+        "sources": [
+          "Structural Trap",
+          "Structural Traps"
+        ]
+      },
+      {
+        "target": "Subvolume",
+        "sources": [
+          "Subvolume",
+          "Subvolumes"
+        ]
+      },
+      {
+        "target": "Sulfate",
+        "sources": [
+          "Sulfate",
+          "Sulfate (SO42-)",
+          "Sulfates"
+        ]
+      },
+      {
+        "target": "Support Vector Machines",
+        "sources": [
+          "Support Vector Machines",
+          "Support Vector Machines (SVM)"
         ]
       },
       {
@@ -211,47 +2316,896 @@
         ]
       },
       {
+        "target": "Sveconorwegian Front",
+        "sources": [
+          "Sveconorwegian Front",
+          "Sveconorwegian Front (SNF)"
+        ]
+      },
+      {
+        "target": "Syncline-Shaped Complex",
+        "sources": [
+          "Syncline-Shaped Complex",
+          "Syncline-shaped Complex"
+        ]
+      },
+      {
+        "target": "Technological Progress",
+        "sources": [
+          "Technological Progress",
+          "Technological progress"
+        ]
+      },
+      {
+        "target": "Tectonic Fault",
+        "sources": [
+          "Tectonic Fault",
+          "Tectonic Faults"
+        ]
+      },
+      {
+        "target": "Teisseyre-Tornquist Zone",
+        "sources": [
+          "Teisseyre-Tornquist Zone",
+          "Teisseyre–Tornquist Zone",
+          "Teisseyre–Tornquist Zone (TTZ)"
+        ]
+      },
+      {
+        "target": "Temperature",
+        "sources": [
+          "Temperature",
+          "Temperature (Ttotal)"
+        ]
+      },
+      {
+        "target": "Throat",
+        "sources": [
+          "Throat",
+          "Throats"
+        ]
+      },
+      {
+        "target": "Tight Sandstone Formation",
+        "sources": [
+          "Tight Sandstone Formation",
+          "Tight Sandstone Formations"
+        ]
+      },
+      {
+        "target": "Time-Lapse Seismic Data",
+        "sources": [
+          "Time-Lapse (4D) Seismic Data",
+          "Time-Lapse Seismic Data",
+          "Time-Lapse-Seismic-Data",
+          "Time-lapse Seismic Data"
+        ]
+      },
+      {
+        "target": "Time-Lapse Seismic Imaging",
+        "sources": [
+          "Time-Lapse Seismic Imaging",
+          "Time-lapse Seismic Imaging"
+        ]
+      },
+      {
         "target": "Time-Lapse Seismic Monitoring",
         "sources": [
           "Time-Lapse Seismic Monitoring",
           "Time-lapse Seismic Monitoring"
         ]
+      },
+      {
+        "target": "Total CO2 Injection Mass",
+        "sources": [
+          "Total CO2 Injection Mass",
+          "Total CO2 Injection Mass (Tons)"
+        ]
+      },
+      {
+        "target": "Total Permeability",
+        "sources": [
+          "Total Permeability",
+          "Total Permeability (k)"
+        ]
+      },
+      {
+        "target": "Trapped CO2 Mass",
+        "sources": [
+          "Trapped CO2 Mass",
+          "Trapped Co2 Mass"
+        ]
+      },
+      {
+        "target": "Upper Rotliegend Group",
+        "sources": [
+          "Upper Rotliegend Group",
+          "Upper Rotliegend group"
+        ]
+      },
+      {
+        "target": "Variational Autoencoder",
+        "sources": [
+          "Variational Autoencoder",
+          "Variational Autoencoder (VAE)"
+        ]
+      },
+      {
+        "target": "Variational Inference",
+        "sources": [
+          "Variational Inference",
+          "Variational Inference (VI)"
+        ]
+      },
+      {
+        "target": "Velocity Distribution",
+        "sources": [
+          "Velocity Distribution",
+          "Velocity Distributions"
+        ]
+      },
+      {
+        "target": "Vertical Well",
+        "sources": [
+          "Vertical Well",
+          "Vertical Wells"
+        ]
+      },
+      {
+        "target": "Viscosity",
+        "sources": [
+          "Viscosities",
+          "Viscosity",
+          "Viscosity (µα)"
+        ]
+      },
+      {
+        "target": "Void",
+        "sources": [
+          "Void",
+          "Voids"
+        ]
+      },
+      {
+        "target": "Volumetric Deformation",
+        "sources": [
+          "Volumetric Deformation",
+          "Volumetric Deformations"
+        ]
+      },
+      {
+        "target": "Volumetric Velocity",
+        "sources": [
+          "Volumetric Velocity",
+          "Volumetric Velocity (vα)"
+        ]
+      },
+      {
+        "target": "Well",
+        "sources": [
+          "Well",
+          "Wells"
+        ]
+      },
+      {
+        "target": "Well Control Strategy",
+        "sources": [
+          "Well Control Strategies",
+          "Well Control Strategy"
+        ]
+      },
+      {
+        "target": "Well Grid (18, 6, 1)",
+        "sources": [
+          "Well Grid (16, 12, 1)",
+          "Well Grid (18, 6, 1)",
+          "Well Grid (23, 12, 1)",
+          "Well Grid (26, 2, 1)",
+          "Well Grid (3, 14, 1)"
+        ]
+      },
+      {
+        "target": "Wielkopolska Region",
+        "sources": [
+          "Wielkopolska Region",
+          "Wielkopolska region"
+        ]
+      },
+      {
+        "target": "X-Ray Diffraction",
+        "sources": [
+          "X-Ray Diffraction",
+          "X-ray Diffraction"
+        ]
+      },
+      {
+        "target": "Y-Z Cross Section",
+        "sources": [
+          "Y-Z Cross Section",
+          "y-z Cross Section"
+        ]
+      },
+      {
+        "target": "Young Modulus",
+        "sources": [
+          "Young Modulus",
+          "Young's Modulus",
+          "Youngs Modulus",
+          "Youngs modulus"
+        ]
+      },
+      {
+        "target": "Zechstein Caprock",
+        "sources": [
+          "Zechstein Caprock",
+          "Zechstein caprock"
+        ]
+      },
+      {
+        "target": "Zechstein Evaporites",
+        "sources": [
+          "Zechstein Evaporites",
+          "Zechstein evaporites"
+        ]
+      },
+      {
+        "target": "τ = τL",
+        "sources": [
+          "τ = τL",
+          "τ > τL"
+        ]
       }
     ],
     "noise": [
+      {
+        "name": "1.29%",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "1.89%",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "2.12%",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "2021",
+        "reason": "year"
+      },
       {
         "name": "2045",
         "reason": "year"
       },
       {
-        "name": "Empirical Results",
-        "reason": "meta-filler"
+        "name": "3.25%",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "3.7 MPa",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "30 Years",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "30 m",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "30 years",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "4D",
+        "reason": "too-short"
+      },
+      {
+        "name": "500 Years",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "79.53 Years",
+        "reason": "bare-quantity"
+      },
+      {
+        "name": "A",
+        "reason": "too-short"
+      },
+      {
+        "name": "Accepted Realizations Using Monitoring Well Data and Plume Location Seismic Data",
+        "reason": "title-like"
+      },
+      {
+        "name": "Adjoint-state gradient of the data misfit with respect to the P-wave velocity",
+        "reason": "title-like"
+      },
+      {
+        "name": "Ar",
+        "reason": "too-short"
+      },
+      {
+        "name": "B",
+        "reason": "too-short"
+      },
+      {
+        "name": "Borello et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "C",
+        "reason": "too-short"
+      },
+      {
+        "name": "CD",
+        "reason": "too-short"
+      },
+      {
+        "name": "CF",
+        "reason": "too-short"
+      },
+      {
+        "name": "Cd",
+        "reason": "too-short"
+      },
+      {
+        "name": "Cheung et al. (2012)",
+        "reason": "citation"
+      },
+      {
+        "name": "China",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Conv, 32 filters of size 3×3×3, stride (1, 1, 1), padding (1, 1, 1)",
+        "reason": "title-like"
+      },
+      {
+        "name": "D",
+        "reason": "too-short"
+      },
+      {
+        "name": "Da",
+        "reason": "too-short"
+      },
+      {
+        "name": "Darin Damiani",
+        "reason": "type:person"
+      },
+      {
+        "name": "Determine n based on PCA tolerance T and build a PCA generative model",
+        "reason": "title-like"
+      },
+      {
+        "name": "E",
+        "reason": "too-short"
       },
       {
         "name": "Europe",
         "reason": "geo-political"
       },
       {
+        "name": "European Union",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Feld",
+        "reason": "type:person"
+      },
+      {
+        "name": "Fleiter et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Franceschini et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Franceschini et al. (2024)",
+        "reason": "citation"
+      },
+      {
+        "name": "Fraunhofer Institute for Algorithms and Scientific Computing SCAI",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Fraunhofer Institute for Systems- & Innovation Research ISI",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Fuchs et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "G",
+        "reason": "too-short"
+      },
+      {
+        "name": "G*",
+        "reason": "too-short"
+      },
+      {
+        "name": "Generate Nr permeability fields using the fractal model in Algorithm 1",
+        "reason": "title-like"
+      },
+      {
+        "name": "Generate permeability fields k0 = [k01, k02, …, k0Ne] from the ensemble of ξn",
+        "reason": "title-like"
+      },
+      {
         "name": "Germany",
         "reason": "geo-political"
+      },
+      {
+        "name": "Han et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Haug et al. (2018)",
+        "reason": "citation"
+      },
+      {
+        "name": "He",
+        "reason": "too-short"
+      },
+      {
+        "name": "Hofmann et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Hu et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Jiang et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Jiang et al. (2023)",
+        "reason": "citation"
+      },
+      {
+        "name": "K",
+        "reason": "too-short"
+      },
+      {
+        "name": "KZ",
+        "reason": "too-short"
+      },
+      {
+        "name": "Kassel University",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Kf",
+        "reason": "too-short"
+      },
+      {
+        "name": "Krevor et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Kx",
+        "reason": "too-short"
+      },
+      {
+        "name": "Ky",
+        "reason": "too-short"
+      },
+      {
+        "name": "L",
+        "reason": "too-short"
+      },
+      {
+        "name": "Lc",
+        "reason": "too-short"
+      },
+      {
+        "name": "Li et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Louis et al. (2024)",
+        "reason": "citation"
+      },
+      {
+        "name": "ML",
+        "reason": "too-short"
+      },
+      {
+        "name": "Mark Ackiewicz",
+        "reason": "type:person"
+      },
+      {
+        "name": "Mark McKoy",
+        "reason": "type:person"
+      },
+      {
+        "name": "Mikhaltsevitch et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Miocic et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Mishra et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Na",
+        "reason": "too-short"
+      },
+      {
+        "name": "Ne",
+        "reason": "too-short"
+      },
+      {
+        "name": "Neuwirth et al. [40]",
+        "reason": "citation"
+      },
+      {
+        "name": "Nguyen V, et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Nr",
+        "reason": "too-short"
+      },
+      {
+        "name": "PP",
+        "reason": "too-short"
+      },
+      {
+        "name": "Padua",
+        "reason": "geo-political"
+      },
+      {
+        "name": "Pe",
+        "reason": "too-short"
+      },
+      {
+        "name": "Permeability of the Opened Major Crack Located in the Fault Core",
+        "reason": "title-like"
+      },
+      {
+        "name": "Permeability of the System of Natural Fractures in the Fault Zone",
+        "reason": "title-like"
+      },
+      {
+        "name": "Peter et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Petroleum & Petrochemical Engineering Journal",
+        "reason": "journal"
+      },
+      {
+        "name": "Pf",
+        "reason": "too-short"
+      },
+      {
+        "name": "Pi",
+        "reason": "too-short"
+      },
+      {
+        "name": "Pijnenburg et al.",
+        "reason": "citation"
       },
       {
         "name": "Poland",
         "reason": "geo-political"
       },
       {
-        "name": "Science-informed Machine Learning to Accelerate Real Time Decision Making for Carbon Storage (SMART-CS) Initiative",
+        "name": "Polish Geological Institute",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Polish Geological Institute (P G I - N R I)",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Pruess et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "RL",
+        "reason": "too-short"
+      },
+      {
+        "name": "Ri",
+        "reason": "too-short"
+      },
+      {
+        "name": "Rimmelé et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Rohmer et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Run forward simulations to obtain CO2 plume and pressure predictions in the future steps based on posterior permeability fields kNiter",
         "reason": "title-like"
       },
       {
-        "name": "U.S. Department of Energy",
+        "name": "Run pressure forward simulation to get pj and build initial predicted data ensemble d0 = [d01, d02,…, d0Ne]",
+        "reason": "title-like"
+      },
+      {
+        "name": "Run saturation forward simulation and apply polar transform to get λj (j = 1, 2, …, Ne)",
+        "reason": "title-like"
+      },
+      {
+        "name": "S",
+        "reason": "too-short"
+      },
+      {
+        "name": "Sample ξn from N(0, In) and χ from U(0.05, 0.45) for Ne times to build the initial parameter ensemble m0 = [m01, m02,…, m0Ne]",
+        "reason": "title-like"
+      },
+      {
+        "name": "Sg",
+        "reason": "too-short"
+      },
+      {
+        "name": "Stanford Center for Carbon Storage (SCCS)",
         "reason": "affiliation"
+      },
+      {
+        "name": "Suss et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "T",
+        "reason": "too-short"
+      },
+      {
+        "name": "Tang et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Technical University of Berlin",
+        "reason": "affiliation"
+      },
+      {
+        "name": "Tescan Spectral Suite",
+        "reason": "street-address"
+      },
+      {
+        "name": "Tsuji et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "U.S. Department of Energy (DOE)",
+        "reason": "affiliation"
+      },
+      {
+        "name": "UT",
+        "reason": "too-short"
+      },
+      {
+        "name": "Unexpected Fault Activation Due To Underground Gas Storage In Produced Reservoirs",
+        "reason": "title-like"
+      },
+      {
+        "name": "VI",
+        "reason": "too-short"
+      },
+      {
+        "name": "Vasile et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Vincenzo Cunsolo",
+        "reason": "type:person"
+      },
+      {
+        "name": "Wang et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "Wassing et al. (2017)",
+        "reason": "citation"
       },
       {
         "name": "Well Cement Degradation and Wellbore Integrity in Geological CO2 Storages: A Literature Review",
         "reason": "title-like"
+      },
+      {
+        "name": "Yeates et al.",
+        "reason": "citation"
+      },
+      {
+        "name": "a",
+        "reason": "too-short"
+      },
+      {
+        "name": "ar",
+        "reason": "too-short"
+      },
+      {
+        "name": "ax",
+        "reason": "too-short"
+      },
+      {
+        "name": "ay",
+        "reason": "too-short"
+      },
+      {
+        "name": "b",
+        "reason": "too-short"
+      },
+      {
+        "name": "d",
+        "reason": "too-short"
+      },
+      {
+        "name": "e",
+        "reason": "too-short"
+      },
+      {
+        "name": "k",
+        "reason": "too-short"
+      },
+      {
+        "name": "m0",
+        "reason": "too-short"
+      },
+      {
+        "name": "mu",
+        "reason": "too-short"
+      },
+      {
+        "name": "nx",
+        "reason": "too-short"
+      },
+      {
+        "name": "ny",
+        "reason": "too-short"
+      },
+      {
+        "name": "p",
+        "reason": "too-short"
+      },
+      {
+        "name": "p0",
+        "reason": "too-short"
+      },
+      {
+        "name": "pH",
+        "reason": "too-short"
+      },
+      {
+        "name": "q",
+        "reason": "too-short"
+      },
+      {
+        "name": "t",
+        "reason": "too-short"
+      },
+      {
+        "name": "ta",
+        "reason": "too-short"
+      },
+      {
+        "name": "x",
+        "reason": "too-short"
+      },
+      {
+        "name": "µ",
+        "reason": "too-short"
+      },
+      {
+        "name": "µϕ",
+        "reason": "too-short"
+      },
+      {
+        "name": "Δx",
+        "reason": "too-short"
+      },
+      {
+        "name": "β",
+        "reason": "too-short"
+      },
+      {
+        "name": "σn",
+        "reason": "too-short"
+      },
+      {
+        "name": "σv",
+        "reason": "too-short"
+      },
+      {
+        "name": "τ",
+        "reason": "too-short"
+      },
+      {
+        "name": "τL",
+        "reason": "too-short"
+      },
+      {
+        "name": "χ",
+        "reason": "too-short"
+      },
+      {
+        "name": "ϕ",
+        "reason": "too-short"
+      },
+      {
+        "name": "∆P",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝐾",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝑐",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝑝𝑓",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝑠𝑙",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝛤",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜀𝑒",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜀𝑝",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜀𝑣",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜈",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜌𝑔",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜌𝑙",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜌𝑟",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜎ℎ",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜎𝑉",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜎𝑒",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜎𝑡",
+        "reason": "too-short"
+      },
+      {
+        "name": "𝜙",
+        "reason": "too-short"
       }
     ],
-    "kept": 372
+    "kept": 4071
   }
 }

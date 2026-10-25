@@ -327,6 +327,7 @@ jobs:
             tests.test_text_cleaning \
             tests.test_entity_aliases \
             tests.test_graph_analysis \
+            tests.test_domain_ontology \
             tests.test_branch_merge \
             tests.test_retry \
             tests.test_pinn_query \

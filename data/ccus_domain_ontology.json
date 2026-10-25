@@ -1,0 +1,2122 @@
+{
+ "version": "2026.10-onto1",
+ "note": "人工策展的 CCUS 领域本体。与 PDF 抽取图谱分开维护：抽取给的是'这几篇论文提到了什么'，本体给的是'这个领域有哪些东西'。每条实体与关系都必须带 source，没有出处的条目不允许进本文件。合并进图谱由 scripts/augment_graph.py 完成，纯确定性、可重复执行、按名字去重。",
+ "entities": [
+  {
+   "name": "Deep Saline Aquifer",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "含咸水的深部多孔地层，是容量最大的 CO2 封存目标。",
+   "reference": "IPCC (2005) Special Report on CCS, Ch.5"
+  },
+  {
+   "name": "Depleted Gas Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "已枯竭的气藏，压力与封闭性已被地质时间验证。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Depleted Oil Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "已枯竭的油藏，常与 CO2-EOR 结合。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Basalt Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "玄武岩储层，注入溶解 CO2 后快速矿化为碳酸盐。",
+   "reference": "Matter et al. (2016) Science 352"
+  },
+  {
+   "name": "Coal Seam",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "煤层，CO2 吸附置换甲烷（ECBM），但吸附容量与渗透率高度不均。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Organic-Rich Shale Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "富有机质页岩，吸附容量大但基质渗透率极低。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Carbonate Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "碳酸盐岩储层，非均质性强，裂缝与溶孔控制流动。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Sandstone Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "砂岩储层，孔隙度与渗透率关系相对可预测，是最常见的封存目标。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Tight Sandstone Reservoir",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "低渗致密砂岩，注入性受破裂压力与孔喉控制。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Reef Carbonate Buildup",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "生物礁碳酸盐岩体，常具高孔高渗与陡峭侧翼。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Fluvial-Deltaic Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "河流-三角洲砂岩，砂体连通性受河道几何控制。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Aeolian Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "风成砂岩，粒度均一、横向连续性好。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Turbidite Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "浊积砂岩，砂泥互层导致垂向封闭性差异大。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Mt. Simon Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "美国伊利诺伊盆地寒武系砂岩，Decatur 工业规模封存项目的注入层。",
+   "reference": "Finley et al. (2013) Energy Procedia 37"
+  },
+  {
+   "name": "Utsira Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "北海 Sleipner 的 Utsira 砂岩，全球最早的海上工业规模 CO2 封存注入层。",
+   "reference": "Chadwick et al. (2004) Energy 29"
+  },
+  {
+   "name": "Tubåen Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "Snøhvit 项目的注入层，因压力上升过快而后改为 Stø 组。",
+   "reference": "Hansen et al. (2013) Energy Procedia 37"
+  },
+  {
+   "name": "Stø Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "Snøhvit 项目 2011 年后接替 Tubåen 的注入层。",
+   "reference": "Hansen et al. (2013) Energy Procedia 37"
+  },
+  {
+   "name": "Johansen Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "挪威北海候选封存单元，属侏罗系砂岩。",
+   "reference": "Norwegian Petroleum Directorate (2011) CO2 Storage Atlas, Norwegian North Sea"
+  },
+  {
+   "name": "Frio Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "美国墨西哥湾岸 Frio 组，Frio Brine Pilot 的注入层。",
+   "reference": "Hovorka et al. (2006) Environmental Geosciences 13"
+  },
+  {
+   "name": "Latrobe Group",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "澳大利亚 Gippsland 盆地 Latrobe 群，Otway 项目的储层。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "name": "Midale Beds",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "加拿大 Williston 盆地 Midale 层，Weyburn-Midale CO2-EOR 与封存项目的注入层。",
+   "reference": "Whittaker et al. (2011) Energy Procedia 4"
+  },
+  {
+   "name": "Bunter Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "英国南部北海三叠系砂岩，被评估为大型封存单元。",
+   "reference": "British Geological Survey CO2 storage appraisal (Bentham et al. 2014)"
+  },
+  {
+   "name": "Rotliegend Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "南二叠盆地最主要的储层，上覆 Zechstein 蒸发岩盖层。",
+   "reference": "Glennie (1997) Petroleum Geology of the North Sea"
+  },
+  {
+   "name": "Captain Sandstone",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "英国北海 Captain 砂岩，Goldeneye 封存项目目标层。",
+   "reference": "Shell/SSE Goldeneye CO2 storage project documentation"
+  },
+  {
+   "name": "Arbuckle Group",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "美国堪萨斯 Arbuckle 群咸水层，被大量用于液体处置，压力监测数据丰富。",
+   "reference": "Kansas Geological Survey Arbuckle brine disposal studies"
+  },
+  {
+   "name": "Storage Complex",
+   "entity_type": "geologicalbody",
+   "dimension": "reservoir",
+   "description": "法规意义上的封存复合体：储层 + 盖层 + 次生封闭单元。",
+   "reference": "EU Directive 2009/31/EC Art.3(6)"
+  },
+  {
+   "name": "Residual Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "CO2 被毛管力锁在孔隙中成为不连续残余相，随运移路径增长而增强。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Solubility Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "CO2 溶于地层水，溶解态密度略大于水，产生对流混合。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Mineral Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "CO2 与岩石反应生成碳酸盐矿物，时间尺度最长但最永久。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Structural Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "背斜或断层封闭形成的构造圈闭阻止 CO2 继续上浮。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Stratigraphic Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "岩性尖灭或相变形成的非构造圈闭。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Capillary Trapping",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "毛管压力束缚 CO2 相，与残余捕集共同决定羽流停止运移的位置。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "CO2 Plume Migration",
+   "entity_type": "process",
+   "dimension": "reservoir",
+   "description": "超临界 CO2 在浮力驱动下的运移路径，受储层非均质性与地形控制。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Storage Capacity Estimate",
+   "entity_type": "parameter",
+   "dimension": "reservoir",
+   "description": "封存容量估算，不同方法（CSLF/DOE/USGS）之间可差一个数量级。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Normal Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "正断层，最大主应力近垂直，注入引起的应力路径易促使其重新活化。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Reverse Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "逆断层，最大水平应力近垂直断层走向，抗滑安全系数对孔隙压力最敏感。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Strike-Slip Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "走滑断层，最大与最小水平应力均近水平。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Thrust Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "低角度逆冲断层，常构成侧向封闭。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Oblique-Slip Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "斜滑断层，兼具走向与倾滑分量。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Listric Normal Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "上陡下缓的铲状正断层，常伴生滚动背斜圈闭。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Growth Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "同沉积断层，两盘地层厚度差异显著。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Fault Core",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "断层核部，粒度细化、常为渗流障壁。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "name": "Fault Damage Zone",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "断层核外侧的裂缝密集带，通常提高渗透率。",
+   "reference": "Kim et al. (2004) J. Struct. Geol. 26"
+  },
+  {
+   "name": "Fault Gouge",
+   "entity_type": "material",
+   "dimension": "fault",
+   "description": "断层泥，未固结细粒断层岩，含黏土时封闭性显著提高。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "name": "Cataclasite",
+   "entity_type": "material",
+   "dimension": "fault",
+   "description": "碎裂岩，固结的细粒断层岩。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "name": "Fracture Process Zone",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "断层端部的破裂过程区，微裂缝密度向外递减。",
+   "reference": "Kim et al. (2004) J. Struct. Geol. 26"
+  },
+  {
+   "name": "Relay Ramp",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "两条断层叠覆段的连接带，常为渗流优势通道。",
+   "reference": "Walsh & Watterson (1991) Geol. Soc. Spec. Publ. 56"
+  },
+  {
+   "name": "Fault Zone Architecture",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "断层核 + 损伤带的分带结构，决定断层是通道还是障壁。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "name": "Fault Permeability Structure",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "断层带渗透率的空间分布，沿走向与垂向均可差数个数量级。",
+   "reference": "Barton et al. (1995) Geology 23"
+  },
+  {
+   "name": "Fault Transmissibility Multiplier",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "油藏模拟中用于折算断层传导能力的乘子。",
+   "reference": "Manzocchi et al. (1999) Petroleum Geoscience 5"
+  },
+  {
+   "name": "Shale Smear",
+   "entity_type": "material",
+   "dimension": "fault",
+   "description": "泥岩层被拖曳进断层面形成的连续泥质涂抹，降低跨断层渗漏。",
+   "reference": "Lindsay et al. (1993) Norw. Pet. Soc. Spec. Publ. 3"
+  },
+  {
+   "name": "Clay Smear",
+   "entity_type": "material",
+   "dimension": "fault",
+   "description": "黏土质层沿断层面的涂抹，连续性决定封闭能力。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "name": "Juxtaposition Seal",
+   "entity_type": "process",
+   "dimension": "fault",
+   "description": "储层与非渗透层跨断层并置形成的封闭。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "name": "Fault Seal Analysis",
+   "entity_type": "technology",
+   "dimension": "fault",
+   "description": "用 SGR（泥岩涂抹潜力）等指标定量评价断层封闭性。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "name": "Slip Tendency",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "剪应力与有效正应力之比 Ts = τ/σ'n，超过摩擦系数即活化。",
+   "reference": "Morris et al. (1996) Geology 24"
+  },
+  {
+   "name": "Dilation Tendency",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "断层面上正应力与差应力的比值，指示张性开启倾向。",
+   "reference": "Ferrill & Morris (2003) J. Struct. Geol. 25"
+  },
+  {
+   "name": "Critically Stressed Fault",
+   "entity_type": "geologicalbody",
+   "dimension": "fault",
+   "description": "处于摩擦临界状态的断层，孔隙压力小幅上升即可触发滑动。",
+   "reference": "Barton et al. (1995) Geology 23"
+  },
+  {
+   "name": "Fault Slip Rate",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "断层滑动速率，与诱发地震震级和能量释放相关。",
+   "reference": "Scholz (2019) The Mechanics of Earthquakes and Faulting"
+  },
+  {
+   "name": "Fault Reactivation Pressure",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "使断层达到摩擦临界所需的孔隙压力，即本项目的 pp_crit。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "name": "Fault Damage Zone Width",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "损伤带宽度，随断层位移量呈幂律增长。",
+   "reference": "Kim et al. (2004) J. Struct. Geol. 26"
+  },
+  {
+   "name": "Induced Seismicity Magnitude",
+   "entity_type": "parameter",
+   "dimension": "fault",
+   "description": "注入诱发地震的震级，受断层面积与应力降控制。",
+   "reference": "Scholz (2019) The Mechanics of Earthquakes and Faulting"
+  },
+  {
+   "name": "Zechstein Halite",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "二叠系 Zechstein 盐岩，南二叠盆地的区域盖层，自封闭性极强。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Zechstein Anhydrite",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "Zechstein 硬石膏，盐岩序列顶底的致密层。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "name": "Nordland Shale",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "北海 Sleipner 的 Utsira 砂岩之上盖层，4D 地震显示 CO2 未穿过。",
+   "reference": "Chadwick et al. (2004) Energy 29"
+  },
+  {
+   "name": "Kimmeridge Clay Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "北海侏罗系主要烃源岩，同时是多个油气田的区域盖层。",
+   "reference": "British Geological Survey North Sea lithostratigraphy"
+  },
+  {
+   "name": "Opalinus Clay",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "瑞士侏罗系黏土岩，自封闭性（self-sealing）被 Mont Terri 地下实验室长期验证。",
+   "reference": "Bossart et al. (2002) Engineering Geology 64"
+  },
+  {
+   "name": "Pierre Shale",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "Williston 盆地白垩系页岩，Weyburn-Midale 项目的区域盖层。",
+   "reference": "Whittaker et al. (2011) Energy Procedia 4"
+  },
+  {
+   "name": "Eau Claire Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "伊利诺伊盆地上覆 Mt. Simon 的区域盖层。",
+   "reference": "Finley et al. (2013) Energy Procedia 37"
+  },
+  {
+   "name": "Mercia Mudstone Group",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "英国三叠系泥石群，东爱尔兰海与陆上的区域盖层。",
+   "reference": "British Geological Survey CO2 storage appraisal"
+  },
+  {
+   "name": "Oxford Clay Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "英国侏罗系厚层黏土岩，兼具源岩与盖层作用。",
+   "reference": "British Geological Survey onshore Jurassic stratigraphy"
+  },
+  {
+   "name": "Gault Clay Formation",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "英国下白垩统黏土岩，英国陆上封存评估中的关键盖层。",
+   "reference": "British Geological Survey CO2 storage appraisal"
+  },
+  {
+   "name": "Boom Clay",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "比利时中新统黏土，低渗透、强自封闭，被用于地下实验室研究。",
+   "reference": "Belgian Nuclear Research Centre (SCK CEN) Boom Clay studies, Mol"
+  },
+  {
+   "name": "Evaporite Caprock",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "蒸发岩盖层，渗透率近零且具塑性，裂缝可自愈。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Halite Seal",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "盐岩封闭层，毛管进入压力极高，但遇淡水可溶解。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Anhydrite Seal",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "硬石膏封闭层，脆性高于盐岩，易发育裂缝。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Shale Caprock",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "页岩盖层，封闭性来自高毛管进入压力而非绝对不渗透。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Mudstone Caprock",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "泥岩盖层，最常见的区域封闭岩性。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Siltstone Caprock",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "粉砂岩盖层，孔喉较粗，封闭能力弱于泥岩。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Marl Caprock",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "泥灰岩盖层，碳酸盐含量高，遇酸性流体反应性强。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Regional Top Seal",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "覆盖整个盆地或次级盆地的区域性盖层。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Lateral Seal",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "侧向封闭，可由相变、断层或地层尖灭提供。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Capillary Seal",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "靠毛管进入压力阻止非润湿相 CO2 进入盖层孔隙。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Capillary Entry Pressure",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "CO2 突破盖层所需的毛管压力阈值，与孔喉半径成反比。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Seal Bypass System",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "盖层被断层、裂缝、侵入体或管涌绕过的通道体系。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "name": "Caprock Membrane Seal",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "盖层完整无裂缝时，靠毛管压力形成的薄膜式封闭。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "name": "Caprock Hydraulic Seal",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "盖层渗透率极低且压力梯度不足以驱动流动时的封闭。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "name": "Caprock Self-Sealing",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "裂缝或渗漏通道被矿物沉淀、黏土膨胀或盐岩蠕变重新封闭。",
+   "reference": "Bossart et al. (2002) Engineering Geology 64"
+  },
+  {
+   "name": "Caprock Geomechanical Damage",
+   "entity_type": "risk",
+   "dimension": "caprock",
+   "description": "注入引起应力与孔隙压力变化导致盖层产生新的破裂。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Caprock Tensile Failure",
+   "entity_type": "risk",
+   "dimension": "caprock",
+   "description": "孔隙压力超过最小主应力与抗拉强度之和时盖层被张裂。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Caprock Shear Failure",
+   "entity_type": "risk",
+   "dimension": "caprock",
+   "description": "盖层内部剪应力超过强度导致剪切破坏。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Caprock Fracture Reopening",
+   "entity_type": "risk",
+   "dimension": "caprock",
+   "description": "已有裂缝在孔隙压力上升后重新张开成为渗漏通道。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Caprock Permeability",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "盖层渗透率，泥岩常在 1e-9 到 1e-7 D 量级，盐岩近零。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Caprock Thickness",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "盖层厚度，决定毛管封闭的可靠性与抗破坏余量。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Caprock Brittleness Index",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "脆性指数越高，盖层越容易产生贯通裂缝而非塑性变形。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Caprock Clay Content",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "黏土含量，提高毛管进入压力并增强自封闭能力。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Smectite Swelling",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "蒙脱石遇水膨胀，可封闭裂缝也可能造成井壁失稳。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "CO2-Brine-Rock Reaction in Caprock",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "酸性流体与盖层矿物反应，可能溶蚀提高渗透率或沉淀自封闭。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Caprock Diffusion",
+   "entity_type": "process",
+   "dimension": "caprock",
+   "description": "溶解态 CO2 在盖层中的分子扩散，速率极慢但时间尺度长。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Salt Weld",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "盐岩流动后残留的薄层焊接带，封闭性可能被削弱。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Salt Diapir Seal",
+   "entity_type": "geologicalbody",
+   "dimension": "caprock",
+   "description": "盐丘侧翼构成的侧向封闭，常见于墨西哥湾与北海。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Caprock Column Height Capacity",
+   "entity_type": "parameter",
+   "dimension": "caprock",
+   "description": "盖层毛管进入压力所能支撑的最大 CO2 柱高，本项目 caprock.py 的 h_max。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Surface Casing",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "表层套管，隔离浅层淡水。",
+   "reference": "API Standard 65-Part 2, Isolating Potential Flow Zones"
+  },
+  {
+   "name": "Intermediate Casing",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "技术套管，封隔不稳定地层与压力过渡带。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Production Casing",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "生产套管，CO2 注入井中直接承受酸性环境。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Casing Shoe",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "套管鞋，套管柱最下端，是水泥返高的关键控制点。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Liner Hanger",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "尾管悬挂器，连接尾管与上层套管。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Cement Plug",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "水泥塞，用于封堵井段或弃井。",
+   "reference": "Vrålstad et al. (2016) J. Pet. Sci. Eng. 147"
+  },
+  {
+   "name": "Wellhead",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "井口装置，承受注入压力并密封各层环空。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Downhole Safety Valve",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "井下安全阀，失效时自动关闭防止失控流。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Packer Element",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "封隔器胶筒，弹性体在 CO2 环境中易老化。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Tubing String",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "油管柱，CO2 注入的主要流道。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Perforation Interval",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "射孔段，决定注入流体进入储层的位置与流量分配。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Well Integrity Failure",
+   "entity_type": "risk",
+   "dimension": "wellbore",
+   "description": "井在全生命周期内可靠封隔流体的能力。",
+   "reference": "ISO 16530-1:2017 Well integrity"
+  },
+  {
+   "name": "Sustained Casing Pressure",
+   "entity_type": "risk",
+   "dimension": "wellbore",
+   "description": "环空持续带压，是井屏障失效的直接指示。",
+   "reference": "API Recommended Practice 90, Annular Casing Pressure Management"
+  },
+  {
+   "name": "Annular Casing Pressure",
+   "entity_type": "parameter",
+   "dimension": "wellbore",
+   "description": "套管环空压力，用于判断屏障是否泄漏。",
+   "reference": "API Recommended Practice 90"
+  },
+  {
+   "name": "Legacy Well Integrity",
+   "entity_type": "risk",
+   "dimension": "wellbore",
+   "description": "历史老井的完整性风险，是封存场地最大的不确定性来源之一。",
+   "reference": "Zhang & Bachu (2011) Int. J. Greenh. Gas Control 5"
+  },
+  {
+   "name": "Well Abandonment",
+   "entity_type": "process",
+   "dimension": "wellbore",
+   "description": "弃井作业，需保证长期（千年尺度）封隔。",
+   "reference": "Vrålstad et al. (2016) J. Pet. Sci. Eng. 147"
+  },
+  {
+   "name": "Plug and Abandonment",
+   "entity_type": "process",
+   "dimension": "wellbore",
+   "description": "P&A：下入水泥塞与桥塞永久封堵井筒。",
+   "reference": "Vrålstad et al. (2016) J. Pet. Sci. Eng. 147"
+  },
+  {
+   "name": "Cement Bond Log",
+   "entity_type": "technology",
+   "dimension": "wellbore",
+   "description": "声幅测井，评价水泥与套管/地层的胶结质量。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "Ultrasonic Casing Inspection",
+   "entity_type": "technology",
+   "dimension": "wellbore",
+   "description": "超声成像测井，检测套管壁厚与腐蚀。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "name": "CO2-Resistant Cement",
+   "entity_type": "material",
+   "dimension": "wellbore",
+   "description": "抗 CO2 腐蚀水泥体系，通过降低钙硅比抑制碳化。",
+   "reference": "Kutchko et al. (2008) Environ. Sci. Technol. 42"
+  },
+  {
+   "name": "Geopolymer Cement",
+   "entity_type": "material",
+   "dimension": "wellbore",
+   "description": "地聚合物水泥，无钙体系，抗酸性流体侵蚀。",
+   "reference": "Duguid & Scherer (2010) Int. J. Greenh. Gas Control 4"
+  },
+  {
+   "name": "Cement Carbonation",
+   "entity_type": "process",
+   "dimension": "wellbore",
+   "description": "水泥中 C-S-H 与 CO2 反应生成碳酸钙，先致密后溶蚀。",
+   "reference": "Kutchko et al. (2008) Environ. Sci. Technol. 42"
+  },
+  {
+   "name": "Casing Corrosion",
+   "entity_type": "process",
+   "dimension": "wellbore",
+   "description": "套管在含 CO2/H2S 地层水中腐蚀减薄。",
+   "reference": "Carey et al. (2007) Int. J. Greenh. Gas Control 1"
+  },
+  {
+   "name": "Wellbore Leakage Pathway",
+   "entity_type": "risk",
+   "dimension": "wellbore",
+   "description": "沿井筒的泄漏通道：套管-水泥界面、水泥-地层界面或水泥本体。",
+   "reference": "Zhang & Bachu (2011) Int. J. Greenh. Gas Control 5"
+  },
+  {
+   "name": "Injection Well Injectivity",
+   "entity_type": "parameter",
+   "dimension": "wellbore",
+   "description": "注入井的注入能力，受储层渗透率、表皮系数与破裂压力限制。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Wellbore Thermal Stress",
+   "entity_type": "parameter",
+   "dimension": "wellbore",
+   "description": "冷 CO2 注入引起井筒与近井地层热应力，可诱发裂缝。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "name": "Wellbore Two-Phase Flow",
+   "entity_type": "process",
+   "dimension": "wellbore",
+   "description": "井筒内 CO2 沿程相态变化导致的兩相流动与压力分布。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Well Barrier Element",
+   "entity_type": "wellborecomponent",
+   "dimension": "wellbore",
+   "description": "井屏障单元：套管、水泥环、封隔器、井口等各自独立的封隔件。",
+   "reference": "ISO 16530-1:2017 Well integrity"
+  },
+  {
+   "name": "Time-Lapse 4D Seismic",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "重复三维地震，通过差异成像追踪 CO2 羽流。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "name": "Baseline 3D Seismic",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "注入前采集的三维地震，是 4D 差异的参照。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "name": "InSAR Surface Deformation",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "合成孔径雷达干涉测量，监测注入引起的地表形变。",
+   "reference": "Vasco et al. (2010) Geophys. Res. Lett. 37"
+  },
+  {
+   "name": "Distributed Acoustic Sensing",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "光纤分布式声波传感（DAS），可沿全井段连续记录。",
+   "reference": "Daley et al. (2013) The Leading Edge 32"
+  },
+  {
+   "name": "Distributed Temperature Sensing",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "光纤分布式温度传感（DTS），用于识别注入层位与窜流。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "name": "Downhole Pressure Gauge",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "井下压力计，是判断注入是否接近破裂压力的直接数据。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "name": "Observation Well",
+   "entity_type": "wellborecomponent",
+   "dimension": "monitoring",
+   "description": "观测井，用于监测羽流到达时间与压力响应。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "name": "Groundwater Monitoring Well",
+   "entity_type": "wellborecomponent",
+   "dimension": "monitoring",
+   "description": "浅层地下水监测井，监测 USDW 水质是否受影响。",
+   "reference": "US EPA UIC Class VI, 40 CFR 146.93"
+  },
+  {
+   "name": "Soil Gas Flux Monitoring",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "地表土壤气通量监测，用于发现浅层渗漏。",
+   "reference": "Beaubien et al. (2008) Int. J. Greenh. Gas Control 2"
+  },
+  {
+   "name": "Accumulation Chamber Method",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "静态箱法测土壤 CO2 通量，点位稀疏、灵敏度受背景通量限制。",
+   "reference": "Beaubien et al. (2008) Int. J. Greenh. Gas Control 2"
+  },
+  {
+   "name": "Perfluorocarbon Tracer",
+   "entity_type": "material",
+   "dimension": "monitoring",
+   "description": "全氟碳示踪剂，背景浓度极低，适合长期泄漏示踪。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "name": "Noble Gas Tracer",
+   "entity_type": "material",
+   "dimension": "monitoring",
+   "description": "惰性气体示踪剂，化学稳定、不参与反应。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "name": "Tracer Test",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "示踪剂试验，用于测定运移路径与到达时间。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "name": "Electrical Resistivity Tomography",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "电阻率层析成像（ERT），对孔隙流体含盐度/气饱和度敏感。",
+   "reference": "Bergmann et al. (2012) Geophysics 77"
+  },
+  {
+   "name": "Cross-Well Seismic",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "井间地震，分辨率高于地表地震但覆盖范围小。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "name": "Passive Microseismic Monitoring",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "被动微地震监测，追踪注入诱发的微破裂位置与震级。",
+   "reference": "Verdon et al. (2013) Int. J. Greenh. Gas Control 19"
+  },
+  {
+   "name": "Time-Lapse Gravimetry",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "重复重力测量，直接感知地下质量变化（CO2 密度低）。",
+   "reference": "Alnes et al. (2011) Geophysics 76"
+  },
+  {
+   "name": "Surface Tiltmeter",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "地表倾斜仪，测量注入引起的微小地面倾斜。",
+   "reference": "Mathieson et al. (2011) The Leading Edge 30"
+  },
+  {
+   "name": "Measurement Monitoring and Verification",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "MMV：封存项目的测量-监测-验证体系。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "name": "Monitoring Plan",
+   "entity_type": "regulation",
+   "dimension": "monitoring",
+   "description": "监测计划，法规要求的核心文件，须覆盖闭场后阶段。",
+   "reference": "EU Directive 2009/31/EC Annex II"
+  },
+  {
+   "name": "Leakage Detection Threshold",
+   "entity_type": "parameter",
+   "dimension": "monitoring",
+   "description": "监测手段能分辨出的最小泄漏量，决定可保证的检测能力。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "name": "Detection Limit",
+   "entity_type": "parameter",
+   "dimension": "monitoring",
+   "description": "仪器或方法的最小可检测信号。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "name": "Baseline Survey",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "注入前的基线调查，没有基线就没有可比的差异。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "name": "Repeat Survey",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "重复测量，4D/时移方法的前提。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "name": "Wellhead Pressure Monitoring",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "井口压力监测，最便宜也最先报警的手段。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "name": "Plume Monitoring",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "羽流形态与位置的持续追踪，是 4D 地震的主要目标。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "name": "Seismic Attribute Analysis",
+   "entity_type": "technology",
+   "dimension": "monitoring",
+   "description": "地震属性分析，从振幅/频率变化中提取流体信号。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "name": "EU CCS Directive 2009/31/EC",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "欧盟 CCS 指令，确立封存许可、监测、闭场与责任转移框架。",
+   "reference": "EU Directive 2009/31/EC"
+  },
+  {
+   "name": "EU Emissions Trading System",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "欧盟排放交易体系，封存的 CO2 不计入排放。",
+   "reference": "EU Directive 2003/87/EC"
+  },
+  {
+   "name": "EU ETS Monitoring and Reporting Regulation",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "EU ETS 的监测与报告条例（MRR），规定封存量的核算方法。",
+   "reference": "Commission Regulation (EU) 2018/2066"
+  },
+  {
+   "name": "US EPA UIC Class VI",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "美国地下注入控制 Class VI 井规则，专用于 CO2 地质封存。",
+   "reference": "US EPA 40 CFR Part 146 Subpart H"
+  },
+  {
+   "name": "US Safe Drinking Water Act",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "安全饮用水法，UIC 程序的法律基础。",
+   "reference": "US Safe Drinking Water Act (1974), 42 U.S.C. §300f"
+  },
+  {
+   "name": "US Clean Air Act Section 45Q",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "45Q 税收抵免，按封存量给予补贴，是美国 CCS 的主要经济驱动。",
+   "reference": "26 U.S.C. §45Q"
+  },
+  {
+   "name": "London Protocol",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "伦敦议定书，2006 年修正案允许跨境 CO2 海底封存。",
+   "reference": "London Protocol (1996), 2006 amendment"
+  },
+  {
+   "name": "OSPAR Convention",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "东北大西洋海洋环境保护公约，2007 年决议允许 CO2 海底封存。",
+   "reference": "OSPAR Decision 2007/2"
+  },
+  {
+   "name": "ISO 27914",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "CO2 地质封存国际标准，覆盖选址、注入、监测与闭场。",
+   "reference": "ISO 27914:2017"
+  },
+  {
+   "name": "ISO 27916",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "CO2-EOR 中封存量量化的国际标准。",
+   "reference": "ISO 27916:2019"
+  },
+  {
+   "name": "CSA Z741",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "加拿大 CO2 地质封存标准。",
+   "reference": "CSA Z741-12"
+  },
+  {
+   "name": "Germany KSpTG",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "德国二氧化碳封存法，限定年封存规模并设审查条款。",
+   "reference": "Kohlendioxid-Speicherungsgesetz (KSpTG, 2012)"
+  },
+  {
+   "name": "Australia Offshore Petroleum and Greenhouse Gas Storage Act",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "澳大利亚海上油气与温室气体封存法，设立封存许可与责任移交制度。",
+   "reference": "Offshore Petroleum and Greenhouse Gas Storage Act 2006 (Cth)"
+  },
+  {
+   "name": "China Carbon Neutrality Target 2060",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "中国 2060 碳中和目标，是 CCUS 部署的政策前提。",
+   "reference": "中国 2060 碳中和目标（2020 年联合国大会宣布）"
+  },
+  {
+   "name": "Storage Permit",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "封存许可，授权在特定封存复合体内注入 CO2。",
+   "reference": "EU Directive 2009/31/EC Art.6"
+  },
+  {
+   "name": "Site Closure Certification",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "闭场认证，证明封存复合体长期稳定并可移交责任。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "name": "Financial Security Provision",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "财务担保，覆盖监测、修复与闭场成本。",
+   "reference": "EU Directive 2009/31/EC Art.19"
+  },
+  {
+   "name": "Long-Term Liability Transfer",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "长期责任从运营者移交政府的条件与时限。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "name": "Post-Closure Monitoring Period",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "闭场后监测期，欧盟指令要求至少 20 年。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "name": "Area of Review",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "审查区：Class VI 规则要求圈定可能受压力影响的全部井。",
+   "reference": "US EPA 40 CFR 146.86"
+  },
+  {
+   "name": "Corrective Action Plan",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "纠正行动计划，处理审查区内未妥善封堵的老井。",
+   "reference": "US EPA 40 CFR 146.87"
+  },
+  {
+   "name": "Emergency and Remedial Response Plan",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "应急与补救响应预案，泄漏或井喷时的处置流程。",
+   "reference": "US EPA 40 CFR 146.94"
+  },
+  {
+   "name": "Testing and Monitoring Plan",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "测试与监测计划，须说明方法、频率与检测限。",
+   "reference": "US EPA 40 CFR 146.90"
+  },
+  {
+   "name": "Storage Complex Risk Assessment",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "封存复合体风险评估，欧盟指令附件 I 规定的必备内容。",
+   "reference": "EU Directive 2009/31/EC Annex I"
+  },
+  {
+   "name": "Public Consultation Requirement",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "公众咨询要求，封存许可审批的法定环节。",
+   "reference": "EU Directive 2009/31/EC Art.10"
+  },
+  {
+   "name": "Transboundary CO2 Transport Agreement",
+   "entity_type": "regulation",
+   "dimension": "regulation",
+   "description": "跨境 CO2 运输协定，伦敦议定书修正案后成为可能。",
+   "reference": "London Protocol 2009 amendment; EU Directive 2009/31/EC Art.24"
+  }
+ ],
+ "relations": [
+  {
+   "from": "Zechstein Halite",
+   "to": "Rotliegend Sandstone",
+   "keywords": "seals",
+   "description": "Zechstein 盐岩直接覆盖 Rotliegend 砂岩，构成区域顶封。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "from": "Zechstein Anhydrite",
+   "to": "Zechstein Halite",
+   "keywords": "underlies",
+   "description": "硬石膏位于盐岩序列底部，与储层接触。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "from": "Nordland Shale",
+   "to": "Utsira Formation",
+   "keywords": "seals",
+   "description": "Nordland 页岩是 Utsira 砂岩的直接盖层，4D 地震证实 CO2 未穿透。",
+   "reference": "Chadwick et al. (2004) Energy 29"
+  },
+  {
+   "from": "Kimmeridge Clay Formation",
+   "to": "Captain Sandstone",
+   "keywords": "seals",
+   "description": "Kimmeridge 黏土岩是北海多个储层的区域盖层。",
+   "reference": "British Geological Survey North Sea lithostratigraphy"
+  },
+  {
+   "from": "Pierre Shale",
+   "to": "Midale Beds",
+   "keywords": "seals",
+   "description": "Pierre 页岩覆盖 Midale 层，是 Weyburn 项目的区域盖层。",
+   "reference": "Whittaker et al. (2011) Energy Procedia 4"
+  },
+  {
+   "from": "Eau Claire Formation",
+   "to": "Mt. Simon Sandstone",
+   "keywords": "seals",
+   "description": "Eau Claire 组是 Mt. Simon 砂岩的区域顶封。",
+   "reference": "Finley et al. (2013) Energy Procedia 37"
+  },
+  {
+   "from": "Mercia Mudstone Group",
+   "to": "Bunter Sandstone",
+   "keywords": "seals",
+   "description": "Mercia 泥石群覆盖 Bunter 砂岩，是英国陆上的关键盖层。",
+   "reference": "British Geological Survey CO2 storage appraisal"
+  },
+  {
+   "from": "Capillary Entry Pressure",
+   "to": "Caprock Column Height Capacity",
+   "keywords": "controls",
+   "description": "毛管进入压力决定盖层能支撑的最大 CO2 柱高。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Caprock Thickness",
+   "to": "Caprock Column Height Capacity",
+   "keywords": "constrains",
+   "description": "盖层厚度限制可支撑柱高的上限并影响抗破坏余量。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Caprock Clay Content",
+   "to": "Capillary Entry Pressure",
+   "keywords": "increases",
+   "description": "黏土含量提高孔喉毛管阻力，从而提高进入压力。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Smectite Swelling",
+   "to": "Caprock Self-Sealing",
+   "keywords": "contributes_to",
+   "description": "蒙脱石膨胀是盖层自封闭的机制之一。",
+   "reference": "Bossart et al. (2002) Engineering Geology 64"
+  },
+  {
+   "from": "CO2-Brine-Rock Reaction in Caprock",
+   "to": "Caprock Self-Sealing",
+   "keywords": "may_enhance",
+   "description": "矿物沉淀可封闭裂缝，但溶蚀也可能反向提高渗透率。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "CO2-Brine-Rock Reaction in Caprock",
+   "to": "Caprock Permeability",
+   "keywords": "alters",
+   "description": "反应改变孔喉结构，渗透率可升可降。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Caprock Tensile Failure",
+   "to": "Caprock Fracture Reopening",
+   "keywords": "causes",
+   "description": "张性破坏直接产生新裂缝或张开已有裂缝。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "from": "Caprock Shear Failure",
+   "to": "Caprock Geomechanical Damage",
+   "keywords": "is_a_form_of",
+   "description": "剪切破坏是盖层地质力学损伤的一种形式。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "from": "Caprock Fracture Reopening",
+   "to": "Seal Bypass System",
+   "keywords": "creates",
+   "description": "重新张开的裂缝构成盖层旁通系统。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "from": "Fault Damage Zone",
+   "to": "Seal Bypass System",
+   "keywords": "can_form",
+   "description": "断层损伤带可成为穿透盖层的渗漏通道。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "from": "Caprock Membrane Seal",
+   "to": "Capillary Seal",
+   "keywords": "is_a_form_of",
+   "description": "薄膜封闭靠毛管压力实现，两者是同一机制的不同表述。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "from": "Salt Weld",
+   "to": "Caprock Hydraulic Seal",
+   "keywords": "may_compromise",
+   "description": "焊接带变薄可能削弱盐岩盖层的水力封闭能力。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Evaporite Caprock",
+   "to": "Halite Seal",
+   "keywords": "includes",
+   "description": "蒸发岩盖层包含盐岩封闭层。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Evaporite Caprock",
+   "to": "Anhydrite Seal",
+   "keywords": "includes",
+   "description": "蒸发岩盖层包含硬石膏封闭层。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Opalinus Clay",
+   "to": "Caprock Self-Sealing",
+   "keywords": "exhibits",
+   "description": "Opalinus 黏土岩的自封闭性在 Mont Terri 实验室被长期观测到。",
+   "reference": "Bossart et al. (2002) Engineering Geology 64"
+  },
+  {
+   "from": "Slip Tendency",
+   "to": "Fault Reactivation Pressure",
+   "keywords": "determines",
+   "description": "滑移倾向超过摩擦系数时所需孔隙压力即活化压力。",
+   "reference": "Morris et al. (1996) Geology 24"
+  },
+  {
+   "from": "Normal Fault",
+   "to": "Slip Tendency",
+   "keywords": "has",
+   "description": "正断层的滑移倾向由应力状态与断层产状共同决定。",
+   "reference": "Morris et al. (1996) Geology 24"
+  },
+  {
+   "from": "Critically Stressed Fault",
+   "to": "Fault Reactivation Pressure",
+   "keywords": "lowers",
+   "description": "临界应力状态的断层只需很小的孔隙压力增量即可活化。",
+   "reference": "Barton et al. (1995) Geology 23"
+  },
+  {
+   "from": "Fault Core",
+   "to": "Fault Permeability Structure",
+   "keywords": "reduces",
+   "description": "断层核的粒度细化降低渗透率，常形成障壁。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "from": "Fault Damage Zone",
+   "to": "Fault Permeability Structure",
+   "keywords": "increases",
+   "description": "损伤带的裂缝网络提高渗透率，形成通道。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "from": "Shale Smear",
+   "to": "Fault Transmissibility Multiplier",
+   "keywords": "reduces",
+   "description": "泥岩涂抹连续性越好，跨断层传导乘子越低。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "from": "Clay Smear",
+   "to": "Juxtaposition Seal",
+   "keywords": "contributes_to",
+   "description": "黏土涂抹与并置封闭共同决定断层侧向封闭能力。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "from": "Fault Seal Analysis",
+   "to": "Shale Smear",
+   "keywords": "quantifies",
+   "description": "断层封闭性分析用 SGR 量化泥岩涂抹。",
+   "reference": "Yielding et al. (1997) AAPG Bulletin 81"
+  },
+  {
+   "from": "Fault Reactivation Pressure",
+   "to": "Induced Seismicity Magnitude",
+   "keywords": "controls",
+   "description": "超过活化压力后的应力降与断层面积决定诱发地震震级。",
+   "reference": "Scholz (2019) The Mechanics of Earthquakes and Faulting"
+  },
+  {
+   "from": "Fault Slip Rate",
+   "to": "Induced Seismicity Magnitude",
+   "keywords": "scales_with",
+   "description": "滑动速率与地震矩释放相关。",
+   "reference": "Scholz (2019) The Mechanics of Earthquakes and Faulting"
+  },
+  {
+   "from": "Dilation Tendency",
+   "to": "Fault Permeability Structure",
+   "keywords": "predicts",
+   "description": "张性倾向高的断层段在滑动时渗透率上升。",
+   "reference": "Ferrill & Morris (2003) J. Struct. Geol. 25"
+  },
+  {
+   "from": "Relay Ramp",
+   "to": "Fault Permeability Structure",
+   "keywords": "enhances",
+   "description": "叠覆带的破裂密度高，常为垂向渗流优势通道。",
+   "reference": "Walsh & Watterson (1991) Geol. Soc. Spec. Publ. 56"
+  },
+  {
+   "from": "Residual Trapping",
+   "to": "CO2 Plume Migration",
+   "keywords": "slows",
+   "description": "残余捕集随运移路径增加而累积，抑制羽流继续前进。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Solubility Trapping",
+   "to": "CO2 Plume Migration",
+   "keywords": "removes",
+   "description": "溶解态 CO2 随水流迁移，把自由相从羽流中移走。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Structural Trapping",
+   "to": "CO2 Plume Migration",
+   "keywords": "stops",
+   "description": "构造圈闭阻止羽流继续上浮。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Capillary Trapping",
+   "to": "Residual Trapping",
+   "keywords": "is_a_form_of",
+   "description": "毛管捕集是残余捕集的物理机制。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Mineral Trapping",
+   "to": "Solubility Trapping",
+   "keywords": "follows",
+   "description": "矿化捕集需要先溶解，因此发生在溶解度捕集之后。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Basalt Formation",
+   "to": "Mineral Trapping",
+   "keywords": "enhances",
+   "description": "玄武岩富含 Ca/Fe/Mg，矿化速率远高于砂岩。",
+   "reference": "Matter et al. (2016) Science 352"
+  },
+  {
+   "from": "Storage Complex",
+   "to": "Deep Saline Aquifer",
+   "keywords": "includes",
+   "description": "封存复合体包含咸水层及其盖层与次生封闭单元。",
+   "reference": "EU Directive 2009/31/EC Art.3(6)"
+  },
+  {
+   "from": "Storage Capacity Estimate",
+   "to": "Deep Saline Aquifer",
+   "keywords": "quantifies",
+   "description": "容量估算针对咸水层的可用孔隙体积。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "from": "Utsira Formation",
+   "to": "Deep Saline Aquifer",
+   "keywords": "is_an_example_of",
+   "description": "Utsira 砂岩是咸水层封存的实例。",
+   "reference": "Chadwick et al. (2004) Energy 29"
+  },
+  {
+   "from": "Mt. Simon Sandstone",
+   "to": "Deep Saline Aquifer",
+   "keywords": "is_an_example_of",
+   "description": "Mt. Simon 砂岩是陆上咸水层封存的实例。",
+   "reference": "Finley et al. (2013) Energy Procedia 37"
+  },
+  {
+   "from": "Sustained Casing Pressure",
+   "to": "Well Integrity Failure",
+   "keywords": "indicates",
+   "description": "环空持续带压是井屏障失效的直接指示。",
+   "reference": "API Recommended Practice 90"
+  },
+  {
+   "from": "Annular Casing Pressure",
+   "to": "Sustained Casing Pressure",
+   "keywords": "is_measured_as",
+   "description": "环空压力是判定持续带压的观测量。",
+   "reference": "API Recommended Practice 90"
+  },
+  {
+   "from": "Cement Carbonation",
+   "to": "Wellbore Leakage Pathway",
+   "keywords": "creates",
+   "description": "碳化先致密后溶蚀，长期可形成沿水泥环的泄漏通道。",
+   "reference": "Kutchko et al. (2008) Environ. Sci. Technol. 42"
+  },
+  {
+   "from": "Casing Corrosion",
+   "to": "Wellbore Leakage Pathway",
+   "keywords": "creates",
+   "description": "套管腐蚀穿孔形成泄漏点。",
+   "reference": "Carey et al. (2007) Int. J. Greenh. Gas Control 1"
+  },
+  {
+   "from": "CO2-Resistant Cement",
+   "to": "Cement Carbonation",
+   "keywords": "mitigates",
+   "description": "低钙硅比水泥抑制碳化速率。",
+   "reference": "Kutchko et al. (2008) Environ. Sci. Technol. 42"
+  },
+  {
+   "from": "Geopolymer Cement",
+   "to": "Cement Carbonation",
+   "keywords": "mitigates",
+   "description": "无钙地聚合物体系不参与碳化反应。",
+   "reference": "Duguid & Scherer (2010) Int. J. Greenh. Gas Control 4"
+  },
+  {
+   "from": "Wellbore Leakage Pathway",
+   "to": "Caprock Column Height Capacity",
+   "keywords": "bypasses",
+   "description": "井筒泄漏绕过盖层毛管封闭，与柱高上限无关。",
+   "reference": "Zhang & Bachu (2011) Int. J. Greenh. Gas Control 5"
+  },
+  {
+   "from": "Legacy Well Integrity",
+   "to": "Wellbore Leakage Pathway",
+   "keywords": "is_a_source_of",
+   "description": "历史老井是封存场地泄漏通道的主要来源。",
+   "reference": "Zhang & Bachu (2011) Int. J. Greenh. Gas Control 5"
+  },
+  {
+   "from": "Plug and Abandonment",
+   "to": "Legacy Well Integrity",
+   "keywords": "remediates",
+   "description": "规范弃井可降低老井完整性风险。",
+   "reference": "Vrålstad et al. (2016) J. Pet. Sci. Eng. 147"
+  },
+  {
+   "from": "Cement Bond Log",
+   "to": "Well Integrity Failure",
+   "keywords": "screens_for",
+   "description": "胶结测井评价水泥环封隔质量，间接判断完整性风险。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "from": "Well Barrier Element",
+   "to": "Well Integrity Failure",
+   "keywords": "prevents",
+   "description": "多个独立屏障单元共同防止完整性失效。",
+   "reference": "ISO 16530-1:2017 Well integrity"
+  },
+  {
+   "from": "Wellbore Thermal Stress",
+   "to": "Caprock Tensile Failure",
+   "keywords": "can_trigger",
+   "description": "冷注入引起的热应力降低近井地层最小主应力，可触发张裂。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "from": "Injection Well Injectivity",
+   "to": "Wellbore Two-Phase Flow",
+   "keywords": "depends_on",
+   "description": "注入能力取决于井筒内两相流的压力分布。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Time-Lapse 4D Seismic",
+   "to": "Plume Monitoring",
+   "keywords": "implements",
+   "description": "4D 地震是羽流监测的主要手段。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "from": "Baseline 3D Seismic",
+   "to": "Time-Lapse 4D Seismic",
+   "keywords": "is_the_reference_for",
+   "description": "基线三维地震是 4D 差异的参照。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "from": "Repeat Survey",
+   "to": "Time-Lapse 4D Seismic",
+   "keywords": "enables",
+   "description": "重复测量是时移方法的前提。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "from": "InSAR Surface Deformation",
+   "to": "Plume Monitoring",
+   "keywords": "complements",
+   "description": "地表形变补充地震的井下约束，覆盖范围大但分辨率低。",
+   "reference": "Vasco et al. (2010) Geophys. Res. Lett. 37"
+  },
+  {
+   "from": "Distributed Acoustic Sensing",
+   "to": "Time-Lapse 4D Seismic",
+   "keywords": "can_substitute_for",
+   "description": "DAS 可在井中提供高密度地震道，替代部分地面检波器。",
+   "reference": "Daley et al. (2013) The Leading Edge 32"
+  },
+  {
+   "from": "Distributed Temperature Sensing",
+   "to": "Well Integrity Failure",
+   "keywords": "screens_for",
+   "description": "DTS 可识别环空窜流与注入层位，用于井完整性诊断。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "from": "Downhole Pressure Gauge",
+   "to": "Fault Reactivation Pressure",
+   "keywords": "measures_proximity_to",
+   "description": "井下压力计提供判断是否接近活化压力的实测数据。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "from": "Passive Microseismic Monitoring",
+   "to": "Induced Seismicity Magnitude",
+   "keywords": "measures",
+   "description": "被动监测给出微地震事件的时空分布与震级。",
+   "reference": "Verdon et al. (2013) Int. J. Greenh. Gas Control 19"
+  },
+  {
+   "from": "Time-Lapse Gravimetry",
+   "to": "Plume Monitoring",
+   "keywords": "constrains",
+   "description": "重复重力直接感知地下质量变化，对 CO2 密度敏感。",
+   "reference": "Alnes et al. (2011) Geophysics 76"
+  },
+  {
+   "from": "Surface Tiltmeter",
+   "to": "InSAR Surface Deformation",
+   "keywords": "complements",
+   "description": "倾斜仪在点位精度上优于 InSAR，但空间覆盖小。",
+   "reference": "Mathieson et al. (2011) The Leading Edge 30"
+  },
+  {
+   "from": "Electrical Resistivity Tomography",
+   "to": "Plume Monitoring",
+   "keywords": "images",
+   "description": "ERT 对流体饱和度变化敏感，可成像羽流剖面。",
+   "reference": "Bergmann et al. (2012) Geophysics 77"
+  },
+  {
+   "from": "Soil Gas Flux Monitoring",
+   "to": "Leakage Detection Threshold",
+   "keywords": "is_limited_by",
+   "description": "土壤气通量的检出能力受自然背景通量波动限制。",
+   "reference": "Beaubien et al. (2008) Int. J. Greenh. Gas Control 2"
+  },
+  {
+   "from": "Accumulation Chamber Method",
+   "to": "Soil Gas Flux Monitoring",
+   "keywords": "implements",
+   "description": "静态箱法是土壤气通量监测的常用实现。",
+   "reference": "Beaubien et al. (2008) Int. J. Greenh. Gas Control 2"
+  },
+  {
+   "from": "Tracer Test",
+   "to": "CO2 Plume Migration",
+   "keywords": "characterises",
+   "description": "示踪试验刻画运移路径与到达时间。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "from": "Perfluorocarbon Tracer",
+   "to": "Tracer Test",
+   "keywords": "is_used_in",
+   "description": "全氟碳示踪剂用于长期泄漏示踪。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "from": "Noble Gas Tracer",
+   "to": "Tracer Test",
+   "keywords": "is_used_in",
+   "description": "惰性气体示踪剂用于分辨溶解与游离相行为。",
+   "reference": "Cook (2014) Geologically Storing Carbon, CSIRO"
+  },
+  {
+   "from": "Observation Well",
+   "to": "Plume Monitoring",
+   "keywords": "supports",
+   "description": "观测井提供羽流到达的直接证据。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Groundwater Monitoring Well",
+   "to": "US EPA UIC Class VI",
+   "keywords": "is_required_by",
+   "description": "Class VI 规则要求监测 USDW 水质。",
+   "reference": "US EPA 40 CFR 146.93"
+  },
+  {
+   "from": "Monitoring Plan",
+   "to": "Measurement Monitoring and Verification",
+   "keywords": "operationalises",
+   "description": "监测计划是 MMV 体系的落地文件。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "from": "Baseline Survey",
+   "to": "Leakage Detection Threshold",
+   "keywords": "determines",
+   "description": "基线的自然波动决定可实现的检出阈值。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "from": "Detection Limit",
+   "to": "Leakage Detection Threshold",
+   "keywords": "bounds",
+   "description": "仪器检出限是泄漏检出阈值的下界。",
+   "reference": "IEAGHG (2012) MMV of CO2 Storage Projects"
+  },
+  {
+   "from": "Cross-Well Seismic",
+   "to": "Plume Monitoring",
+   "keywords": "images",
+   "description": "井间地震提供高分辨率羽流成像。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "from": "Seismic Attribute Analysis",
+   "to": "Time-Lapse 4D Seismic",
+   "keywords": "post_processes",
+   "description": "属性分析从 4D 差异体中提取流体信号。",
+   "reference": "Lumley (2010) The Leading Edge 29"
+  },
+  {
+   "from": "Wellhead Pressure Monitoring",
+   "to": "Well Integrity Failure",
+   "keywords": "screens_for",
+   "description": "井口压力是最早的完整性报警信号。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Storage Permit",
+   "keywords": "requires",
+   "description": "指令要求封存必须持有许可。",
+   "reference": "EU Directive 2009/31/EC Art.6"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Monitoring Plan",
+   "keywords": "requires",
+   "description": "指令附件 II 规定监测计划的内容。",
+   "reference": "EU Directive 2009/31/EC Annex II"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Site Closure Certification",
+   "keywords": "requires",
+   "description": "闭场须经主管机关认证。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Financial Security Provision",
+   "keywords": "requires",
+   "description": "运营者须提供财务担保。",
+   "reference": "EU Directive 2009/31/EC Art.19"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Post-Closure Monitoring Period",
+   "keywords": "sets",
+   "description": "闭场后监测期至少 20 年。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Storage Complex Risk Assessment",
+   "keywords": "requires",
+   "description": "附件 I 规定风险评估的必备要素。",
+   "reference": "EU Directive 2009/31/EC Annex I"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Public Consultation Requirement",
+   "keywords": "requires",
+   "description": "许可审批须经公众咨询。",
+   "reference": "EU Directive 2009/31/EC Art.10"
+  },
+  {
+   "from": "EU CCS Directive 2009/31/EC",
+   "to": "Long-Term Liability Transfer",
+   "keywords": "defines",
+   "description": "指令规定闭场后责任移交的条件。",
+   "reference": "EU Directive 2009/31/EC Art.18"
+  },
+  {
+   "from": "US EPA UIC Class VI",
+   "to": "Area of Review",
+   "keywords": "requires",
+   "description": "Class VI 要求圈定审查区并评估区内全部井。",
+   "reference": "US EPA 40 CFR 146.86"
+  },
+  {
+   "from": "US EPA UIC Class VI",
+   "to": "Corrective Action Plan",
+   "keywords": "requires",
+   "description": "审查区内问题井须有纠正行动计划。",
+   "reference": "US EPA 40 CFR 146.87"
+  },
+  {
+   "from": "US EPA UIC Class VI",
+   "to": "Testing and Monitoring Plan",
+   "keywords": "requires",
+   "description": "Class VI 要求提交测试与监测计划。",
+   "reference": "US EPA 40 CFR 146.90"
+  },
+  {
+   "from": "US EPA UIC Class VI",
+   "to": "Emergency and Remedial Response Plan",
+   "keywords": "requires",
+   "description": "Class VI 要求应急与补救响应预案。",
+   "reference": "US EPA 40 CFR 146.94"
+  },
+  {
+   "from": "US Safe Drinking Water Act",
+   "to": "US EPA UIC Class VI",
+   "keywords": "authorises",
+   "description": "UIC 程序的法律基础是安全饮用水法。",
+   "reference": "42 U.S.C. §300f"
+  },
+  {
+   "from": "US Clean Air Act Section 45Q",
+   "to": "Storage Permit",
+   "keywords": "incentivises",
+   "description": "45Q 按封存量抵免，实际要求可核验的封存证明。",
+   "reference": "26 U.S.C. §45Q"
+  },
+  {
+   "from": "London Protocol",
+   "to": "Transboundary CO2 Transport Agreement",
+   "keywords": "enables",
+   "description": "2009 年修正案允许跨境 CO2 流用于海底封存。",
+   "reference": "London Protocol 2009 amendment"
+  },
+  {
+   "from": "OSPAR Convention",
+   "to": "Transboundary CO2 Transport Agreement",
+   "keywords": "governs",
+   "description": "OSPAR 决议规范东北大西洋的 CO2 海底封存与跨境运输。",
+   "reference": "OSPAR Decision 2007/2"
+  },
+  {
+   "from": "ISO 27914",
+   "to": "Monitoring Plan",
+   "keywords": "specifies",
+   "description": "ISO 27914 规定监测与验证的最低要求。",
+   "reference": "ISO 27914:2017"
+  },
+  {
+   "from": "CSA Z741",
+   "to": "Storage Complex Risk Assessment",
+   "keywords": "specifies",
+   "description": "CSA Z741 规定封存项目的风险评估流程。",
+   "reference": "CSA Z741-12"
+  },
+  {
+   "from": "Germany KSpTG",
+   "to": "Storage Permit",
+   "keywords": "requires",
+   "description": "KSpTG 建立德国的封存许可制度。",
+   "reference": "Kohlendioxid-Speicherungsgesetz (2012)"
+  },
+  {
+   "from": "Australia Offshore Petroleum and Greenhouse Gas Storage Act",
+   "to": "Long-Term Liability Transfer",
+   "keywords": "defines",
+   "description": "该法设立封存许可与责任移交制度。",
+   "reference": "Offshore Petroleum and Greenhouse Gas Storage Act 2006 (Cth)"
+  },
+  {
+   "from": "China Carbon Neutrality Target 2060",
+   "to": "Storage Capacity Estimate",
+   "keywords": "drives",
+   "description": "碳中和目标驱动封存容量的评估与部署。",
+   "reference": "中国 2060 碳中和目标（2020）"
+  },
+  {
+   "from": "EU Emissions Trading System",
+   "to": "EU ETS Monitoring and Reporting Regulation",
+   "keywords": "is_implemented_by",
+   "description": "MRR 是 ETS 的监测报告实施细则。",
+   "reference": "Commission Regulation (EU) 2018/2066"
+  },
+  {
+   "from": "EU ETS Monitoring and Reporting Regulation",
+   "to": "Monitoring Plan",
+   "keywords": "requires",
+   "description": "MRR 要求提交并批准监测计划。",
+   "reference": "Commission Regulation (EU) 2018/2066"
+  },
+  {
+   "from": "ISO 27916",
+   "to": "Storage Capacity Estimate",
+   "keywords": "standardises",
+   "description": "ISO 27916 标准化 CO2-EOR 中的封存量核算。",
+   "reference": "ISO 27916:2019"
+  },
+  {
+   "from": "Zechstein Caprock",
+   "to": "Zechstein Halite",
+   "keywords": "is_composed_of",
+   "description": "抽取到的 Zechstein 盖层节点由盐岩与硬石膏组成。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "from": "Zechstein Caprock",
+   "to": "Zechstein Anhydrite",
+   "keywords": "is_composed_of",
+   "description": "Zechstein 盖层序列含硬石膏层。",
+   "reference": "Bachu (2008) Prog. Energy Combust. Sci. 34"
+  },
+  {
+   "from": "Fault",
+   "to": "Normal Fault",
+   "keywords": "includes",
+   "description": "正断层是断层的一种基本类型。",
+   "reference": "Zoback (2007) Reservoir Geomechanics, Ch.4"
+  },
+  {
+   "from": "Fault",
+   "to": "Fault Damage Zone",
+   "keywords": "includes",
+   "description": "断层包含核部与损伤带两部分。",
+   "reference": "Caine et al. (1996) Geology 24"
+  },
+  {
+   "from": "Caprock",
+   "to": "Shale Caprock",
+   "keywords": "includes",
+   "description": "页岩盖层是最常见的盖层岩性。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Caprock",
+   "to": "Evaporite Caprock",
+   "keywords": "includes",
+   "description": "蒸发岩盖层是封闭性最强的一类。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Caprock Integrity Failure",
+   "to": "Caprock Tensile Failure",
+   "keywords": "is_caused_by",
+   "description": "盖层完整性失效可由张性破坏触发。",
+   "reference": "Rutqvist (2012) Geotech. Geol. Eng. 30"
+  },
+  {
+   "from": "Caprock Integrity Failure",
+   "to": "Seal Bypass System",
+   "keywords": "is_caused_by",
+   "description": "盖层旁通系统是完整性失效的通道机制。",
+   "reference": "Cartwright et al. (2007) AAPG Bulletin 91"
+  },
+  {
+   "from": "Overburden",
+   "to": "Regional Top Seal",
+   "keywords": "contains",
+   "description": "上覆层序中包含区域性顶封。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Cement Sheath",
+   "to": "Cement Carbonation",
+   "keywords": "is_degraded_by",
+   "description": "水泥环在含 CO2 环境中发生碳化降解。",
+   "reference": "Kutchko et al. (2008) Environ. Sci. Technol. 42"
+  },
+  {
+   "from": "Injection Well",
+   "to": "Production Casing",
+   "keywords": "contains",
+   "description": "注入井内下入生产套管。",
+   "reference": "API Standard 65-Part 2"
+  },
+  {
+   "from": "Injection Well",
+   "to": "Well Barrier Element",
+   "keywords": "is_composed_of",
+   "description": "注入井的完整性由多个屏障单元构成。",
+   "reference": "ISO 16530-1:2017 Well integrity"
+  },
+  {
+   "from": "Monitoring Well",
+   "to": "Observation Well",
+   "keywords": "is_a_type_of",
+   "description": "观测井是监测井的一种用途。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  },
+  {
+   "from": "Monitoring Well",
+   "to": "Downhole Pressure Gauge",
+   "keywords": "is_equipped_with",
+   "description": "监测井通常安装井下压力计。",
+   "reference": "Benson & Cole (2008) Elements 4"
+  },
+  {
+   "from": "Saline Aquifer",
+   "to": "Deep Saline Aquifer",
+   "keywords": "is_a_type_of",
+   "description": "抽取到的咸水层节点属于深部咸水层封存目标。",
+   "reference": "IPCC (2005) SRCCS, Ch.5"
+  }
+ ]
+}

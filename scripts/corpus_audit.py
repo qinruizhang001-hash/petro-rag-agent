@@ -222,7 +222,7 @@ def chunk_stats() -> dict:
 def graph_health() -> dict:
     if not os.path.exists(GRAPHML):
         return {"exists": False}
-    from utils.graph_analysis import summarize
+    from utils.graph_analysis import domain_coverage, load_graph, summarize
 
     s = summarize(GRAPHML)
     s["exists"] = True
@@ -230,6 +230,40 @@ def graph_health() -> dict:
     s["isolated_ratio"] = round(s["isolated"] / total, 4)
     # 平均度：2E/N。孤立节点多、平均度低 = 抽出来的实体彼此不说话。
     s["mean_degree"] = round(2 * s["edges"] / total, 2)
+
+    # 领域维度覆盖。这里必须报**两份**：
+    # - extracted：只用 PDF 抽取出来的节点，按名字词法判断维度 —— 这才是
+    #   语料本身的广度，也是"多读论文能不能解决"的唯一证据。
+    # - total：再加上人工策展本体（data/ccus_domain_ontology.json）的节点，
+    #   这些节点自带 dimension 声明，不靠正则猜。
+    # 把两份分开报，是因为把"策展补的"算进"抽取能力"会高估系统的语料广度。
+    nodes, edges, attrs = load_graph(GRAPHML)
+    onto_set = {n for n in nodes
+                if attrs.get(n, {}).get("file_path") == "domain_ontology"}
+    extracted_nodes = [n for n in nodes if n not in onto_set]
+
+    overrides: dict[str, list[str]] = {}
+    try:
+        from scripts.augment_graph import DEFAULT_ONTOLOGY, load_ontology
+        if os.path.exists(DEFAULT_ONTOLOGY):
+            for e in load_ontology(DEFAULT_ONTOLOGY)["entities"]:
+                overrides[e["name"]] = [e["dimension"]]
+    except Exception as exc:  # 本体缺失不该让整份审计失败
+        s["ontology_error"] = f"{type(exc).__name__}: {exc}"
+
+    s["domains"] = domain_coverage(nodes, edges, attrs, overrides)
+    s["domains_extracted_only"] = domain_coverage(extracted_nodes, edges, attrs)
+    s["ontology_nodes"] = len(onto_set)
+
+    # 本体不只是加节点，还把一批原本挂不上的抽取节点连进了主分量。
+    # 这个数字比"节点多了 162 个"更能说明多跳能力是否真的变好。
+    from utils.graph_analysis import connected_components
+
+    sub = set(extracted_nodes)
+    sub_edges = [(a, b) for a, b in edges if a in sub and b in sub]
+    comps = connected_components(extracted_nodes, sub_edges)
+    s["largest_extracted_only"] = len(comps[0]) if comps else 0
+    s["components_extracted_only"] = len(comps)
     return s
 
 
@@ -408,6 +442,46 @@ def render(a: dict) -> str:
         )
         top = list(g["types"].items())[:6]
         lines.append("类型分布: " + " · ".join(f"{k}={v}" for k, v in top))
+
+        if g.get("domains"):
+            from utils.graph_analysis import format_domain_table
+
+            ext = g.get("domains_extracted_only") or {}
+            full = g["domains"]
+            lines.append("")
+            lines.append(
+                f"领域维度覆盖（仅抽取 {ext.get('total_nodes', 0)} 节点 / "
+                f"含策展本体 {full['total_nodes']} 节点，本体贡献 "
+                f"{g.get('ontology_nodes', 0)} 个）"
+            )
+            lines.append("-- 仅 PDF 抽取，维度靠词法判断 --")
+            lines.append(format_domain_table(ext) if ext else "无数据")
+            lines.append("-- 抽取 + 策展本体，本体节点按声明维度计入 --")
+            lines.append(format_domain_table(full))
+            gaps = []
+            for key, d in full["dimensions"].items():
+                before = ext.get("dimensions", {}).get(key, {}).get("entities", 0)
+                if before and d["entities"] / before >= 1.5:
+                    gaps.append(f"{d['label']} {before}→{d['entities']}"
+                                f"（{d['entities'] / before:.1f}×）")
+            if gaps:
+                lines.append("策展补得最多的维度: " + " · ".join(gaps))
+            thin = [d["label"] for d in full["dimensions"].values()
+                    if d["entities"] < 0.02 * (full["total_nodes"] or 1)]
+            if thin:
+                lines.append(
+                    "仍低于 2% 的维度: " + "、".join(thin)
+                    + "（广度不足仍会限制这几个方向的多跳推理）"
+                )
+            if g.get("ontology_error"):
+                lines.append(f"⚠ 本体加载失败: {g['ontology_error']}")
+            if g.get("largest_extracted_only"):
+                lines.append(
+                    f"最大连通分量：仅抽取 {g['largest_extracted_only']} → "
+                    f"含本体 {g['largest']}"
+                    f"（本体把 {g['largest'] - g['largest_extracted_only']} 个节点"
+                    f"接进了主分量）"
+                )
     else:
         lines.append("graphml 不存在")
 

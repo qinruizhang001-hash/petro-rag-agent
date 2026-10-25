@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1036%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1076%20unit-brightgreen">
 </p>
 
 ---
@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **1036 unit tests, 966 of them on every push** | 827 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph; the other 70 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
+| 3 | **1076 unit tests, 1006 of them on every push** | 867 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph; the other 70 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ + closed-loop plan** | latest-timestamp wins · mean + 90 % CI over 100 runs · 5 priors · Gaussian-copula correlation · Sobol first-order/total · probability → ok/warn/alert with a Wilson interval · then a constrained solve for well count / pressure cap / rate that meets the budget |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**1036 unit tests, of which 966 run on every push** (827 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 70 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**1076 unit tests, of which 1006 run on every push** (867 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 70 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -517,7 +517,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1036 unit tests** (966 in CI: 827 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1076 unit tests** (1006 in CI: 867 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -864,7 +864,47 @@ Two deterministic clean-ups that no amount of prompting fully solves:
 
 The design rule is that **failure must point toward missing a merge, never toward making a wrong one**. A missed merge costs one edge; a wrong merge permanently fuses two different geological concepts and cannot be undone. So there is no fuzzy matching, no edit distance, no embedding similarity — only reductions you can explain to a reviewer.
 
-`--dry-run` is the default because it *projects* the outcome first: the alias plan is applied in memory (union-find over the projected edge set) and the resulting component count is printed before anything is touched. If the projection shows no improvement, the rules are wrong and nothing should be executed. On this corpus the projection matched the actual result exactly: 422 → 389 nodes, 91 → 84 components.
+`--dry-run` is the default because it *projects* the outcome first: the alias plan is applied in memory (union-find over the projected edge set) and the resulting component count is printed before anything is touched. If the projection shows no improvement, the rules are wrong and nothing should be executed. On this corpus the projection matched the actual result exactly: 422 → 389 nodes, 91 → 84 components. **Those were the numbers from the first 12-paper build.** The graph is now 4,988 nodes / 5,128 edges, and the current projection is 4,988 → 4,419 nodes, 1,226 → 1,087 components, largest component 64.0 %. The old figures stayed in this paragraph for several months while the corpus grew elevenfold, which is how a stale README turns into a false premise — see the next section.
+
+### 4. Broaden — `data/ccus_domain_ontology.json`
+
+The graph was measured before it was extended, and the total was misleading. 4,826 nodes, of which 1,310 were `parameter` — but **18 were caprock and 62 were faults**:
+
+| Dimension | Entities (extraction only) | Share |
+|---|---:|---:|
+| Reservoir / trapping | 286 | 5.93 % |
+| Fault systems | 62 | 1.28 % |
+| **Caprock** | **18** | **0.37 %** |
+| Wellbore | 107 | 2.22 % |
+| Monitoring | 186 | 3.85 % |
+| Regulation | 149 | 3.09 % |
+
+That distribution is the real problem, and it is not solved by ingesting more papers. All 22 PDFs discuss Zechstein; a 23rd would add a sentence about Zechstein, not a second caprock formation. Extraction answers *"what did these papers mention"* — it cannot answer *"what exists in this field"*. A graph that can name 1,310 parameters but only 18 seals cannot support a multi-hop question like *"which seal sits above a Rotliegend reservoir, and what column height does its entry pressure allow"*, because three of those hops land on nothing.
+
+So the missing half is curated rather than extracted: `data/ccus_domain_ontology.json` holds **182 entities and 120 relations** across the six dimensions (caprock 40, reservoir 34, wellbore 28, fault 27, monitoring 27, regulation 26). Every entity and every relation carries a `reference` — a paper, a standard number, or the article of a directive. `scripts/augment_graph.py` merges it deterministically, and validation refuses an entity without a source, a type outside the eight the extractor allows, a duplicate name, or a relation whose endpoint does not resolve.
+
+```bash
+python scripts/augment_graph.py            # dry run: what would be added
+python scripts/augment_graph.py --write    # merge in place (backs up first)
+python scripts/augment_graph.py --check    # validate the ontology file only
+```
+
+Result — and this is the part that has to be read carefully, because the two columns are not the same claim:
+
+| Dimension | Extraction only | + curated ontology | |
+|---|---:|---:|---|
+| Reservoir / trapping | 286 | 316 | 1.1× |
+| Fault systems | 62 | 87 | 1.4× |
+| **Caprock** | **18** | **58** | **3.2×** |
+| Wellbore | 107 | 132 | 1.2× |
+| Monitoring | 186 | 213 | 1.1× |
+| Regulation | 149 | 171 | 1.1× |
+
+The audit prints both tables and a `curated` column, because adding curated entities to the extraction count and calling the sum "corpus breadth" would be a lie. What actually improved for multi-hop is the largest connected component: 2,992 → 3,073, i.e. the ontology's 120 relations pulled **81 previously stranded extraction nodes** into the main component.
+
+Two costs, stated rather than hidden. **Density fell**: fault connectivity went 83.9 % → 75.9 %, because 27 new nodes arrived with fewer edges each than the extracted ones had — breadth was bought with sparsity, and that is the honest trade. **And this is a floor, not a fix**: 58 caprock entities is better than 18 and still nowhere near the "thousands" a real basin-scale study needs. Six dimensions × ~30 curated entities is what one person can source and defend; a production knowledge base needs a stratigraphic dictionary per basin, which is a data-acquisition project, not a prompting one.
+
+Operational note, because this will bite: LightRAG rebuilds the graph from scratch on re-index and will drop all 162 curated nodes. They are tagged `file_path = domain_ontology` precisely so this is detectable — `scripts/corpus_audit.py` reports how many are present, and `augment_graph.py --write` must be re-run after any re-ingest. A test asserts `normalize_graph.py`'s noise rules never classify an ontology entity as noise, so `--apply` cannot quietly delete them either.
 
 ---
 
@@ -1978,7 +2018,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1036 unit tests** (966 on every push), and a self-hosted end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1076 unit tests** (1006 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -2072,7 +2112,7 @@ petro-rag-agent/
 │   ├── embeddings.py         # The ONE place the ChromaDB embedding model is chosen
 │   ├── kg_prompt.py          # Domain entity-type constraint injected into LightRAG
 │   ├── entity_aliases.py     # Alias normalisation + dirty-node rules (unit-tested)
-│   ├── graph_analysis.py     # Connected components, stdlib-only (unit-tested)
+│   ├── graph_analysis.py     # Connected components + domain-dimension coverage (unit-tested)
 │   ├── context_pruner.py     # Chunked context compression (unit-tested)
 │   ├── branch_merge.py       # Fan-in merge / degradation / timing, pure (unit-tested)
 │   ├── retry.py              # Exponential backoff for transient upstream errors (unit-tested)
@@ -2088,6 +2128,8 @@ petro-rag-agent/
 ├── fetch_ccus_papers.py      # arXiv search → relevance filter → PDF download + manifest
 ├── ingest_ccus_batch.py      # PDFs → ChromaDB (full text) + LightRAG (budgeted)
 ├── normalize_graph.py        # Alias merge + noise removal on a built graph (dry-run first)
+├── scripts/augment_graph.py  # Merge the curated domain ontology into the graph (idempotent)
+├── data/ccus_domain_ontology.json  # 182 curated entities / 120 relations, every one sourced
 ├── lightrag_retriever.py     # LightRAG sync wrapper (thread + event loop bridge)
 ├── chroma_retriever.py       # ChromaDB chunk retrieval for the wellbore branch
 ├── fragment_builder.py       # Pure fragment assembly logic (unit-tested)
@@ -2115,7 +2157,8 @@ petro-rag-agent/
 │   ├── test_logging_setup.py      # Offline unit tests (format fields / idempotency)
 │   ├── test_text_cleaning.py      # Offline unit tests (de-hyphenation / references / chunks)
 │   ├── test_entity_aliases.py     # Offline unit tests (what merges, what must NOT merge)
-│   ├── test_graph_analysis.py     # Offline unit tests (components / projection)
+│   ├── test_graph_analysis.py     # Offline unit tests (components / projection / dimensions)
+│   ├── test_domain_ontology.py    # Offline unit tests (ontology schema / idempotent merge)
 │   ├── test_branch_merge.py       # Offline unit tests (fan-in merge / degradation / timing)
 │   ├── test_retry.py              # Offline unit tests (backoff schedule / non-retryable)
 │   ├── test_pinn_query.py         # Offline unit tests (what counts as a groundable x/t)
@@ -2337,7 +2380,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Forty-seven suites (`tests/`). CI runs 966 of those tests; the other 70 need torch/chromadb/plotly and run locally or on the self-hosted runner:
+Forty-eight suites (`tests/`). CI runs 1006 of those tests; the other 70 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2360,7 +2403,9 @@ Forty-seven suites (`tests/`). CI runs 966 of those tests; the other 70 need tor
 - `test_logging_setup.py` — observability: every line carries timestamp, module, model and token fields; missing fields render `-` instead of raising; repeated configuration does not stack handlers (a duplication that only shows up as an unexpectedly large log file); `LOG_LEVEL` is honoured and an unknown level falls back to `INFO`.
 - `test_text_cleaning.py` — the ingestion front end, where failures are silent by construction: `permea-` / `ability` across a line break must become one word (a missed join sends "permea ability" to the embedding model and that chunk can never match "permeability" again); the arXiv watermark stamp and bare page numbers must go; the reference list must be cut **only** when the heading is in the latter half (a paper *about* citation analysis must not lose its body); and chunking must not drop a character when a page arrives as one giant paragraph. Also locks the ordering constraint — hyphenation must be repaired **before** whitespace is collapsed, because afterwards there is no `\n` left to anchor on.
 - `test_entity_aliases.py` — the merge rules, tested in **both directions**, because the two failure modes cost very different amounts. A missed merge leaves two nodes where there should be one (one edge lost). A wrong merge permanently fuses two distinct geological concepts, concatenates their descriptions, and cannot be undone. So the suite asserts what must merge (`CO2` / `Carbon Dioxide (CO2)` / `Carbon dioxide (CO2)`; `CCS` / seven spellings; `Fault` / `Faults`; `Cap Rock` / `Caprock`) **and** what must not (`Fault` vs `Pre-Existing Faults`, `Caprock` vs `Caprock Fracturing`). It also pins three traps: `Gas` must not singularise to `Ga`, two-character Chinese geology terms (`井筒` / `储层` / `断层` / `盖层`) must survive the "too short" filter, and `IPCC` typed as `organization` must not be deleted — the type is unreliable enough that deleting by type loses real policy entities.
-- `test_graph_analysis.py` — connected components on graphs whose answer can be counted by hand (a chain is one component; two chains plus an isolated node is three), plus edge cases that corrupt the metric silently: duplicate edges must not inflate anything, an edge pointing at a node that is not in the node list must be *added* rather than dropped (dropping it makes the component count look better than it is), and empty graphs must return empty rather than raise. It also locks the `--dry-run` projection: merging two variants must join two components, removing a noise node must take its edges with it, and a merge that collapses an edge into a self-loop must delete that edge.
+- `test_graph_analysis.py` — connected components on graphs whose answer can be counted by hand (a chain is one component; two chains plus an isolated node is three), plus edge cases that corrupt the metric silently: duplicate edges must not inflate anything, an edge pointing at a node that is not in the node list must be *added* rather than dropped (dropping it makes the component count look better than it is), and empty graphs must return empty rather than raise. It also locks the `--dry-run` projection: merging two variants must join two components, removing a noise node must take its edges with it, and a merge that collapses an edge into a self-loop must delete that edge. It now also pins the six domain dimensions, because the first version of that classifier counted **Deep Reinforcement Learning** and **Displacement u1(x1, 0)** as wellbore entities — `cement` without a word boundary matches inside `Reinforcement` and `Displacement`. The error was not random: it inflated the dimension that was already large (142 vs. 107 real) and made the thin one look thinner, which is the one failure mode a coverage audit cannot afford. Author names typed as `regulation` upstream are filtered out of that dimension by shape, and `Reservoir Simulation` is excluded from reservoir *types*.
+
+- `test_domain_ontology.py` — the curated ontology is hand-written data, so the dangerous failure is not a crash but silent rot: a dimension quietly shrinking to five entities, a relation whose endpoint is misspelled and therefore skipped without a word, or a merge that re-adds edges on every run. The suite asserts what keeps the coverage claim honest: every entity and relation carries a `reference` (no unsourced knowledge), every `entity_type` stays inside the eight types `kg_prompt.py` allows, no dimension drops below 20 entities, no name repeats case-insensitively. The merge must be idempotent — a second run adds exactly zero nodes and zero edges — and a relation whose endpoint is absent from the graph must be *reported* as unresolved rather than dropped. One test exists purely because of a real bug: the writer built its case-insensitive name index from a `set` while the merger built it from a `list`, so the two resolved `Zechstein Caprock` and `Zechstein caprock` to different nodes and every re-run appended two more edges. Reverting the fix makes that test fail with `2 != 0`.
 - `test_branch_merge.py` — the fan-in logic, i.e. the code that only runs when something has already gone wrong. All four combinations are enumerated (both branches ok / geology down / wellbore down / both down), and two properties are locked: the text handed downstream for a failed branch is **never an empty string** (an empty section reads as "no requirement", a fallback sentence reads as "this requirement failed" — opposite meanings to a reader), and `parallel_timing_of` derives its speedup from branch timestamps rather than node names, so it reports ~1.0 if anyone ever turns the fan-out back into a serial chain. Non-string / non-dict state values are exercised too, because those functions are exactly what gets called on a corrupted state.
 - `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls. It also asserts **object identity** with `pressure_model` (`assertIs`, not `assertEqual`): the front-end draws the same three curves in the browser, so a re-implementation anywhere would be caught as a different function object rather than merely a different number that happens to match today.
