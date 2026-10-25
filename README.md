@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1076%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1080%20unit-brightgreen">
 </p>
 
 ---
@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **1076 unit tests, 1006 of them on every push** | 867 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph; the other 70 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
+| 3 | **1080 unit tests, 1010 of them on every push** | 871 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph; the other 70 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ + closed-loop plan** | latest-timestamp wins · mean + 90 % CI over 100 runs · 5 priors · Gaussian-copula correlation · Sobol first-order/total · probability → ok/warn/alert with a Wilson interval · then a constrained solve for well count / pressure cap / rate that meets the budget |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**1076 unit tests, of which 1006 run on every push** (867 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 70 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**1080 unit tests, of which 1010 run on every push** (871 that import nothing outside the standard library · 76 that need `ragas`/`openai`/`tiktoken` but still no torch · 46 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 70 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -517,7 +517,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1076 unit tests** (1006 in CI: 867 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1080 unit tests** (1010 in CI: 871 stdlib-only · 76 dependency-backed without torch · 46 chart · 17 gate/graph), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -2018,7 +2018,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1076 unit tests** (1006 on every push), and a self-hosted end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1080 unit tests** (1010 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -2380,7 +2380,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Forty-eight suites (`tests/`). CI runs 1006 of those tests; the other 70 need torch/chromadb/plotly and run locally or on the self-hosted runner:
+Forty-eight suites (`tests/`). CI runs 1010 of those tests; the other 70 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2571,17 +2571,18 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
 | | before | after (2026-10-25) |
 |---|---:|---:|
 | Text coverage | 8.1 % | **99.7 %** (1,092,271 / 1,096,138 chars) |
-| Entities | 394 | **4,826** |
-| Relations | 400 | **5,008** |
+| Entities | 394 | **4,988** (4,826 extracted + 162 curated) |
+| Relations | 400 | **5,128** (5,008 extracted + 120 curated) |
 | Lineage traceable | 0 % | **100 %** (22/22) |
-| Isolated nodes | 15.5 % | **17.5 %** (847) |
-| Mean degree | 2.05 | 2.08 |
+| Isolated nodes | 15.5 % | **17.9 %** (892) |
+| Mean degree | 2.05 | 2.06 |
+| Largest component | 244 | **3,073** (2,992 before the ontology) |
 
 Three things this measurement settled, and one it did not:
 
 1. **Entity density is flat in budget.** An isolated A/B on one paper gave 3.50 → 3.59 entities per 1,000 characters going from 4,000 characters to full text. The truncation was discarding equal-density knowledge, not a low-value tail — which is why "read more" was worth 3.4 hours of GPU time.
 2. **The end-to-end rate is 14.8 s per 1,000 characters, not 5.5.** The 5.5 s figure came from a short paper's *marginal* rate and under-estimated the rebuild by half; the actual run took **3 h 26 min** for 1,092,271 characters. Two earlier numbers in this section were wrong for the same class of reason (6.2 % came from using raw page text as the denominator, including reference lists we deliberately strip) and are corrected here rather than quietly deleted.
-3. **Coverage and connectivity are different problems, and coverage made connectivity worse.** Isolated nodes went from 15.5 % to 17.5 % — not the 12 % predicted — because nine times more text brought in many peripheral entities that nothing links to. The largest component still holds 62 % of the nodes, but there are now 322 multi-node components. This is the honest remaining gap: **the graph is broad and shallow**, and closing it needs relation normalisation, not more papers.
+3. **Coverage and connectivity are different problems, and coverage made connectivity worse.** Isolated nodes went from 15.5 % to 17.5 % — not the 12 % predicted — because nine times more text brought in many peripheral entities that nothing links to. The largest component still holds 62 % of the nodes, but there are now 322 multi-node components. This is the honest remaining gap: **the graph is broad and shallow**. I originally wrote that closing it "needs relation normalisation, not more papers" — the second half was right, the first was not. Normalisation merges variants that are already there; it cannot invent a second caprock formation. What the measurement actually showed was a distribution problem (18 caprocks against 1,310 parameters), and the fix was a curated, referenced ontology rather than another pass over the same 22 PDFs — see §4 above. That took the largest component from 2,992 to 3,073 and cost connectivity inside the thin dimensions, because new nodes arrive with fewer edges each.
 4. **What did not get fixed:** one chunk of `ccus_auto_17.pdf` returned an empty JSON extraction result, contributing zero entities. That is a per-chunk failure, not a per-paper one, and it accounts for most of the 0.3 % coverage gap. It is recorded rather than retried because re-ingesting the paper to recover one chunk would also re-extract the other 43.
 
 

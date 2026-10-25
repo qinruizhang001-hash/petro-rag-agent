@@ -65,6 +65,31 @@ INGEST_SCRIPT = os.path.join(PROJECT_ROOT, "ingest_ccus_batch.py")
 # ─── 一、语料：可抽取 vs 已入库 ─────────────────────────────
 
 
+# PDF 抽取器探测。曾经的做法是 `except ImportError: return 0, 0, 0` ——
+# 在零三方包的解释器下跑，整份报告会给出「覆盖率 0.0%」并触发门禁失败，
+# 看起来像语料没入库，实际是环境里没有 PyMuPDF。0% 与"装不上抽取器"
+# 是完全不同的两件事，前者要重跑摄取，后者只要换个解释器。
+_EXTRACTOR: dict = {"module": None, "probed": False}
+
+
+def extractor_available() -> bool:
+    """当前解释器能否抽 PDF 文本。结果缓存，避免每篇都重试 import。"""
+    if not _EXTRACTOR["probed"]:
+        _EXTRACTOR["probed"] = True
+        try:
+            import pymupdf  # 新版包名
+
+            _EXTRACTOR["module"] = pymupdf
+        except ImportError:  # pragma: no cover - 老版本回退
+            try:
+                import fitz  # type: ignore
+
+                _EXTRACTOR["module"] = fitz
+            except ImportError:
+                _EXTRACTOR["module"] = None
+    return _EXTRACTOR["module"] is not None
+
+
 def _extractable_chars(pdf_path: str) -> tuple[int, int, int]:
     """
     返回 ``(页数, 原始可抽取字符, 清洗后正文字符)``；抽不出来时返回 ``(0, 0, 0)``。
@@ -78,13 +103,9 @@ def _extractable_chars(pdf_path: str) -> tuple[int, int, int]:
     "119,868 / 161,877 = 74%" —— 那 26% 是**已经被主动剥掉的参考文献**，
     不是漏喂的内容。分母错了，95% 的阈值就永远达不到，指标也就废了。
     """
-    try:
-        import pymupdf  # 新版包名
-    except ImportError:  # pragma: no cover - 老版本回退
-        try:
-            import fitz as pymupdf  # type: ignore
-        except ImportError:
-            return 0, 0, 0
+    if not extractor_available():
+        return 0, 0, 0
+    pymupdf = _EXTRACTOR["module"]
     try:
         with pymupdf.open(pdf_path) as doc:
             raw = "".join(p.get_text() for p in doc)
@@ -150,6 +171,7 @@ def corpus_coverage() -> dict:
     return {
         "files": rows,
         "excluded": excluded,
+        "extractor": extractor_available(),
         "files_total": len(rows),
         "files_in_graph": sum(1 for r in rows if r["in_graph"]),
         "pages_total": sum(r["pages"] for r in rows),
@@ -527,6 +549,10 @@ def main() -> int:
     args = ap.parse_args()
 
     a = audit()
+    if not a["corpus"].get("extractor", True):
+        # 覆盖率算不出来时先说清楚为什么，不要让人以为是语料没入库
+        print("⚠ 当前解释器没有 PyMuPDF，PDF 字符数无法测量 → 覆盖率不可计算"
+              "（不是 0%，是本机装不上抽取器）。用项目 venv 运行本脚本。\n")
     if args.write:
         os.makedirs(os.path.dirname(AUDIT_JSON), exist_ok=True)
         with open(AUDIT_JSON, "w", encoding="utf-8") as fh:
@@ -558,6 +584,12 @@ def main() -> int:
     print("─" * 78)
     if failed:
         print(f"❌ 未达标：{'、'.join(failed)}")
+        # 覆盖率失败且抽取器缺失时，退出码区分开：1 = 指标不达标（要重跑摄取），
+        # 2 = 环境缺依赖（换个解释器就好）。把两者混成一个退出码，
+        # 会让人对着"覆盖率 0%"去查语料，而真正的问题在 import 上。
+        if "覆盖率" in failed and not a["corpus"].get("extractor", True):
+            print("   原因：本机没有 PyMuPDF，覆盖率不可计算 —— 不是语料缺失。")
+            return 2
         return 1
     print("✅ 全部达标")
     return 0

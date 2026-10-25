@@ -159,5 +159,67 @@ class IngestCallSitePassesLineageTests(unittest.TestCase):
         self.assertIn("it['file']", src.split("insert_text(payload, file_paths=")[1][:120])
 
 
+class ExtractorAvailabilityIsExplicitTests(unittest.TestCase):
+    """缺 PyMuPDF 时覆盖率是"算不出来"，不是 0%。
+
+    真实踩到：用零三方包的解释器跑 ``corpus_audit.py --check``，报告写
+    "覆盖率: 0.0%" 并判 FAIL。看起来像语料没入库（要重跑十几分钟摄取），
+    实际只是环境里没有抽取器（换个解释器就好）。两种失败的处置完全不同，
+    混成同一个数字会把人引到错的方向去查。
+
+    ``_extractable_chars`` 里原本就是 ``except ImportError: return 0,0,0``，
+    所以这里不测"能不能 import"，而是测"缺失这件事有没有被报出来"。
+    """
+
+    def setUp(self):
+        sys.path.insert(0, PROJECT_ROOT)
+        import scripts.corpus_audit as ca
+
+        self.ca = ca
+        self._saved = dict(ca._EXTRACTOR)
+
+    def tearDown(self):
+        self.ca._EXTRACTOR.clear()
+        self.ca._EXTRACTOR.update(self._saved)
+
+    def test_availability_is_a_bool_and_cached(self):
+        self.assertIsInstance(self.ca.extractor_available(), bool)
+        # 第二次不再重新 import，直接读缓存
+        self.assertTrue(self.ca._EXTRACTOR["probed"])
+
+    def test_missing_extractor_is_reported_in_the_coverage_dict(self):
+        self.ca._EXTRACTOR.update({"module": None, "probed": True})
+        cov = self.ca.corpus_coverage()
+        self.assertIs(cov["extractor"], False)
+        # 分母（可抽取字符）测不出来 → 0；分子来自状态文件，仍然有值。
+        # 正因如此，报"覆盖率 0.0%"会让人以为是分子掉了。
+        self.assertEqual(cov["extractable_total"], 0)
+        self.assertEqual(cov["coverage"], 0.0)
+
+    def test_missing_extractor_yields_zero_not_an_exception(self):
+        self.ca._EXTRACTOR.update({"module": None, "probed": True})
+        self.assertEqual(self.ca._extractable_chars("does-not-matter.pdf"),
+                         (0, 0, 0))
+
+    def test_check_exits_two_when_the_extractor_is_missing(self):
+        """退出码 1 与 2 必须区分：1 = 指标不达标，2 = 环境缺依赖。"""
+        import argparse
+
+        self.ca._EXTRACTOR.update({"module": None, "probed": True})
+        argv = sys.argv
+        sys.argv = ["corpus_audit.py", "--check"]
+        try:
+            with open(os.devnull, "w") as devnull:
+                stdout = sys.stdout
+                sys.stdout = devnull
+                try:
+                    code = self.ca.main()
+                finally:
+                    sys.stdout = stdout
+        finally:
+            sys.argv = argv
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
