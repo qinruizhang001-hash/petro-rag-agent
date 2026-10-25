@@ -180,7 +180,7 @@ def predict_pressure_pinn(x: float, t: float, scenario: str = "injection") -> di
 @server.tool(
     name="query_ccus_graph",
     description=(
-        "从 CCUS 知识图谱（22 篇文献构建，389 实体 / 400 关系）检索与问题相关的"
+        "从 CCUS 知识图谱（22 篇文献全文构建，4,826 实体 / 5,008 关系）检索与问题相关的"
         "证据片段，返回原文段落。适合问'断层活化与注入压力有什么关系'这类需要"
         "跨文献证据的问题。只检索、不生成结论 —— 请基于返回片段自行作答。"
         "注意：首次调用会加载本地模型，可能耗时数十秒。"

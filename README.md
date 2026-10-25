@@ -46,7 +46,7 @@ flowchart TB
 
     OL["Ollama :11434<br/>runs on the host,<br/>not in Docker<br/>qwen2.5 · embeddings"]
     CH[("ChromaDB<br/>ccus_knowledge_v3<br/>1982 vectors")]
-    GR[("LightRAG graph<br/>389 entities · 400 relations")]
+    GR[("LightRAG graph<br/>4 826 entities · 5 008 relations")]
     RR["bge-reranker-v2-m3<br/>2.2 GB per worker"]
     SQ[("SQLite<br/>checkpoints · HITL")]
 
@@ -391,6 +391,9 @@ Two interventions fixed it, and the measurement shows which one mattered:
 
 | Stage | Nodes | Edges | Components | Largest | What changed |
 |-------|------:|------:|-----------:|--------:|--------------|
+<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（8.1% 正文覆盖）。
+     2026-10-25 全文重建后图谱为 4,826 实体 / 5,008 关系，绝对数字已变，
+     但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
 | Default LightRAG type table | 765 | 559 | 247 | 83 | — |
 | **+ 8-type domain ontology** | 433 | 426 | **96** | 252 | explicit *never-extract* list |
 | + corpus screening | 422 | 419 | 91 | 252 | `ccus4.pdf` dropped (NOMA paper, not CCUS) |
@@ -457,9 +460,11 @@ The design goal is **trustworthy domain AI**: every claim in the generated repor
 
 **Before the refactor** — the same system, laid out as a chat window: one textarea, one red button, one column of prose, and the formation-pressure chart as a static PNG somewhere below the fold. Kept at `docs/legacy/ui-chatbot-input.png` and `docs/legacy/ui-chatbot-stream.png` because "it used to look like ChatGPT" is the claim the [console section](#console-ui--an-instrument-panel-not-a-chat-window) is answering.
 
-**Knowledge graph** — 389 entities / 400 relations extracted by LightRAG from 22 CCUS papers, sitting in **84 connected components with 244 nodes (63 %) in the main one**. The drawn subgraph is that largest component, which is exactly the causal chain the retriever reasons over (`CO2 plume → caprock → fault → wellbore integrity → monitoring`). Its hubs are domain concepts, not metadata: `Digital Twin` (26 edges), `CO2` (25), `CO2 Plume` (25), `Permeability` (23), `Reservoir` (18), `Caprock` (9). Regenerate it with `python render_graph_svg.py`; open the [raw SVG](docs/knowledge-graph.svg) to read full relation descriptions on hover.
+**Knowledge graph** — **4,826 entities / 5,008 relations** extracted by LightRAG from the full text of 22 CCUS papers. The drawn subgraph is the largest connected component (2,992 nodes / 4,311 edges, 62 % of the graph), which is the causal chain the retriever actually reasons over (`CO2 plume → caprock → fault → wellbore integrity → monitoring`). Its hubs are domain concepts, not metadata: `CO2` (252 edges), `Reservoir` (222), `CO2 Plume` (177), `Permeability` (164), `Fault` (91), `Caprock` (90), `Saline Aquifer` (73), `Pressure` (71).
 
-![CCUS knowledge graph](docs/knowledge-graph.png)
+Two things about this figure are worth saying out loud. First, `Poland` (100 edges) sits fifth: one long policy review contributes an entire country-specific subgraph, which is how a graph gets big without getting deeper. Second, **17.5 % of the nodes are isolated** and there are 322 multi-node components — reading nine times more text made connectivity *worse*, not better (15.5 % → 17.5 %), because the new material brought in many peripheral entities that nothing links to. Relation normalisation is now the top graph-quality item, ahead of adding papers.
+
+Regenerate with `python render_graph_svg.py` (≈9 min: it loads the graph and computes the layout); the SVG carries full relation descriptions on hover, so open the [raw file](docs/knowledge-graph.svg) rather than reading the thumbnail.
 
 ---
 
@@ -639,7 +644,7 @@ After parameter extraction the graph **splits into two branches that run in the 
 
 | Branch | Store | Answers | Why that store |
 |---|---|---|---|
-| `geology` | LightRAG graph (389 entities / 400 relations) + bge-reranker | "what is the relation between fault reactivation and injection pressure" | Multi-hop, cross-paper — needs entities and relations, not sentences |
+| `geology` | LightRAG graph (4 826 entities / 5 008 relations) + bge-reranker | "what is the relation between fault reactivation and injection pressure" | Multi-hop, cross-paper — needs entities and relations, not sentences |
 | `wellbore` | ChromaDB raw chunks (Top-4) | "which papers mention casing corrosion or annular pressure" | Single-fact, lexical — graph extraction would miss `环空带压` entirely if it never became an entity |
 
 Both branches **generate their own conclusion** (150–250 characters) rather than returning raw fragments, so the aggregate stage receives two digested opinions instead of thousands of characters of evidence. Raw evidence only ever enters a branch's own prompt.
@@ -1864,7 +1869,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 
 <!-- 中文注释：核心亮点，面向评审/面试官的重点。 -->
 
-- **GraphRAG Integration** — A LightRAG knowledge graph is built from CCUS literature, extracting **389 geological entities** and **400 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.), with **63 % of the nodes in one connected component**. This enables **multi-hop reasoning** that flat vector search cannot express — and the graph is kept honest by a domain type constraint at extraction time plus deterministic alias merging afterwards, not by hoping the model spells things consistently.
+- **GraphRAG Integration** — A LightRAG knowledge graph is built from the **full text** of 22 CCUS papers, extracting **4 826 entities** and **5 008 relations** (fault activation, caprock integrity, breakthrough pressure, injection pressure, etc.), with **62 % of the nodes in one connected component** and a mean degree of 2.08. This enables **multi-hop reasoning** that flat vector search cannot express — and the graph is kept honest by a domain type constraint at extraction time plus deterministic alias merging afterwards, not by hoping the model spells things consistently.
 - **Parallel Two-Store Retrieval** — after extraction the graph fans out into a **geology** branch (LightRAG graph recall → bge-reranker down to Top-2, peak score 0.99) and a **wellbore** branch (ChromaDB raw chunks, Top-4), which run in the same superstep and join at the aggregate node. Longer, entity-relation-complete segments give the reranker real discriminative power — and the rerank score doubles as the signal for whether the knowledge base actually matched (irrelevant questions score ~0.0001). Splitting by *domain* rather than by *hop count* means each branch gets the retrieval method that suits its question, and a failure in one branch degrades the report instead of killing the run.
 - **Model Routing** — Two layers. A **static** table assigns each role the cheapest model that still does its job; a **per-request** decision then overrides `extract` and `report` based on input length and whether retrieval really hit, logging `[Cost-Saving: Local Mode]` or `[Premium: Cloud Mode]` with the reason. One call entry point, and the resolved route is recorded in state as `model_routing` so the choice is auditable rather than assumed.
 - **File-Based Memory** — Long-term memory with **no vector database**: `user_profile.md` (human-curated preferences) and `project_history.md` (auto-appended assessment summaries) are injected into the report System Prompt, enabling longitudinal comparison across assessments. Reads are bounded to the last 6 entries so memory cannot silently outgrow the context window.
@@ -2403,18 +2408,36 @@ Built on [LightRAG](https://github.com/HKUDS/LightRAG) (HKUDS), [LangGraph](http
 
 ### What this system is not, yet
 
-**The single largest limitation is not in the model — it is the ingestion budget.** `ingest_ccus_batch.py` used to feed LightRAG only the first `--graph-budget` characters of each paper (default 4,000), so the graph was built from **8.1 % of the feedable text**: 91,421 characters ingested out of 1,131,236 (references and page numbers are already stripped, which removes 23 % of the raw 1,467,291). Measured by `python scripts/corpus_audit.py`, snapshot in `docs/corpus-audit.json`. Every "the knowledge base is too small" objection is downstream of that one number, and the fix is machine time rather than more papers: an isolated A/B on a single paper shows entity density stays flat when the budget goes from 4,000 characters to full text (3.50 → 3.59 entities per 1,000 characters), so the truncation was discarding equal-density knowledge, not a low-value tail.
+**The ingestion budget used to be the single largest limitation — it is now closed.** `ingest_ccus_batch.py` fed LightRAG only the first `--graph-budget` characters of each paper (default 4,000), so the graph was built from **8.1 % of the feedable text**: 91,421 characters ingested out of 1,131,236. The default is now `0` (full text) and the corpus has been rebuilt from it. Measured by `python scripts/corpus_audit.py`, snapshot in `docs/corpus-audit.json`:
 
-Two numbers here were wrong in an earlier draft of this section and are corrected: the ratio was quoted as 6.2 % because the denominator was raw page text (including the reference lists we deliberately strip), and full coverage was estimated at 2–3 hours from a 5.5 s/1,000-char *marginal* rate measured on one short paper. The end-to-end rate on a real 120,000-character paper is **14.8 s per 1,000 characters**, so a full rebuild of this 22-paper corpus is about **4 hours**. The default is now full text; truncation has to be asked for.
+| | before | after (2026-10-25) |
+|---|---:|---:|
+| Text coverage | 8.1 % | **99.7 %** (1,092,271 / 1,096,138 chars) |
+| Entities | 394 | **4,826** |
+| Relations | 400 | **5,008** |
+| Lineage traceable | 0 % | **100 %** (22/22) |
+| Isolated nodes | 15.5 % | **17.5 %** (847) |
+| Mean degree | 2.05 | 2.08 |
 
-**Document lineage was 0 % traceable until this week.** All 23 documents carried `file_path = unknown_source` because `insert_text` never passed `file_paths`, so no sentence in any report could be traced back to a PDF. Fixed in code and pinned by `tests/test_lineage.py`; existing data keeps the old value until the next re-ingest.
+Three things this measurement settled, and one it did not:
 
-`docs/gap-register.md` records these two findings plus 15 other claims from review — each with a verdict (factual error / already known / real gap / research topic), the evidence, and what it would cost to close.
+1. **Entity density is flat in budget.** An isolated A/B on one paper gave 3.50 → 3.59 entities per 1,000 characters going from 4,000 characters to full text. The truncation was discarding equal-density knowledge, not a low-value tail — which is why "read more" was worth 3.4 hours of GPU time.
+2. **The end-to-end rate is 14.8 s per 1,000 characters, not 5.5.** The 5.5 s figure came from a short paper's *marginal* rate and under-estimated the rebuild by half; the actual run took **3 h 26 min** for 1,092,271 characters. Two earlier numbers in this section were wrong for the same class of reason (6.2 % came from using raw page text as the denominator, including reference lists we deliberately strip) and are corrected here rather than quietly deleted.
+3. **Coverage and connectivity are different problems, and coverage made connectivity worse.** Isolated nodes went from 15.5 % to 17.5 % — not the 12 % predicted — because nine times more text brought in many peripheral entities that nothing links to. The largest component still holds 62 % of the nodes, but there are now 322 multi-node components. This is the honest remaining gap: **the graph is broad and shallow**, and closing it needs relation normalisation, not more papers.
+4. **What did not get fixed:** one chunk of `ccus_auto_17.pdf` returned an empty JSON extraction result, contributing zero entities. That is a per-chunk failure, not a per-paper one, and it accounts for most of the 0.3 % coverage gap. It is recorded rather than retried because re-ingesting the paper to recover one chunk would also re-extract the other 43.
+
+
+**Document lineage was 0 % traceable until this week, and is now 100 %.** All 23 documents carried `file_path = unknown_source` because `insert_text` never passed `file_paths`, so no sentence in any report could be traced back to a PDF. Fixed in code, pinned by `tests/test_lineage.py`, and confirmed by the rebuild: 22/22 documents resolve to a real file.
+
+`docs/gap-register.md` records these two findings plus 15 other claims from review — each with a verdict (factual error / already known / real gap / research topic), the evidence, and what it would cost to close. Two of them have since been closed: the physics-depth objection (fault activation, caprock integrity, two-phase flow, simulator contract) and the missing data lineage.
 
 **The graph is now a network, but only just — and it took normalisation, not more papers, to get there.** The honest trajectory, all measured on the same corpus:
 
 | Stage | Nodes | Edges | Components | Largest component |
 |---|---|---|---|---|
+<!-- 中文注释：下表记录的是 2026-10 首次实体归一化实验的规模（8.1% 正文覆盖）。
+     2026-10-25 全文重建后图谱为 4,826 实体 / 5,008 关系，绝对数字已变，
+     但表里的**相对结论**（类型约束 > 别名归并）在全文语料上仍然成立。 -->
 | Hand-written seed (5 papers) | 46 | 32 | — | 46 |
 | 23 papers, LightRAG's default prompt | 765 | 559 | **247** | 83 (10.8 %) |
 | 23 papers, domain type constraints | 433 | 426 | 96 | 252 (58.2 %) |
@@ -2483,7 +2506,8 @@ Closing either gap needs three things this pipeline does not do yet: **entity ca
 - [x] **Two-phase flow approximation** — Brooks–Corey relative permeability, Buckley–Leverett front, 1-D finite-volume solver cross-checked against the analytic solution (`utils/relperm.py`, `utils/flow1d.py`)
 - [ ] **Poroelastic coupling** — the stress model assumes injection changes pore pressure only; total stress is held fixed, which over-predicts the margin in soft / compacting formations
 - [ ] **Gravity segregation in the column model** — the current 1-D plume spreads CO₂ uniformly, so the breakthrough time is an upper bound (documented in `limitations`, not fixed)
-- [ ] Incremental graph ingestion from PDFs (`ccus_docs/`), with entity canonicalisation
+- [x] Incremental graph ingestion from PDFs (`ccus_docs/`) — 22 papers, full text, 99.7 % coverage, 4,826 entities, lineage 100 % (`ingest_ccus_batch.py` + `normalize_graph.py` + `scripts/repair_partial_ingest.py`). Entity canonicalisation exists but is not yet re-run on the enlarged graph
+- [ ] **Relation normalisation on the full-text graph** — 17.5 % isolated nodes and 322 multi-node components; this is now the top graph-quality item, ahead of adding papers
 - [ ] Async task queue for concurrent assessments (and a reranker shared across workers)
 - [ ] Fetch model prices instead of hardcoding them (off-peak / cache-hit rates)
 - [ ] Feed real per-run costs back into the routing decision (currently the decision is made before the cost is known)
