@@ -334,7 +334,8 @@ jobs:
             tests.test_uq \
             tests.test_uq_advanced \
             tests.test_sensitivity \
-            tests.test_risk_policy
+            tests.test_risk_policy \
+            tests.test_graph_stubs
 
   unit-deps:
     name: Unit tests · eval & config (real deps, no torch)

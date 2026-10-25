@@ -28,6 +28,19 @@ STUBBED: list[str] = []
 
 
 def _install(name: str, **attrs) -> None:
+    """
+    把 ``name`` 换成只有 ``attrs`` 的假模块。已被真实导入过则**跳过**。
+
+    那个 ``return`` 是"本地全绿、CI 必红"的来源，值得写清楚：本地跑
+    ``unittest discover`` 时，``tests/test_degradation.py``（字母序在
+    ``test_quality_gate`` 之前）先一步 import 了真实的 ``tools/physics_tools.py``，
+    于是这里跳过，图测试用的是真实模块 —— 替身少了名字也看不出来
+    （实测：discover 顺序下 ``sys.modules['tools.physics_tools'].__file__``
+    指向真实文件）。CI 的 graph job 只跑 ``test_quality_gate`` +
+    ``test_negative_gate``，替身真的生效，缺名字当场 ImportError。
+    所以替身的完整性不能靠"本地跑一遍"来保证，
+    见 ``tests/test_graph_stubs.py``（静态解析，不依赖导入顺序）。
+    """
     if name in sys.modules:
         return
     module = types.ModuleType(name)
@@ -58,6 +71,12 @@ def install_leaf_stubs() -> list[str]:
         "tools.physics_tools",
         co2_density_uq=_fake_density_uq,
         injection_risk_uq=_fake_injection_uq,
+        # 替身是**契约**，不是"够用就行"：`aggregate_node` 从这个模块 import
+        # 哪几个名字，这里就必须有哪几个，否则真实模块里的新增导入会让
+        # `workflow.py` 在 import 阶段就崩，而报错信息是
+        # "cannot import name X from 'tools.physics_tools' (unknown location)" ——
+        # "unknown location" 说的就是替身没有 __file__，很容易被误读成打包问题。
+        injection_risk_sensitivity=_fake_sensitivity,
     )
     _install(
         "tools.knowledge_tools",
@@ -113,6 +132,33 @@ def _fake_injection_uq(depth_m, pressure_bar, **_kwargs) -> dict:
         "verdict_label": "注入可行",
         "depth_m": depth_m,
         "injection_pressure_bar": pressure_bar,
+        "dist_label": "±5% 均匀扰动",
+        "independent": True,
+    }
+
+
+def _fake_sensitivity(depth_m, pressure_bar, **_kwargs) -> dict:
+    """
+    Sobol 替身：数字是编的，结构是真的。
+
+    这里只需要"有排名、有 text"，因为被测的是 aggregate 会不会把它写进
+    tool_facts 与 Prompt —— 指数算得准不准由 tests/test_sensitivity.py 用
+    解析基准负责，不需要在整图测试里重跑一遍 8192 次模型评估。
+    """
+    return {
+        "text": "深度 一阶 60%／总效应 65%；注入压力 一阶 35%／总效应 40%",
+        "names": ["深度", "注入压力"],
+        "first_order": {"深度": 0.60, "注入压力": 0.35},
+        "total_order": {"深度": 0.65, "注入压力": 0.40},
+        "interaction": {"深度": 0.05, "注入压力": 0.05},
+        "first_order_se": {"深度": 0.01, "注入压力": 0.01},
+        "total_order_se": {"深度": 0.01, "注入压力": 0.01},
+        "ranking": ["深度", "注入压力"],
+        "n_base": 2048,
+        "evaluations": 8192,
+        "variance": 1.0,
+        "mean": 0.2,
+        "notes": [],
     }
 
 
