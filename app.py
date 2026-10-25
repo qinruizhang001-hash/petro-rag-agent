@@ -94,6 +94,23 @@ _CAP_VERDICT_CN = {
     "no_data": "未判定",
 }
 
+
+def _num(value, nd: int = 2) -> str:
+    """把可能是 None / 字符串（"inf"）/ 数字的字段格式化成展示文本。
+
+    深层物理结果里的滑移比可能是字符串 ``"inf"``（有效正应力被压到 0），
+    余量也可能是。直接套 ``:.1f`` 会在前端抛 ValueError —— 后端算对了，
+    页面却白屏。
+    """
+    if value is None:
+        return "—"
+    if isinstance(value, str):
+        return value
+    try:
+        return f"{float(value):.{nd}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
 st.set_page_config(
     page_title="CCUS 评估监控台",
     page_icon="🏭",
@@ -537,19 +554,21 @@ def render_report(meta: dict, depth: float, p_inj: float, temp: float) -> None:
                 "判据": "盖层封闭性",
                 "结论": _CAP_VERDICT_CN.get(cap.get("verdict"), cap.get("verdict") or "—"),
                 "关键数值": (
-                    f"突破压力 {cap['entry_pressure_bar']:.0f} bar · "
-                    f"可封柱高 {cap['max_column_height_m']:.0f} m"
-                    + (f" · 本次柱高 {cap['column_height_m']:.0f} m"
+                    f"突破压力 {_num(cap.get('entry_pressure_bar'), 0)} bar · "
+                    f"可封柱高 {_num(cap.get('max_column_height_m'), 0)} m"
+                    + (f" · 本次柱高 {_num(cap.get('column_height_m'), 0)} m"
                        if cap.get("column_height_m") is not None else "")
                 ),
             })
         if rel:
+            # 字段可能缺失（旧缓存里的 physics_check 没有这一块），所以用 .get + 默认值
+            # 而不是直接下标：一个 KeyError 会让整页白屏，而这里只是少一行表。
             rows.append({
                 "判据": "两相流",
-                "结论": f"流度比 M = {rel.get('mobility_ratio'):.1f}",
+                "结论": f"流度比 M = {_num(rel.get('mobility_ratio'), 1)}",
                 "关键数值": (
-                    f"前缘 S_CO₂ {rel.get('sg_front'):.2f} · "
-                    f"波及区平均 {rel.get('co2_saturation'):.2f}"
+                    f"前缘 S_CO₂ {_num(rel.get('sg_front'), 2)} · "
+                    f"波及区平均 {_num(rel.get('co2_saturation'), 2)}"
                 ),
             })
         st.caption(f"深层物理判定 · {deep.get('version') or ''}")
