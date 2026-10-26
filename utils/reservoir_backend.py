@@ -43,8 +43,10 @@ from utils import caprock as cp
 from utils import flow1d
 from utils import relperm as rp
 
-BACKEND_VERSION = "2026.10-b1"
-SCHEMA = "ccus-sim-result/1"
+BACKEND_VERSION = "2026.10-b2"
+# Breaking change: /1 did not bind the result to a case. A stale JSON could be
+# consumed as the answer to another injection scenario without any warning.
+SCHEMA = "ccus-sim-result/2"
 
 # 允许的单位写法。不做单位换算 —— 要求外部适配器自己转成这套单位，
 # 因为"猜单位"是这类集成里最危险的一步（psi 与 bar 差 14.5 倍，
@@ -88,20 +90,27 @@ class SimulationCase:
             problems.append("算例缺少名称")
         if not 50.0 <= self.depth_m <= 9000.0:
             problems.append(f"埋深 {self.depth_m} m 超出 [50, 9000]")
-        if self.injection_pressure_bar <= 0:
-            problems.append("注入压力必须为正")
+        if not math.isfinite(self.injection_pressure_bar) or self.injection_pressure_bar <= 0:
+            problems.append("注入压力必须为有限正数")
         if not -20.0 <= self.temperature_celsius <= 200.0:
             problems.append(f"温度 {self.temperature_celsius}℃ 超出 [-20, 200]")
         if not 1.0 <= self.thickness_m <= 1000.0:
             problems.append(f"储层厚度 {self.thickness_m} m 超出 [1, 1000]")
         if not 0.01 <= self.porosity <= 0.45:
             problems.append(f"孔隙度 {self.porosity} 超出 [0.01, 0.45]")
-        if self.permeability_md <= 0:
-            problems.append("渗透率必须为正")
-        if self.plume_radius_m <= 0:
-            problems.append("羽流半径必须为正")
-        if self.injection_rate_m3_per_day is not None and self.injection_rate_m3_per_day <= 0:
-            problems.append("注入速率必须为正")
+        if not math.isfinite(self.permeability_md) or self.permeability_md <= 0:
+            problems.append("渗透率必须为有限正数")
+        if not math.isfinite(self.plume_radius_m) or self.plume_radius_m <= 0:
+            problems.append("羽流半径必须为有限正数")
+        if self.injection_rate_m3_per_day is not None and (
+            not math.isfinite(self.injection_rate_m3_per_day)
+            or self.injection_rate_m3_per_day <= 0
+        ):
+            problems.append("注入速率必须为有限正数")
+        if not math.isfinite(self.rho_brine) or self.rho_brine <= 0:
+            problems.append("盐水密度必须为有限正数")
+        if not math.isfinite(self.fault_azimuth_deg):
+            problems.append("断层方位必须为有限数")
         if not 0.0 < self.fault_dip_deg < 90.0:
             problems.append(f"断层倾角 {self.fault_dip_deg}° 超出 (0, 90)")
         return problems
@@ -141,12 +150,20 @@ class SimulationResult:
                 f"序列长度不一致：时间 {n} / 饱和度 {len(self.co2_saturation)} / "
                 f"压力 {len(self.pressure_bar)}"
             )
+        if any(not math.isfinite(t) or t < 0 for t in self.time_days):
+            problems.append("时间必须为有限非负数")
         if any(b <= a for a, b in zip(self.time_days, self.time_days[1:])):
             problems.append("时间序列必须严格递增")
-        if any(not 0.0 <= s <= 1.0 for s in self.co2_saturation):
-            problems.append("CO₂ 饱和度必须在 [0, 1] 内（百分数没有换算？）")
-        if any(p <= 0 for p in self.pressure_bar):
-            problems.append("压力必须为正")
+        if any(not math.isfinite(s) or not 0.0 <= s <= 1.0 for s in self.co2_saturation):
+            problems.append("CO₂ 饱和度必须是 [0, 1] 内的有限数（百分数没有换算？）")
+        if any(not math.isfinite(p) or p <= 0 for p in self.pressure_bar):
+            problems.append("压力必须为有限正数")
+        for label, value in (
+            ("CO₂ 柱高", self.co2_column_height_m),
+            ("盖层突破压力", self.entry_pressure_bar),
+        ):
+            if value is not None and (not math.isfinite(value) or value < 0):
+                problems.append(f"{label} 必须为有限非负数")
         return problems
 
     def as_dict(self) -> dict:
@@ -274,60 +291,95 @@ class ExternalResultBackend:
 
     def __init__(self, path: str):
         self.path = path
-        self._cache: dict | None = None
 
     # ── 读取 ─────────────────────────────────────────────
     def _load(self) -> dict:
-        if self._cache is not None:
-            return self._cache
         if not os.path.exists(self.path):
             raise BackendUnavailable(
                 f"找不到模拟器结果文件 {self.path}。"
                 "需要先用适配器把 ECLIPSE/CMG/TOUGH 的输出转成 "
                 f"{SCHEMA} 契约（字段见 docs/simulator-adapter.md）。"
             )
-        with open(self.path, encoding="utf-8") as fh:
-            try:
+        try:
+            with open(self.path, encoding="utf-8") as fh:
                 data = json.load(fh)
-            except json.JSONDecodeError as e:
-                raise BackendUnavailable(f"{self.path} 不是合法 JSON：{e}") from e
-        self._cache = data
+        except (OSError, UnicodeError, json.JSONDecodeError) as e:
+            raise BackendUnavailable(f"{self.path} 无法读取或不是合法 JSON：{e}") from e
+        if not isinstance(data, dict):
+            raise BackendUnavailable(f"{self.path} 根节点必须是 JSON 对象")
+        # No instance cache: the file can be replaced between requests. A run
+        # validates and consumes the SAME snapshot (not validate old/read new).
         return data
 
-    def validate(self, case: SimulationCase) -> list[str]:
+    def _check(self, data: dict, case: SimulationCase) -> list[str]:
         problems = list(case.validate())
-        try:
-            data = self._load()
-        except BackendUnavailable as e:
-            problems.append(str(e))
-            return problems
-
         if data.get("schema") != SCHEMA:
             problems.append(
                 f"schema 必须是 {SCHEMA!r}，实际 {data.get('schema')!r}"
             )
-        result = self._to_result(data)
-        problems.extend(result.validate())
+        if not isinstance(data.get("case"), dict) or data["case"] != asdict(case):
+            problems.append("外部结果的 case 输入与当前算例不一致；拒绝把旧算例当成当前结论")
+        if data.get("converged") is not True:
+            problems.append("converged 必须是 JSON 布尔值 true；字符串 'false' 不能当作收敛")
+        if not isinstance(data.get("backend"), str) or not data["backend"].strip():
+            problems.append("backend 必须是非空的模拟器标识")
+        try:
+            result = self._to_result(data)
+        except (TypeError, ValueError, OverflowError) as e:
+            problems.append(f"模拟器结果字段格式错误：{e}")
+        else:
+            problems.extend(result.validate())
         return problems
 
+    def validate(self, case: SimulationCase) -> list[str]:
+        try:
+            data = self._load()
+        except BackendUnavailable as e:
+            return list(case.validate()) + [str(e)]
+        return self._check(data, case)
+
     def run(self, case: SimulationCase) -> SimulationResult:
-        problems = self.validate(case)
+        try:
+            data = self._load()
+        except BackendUnavailable as e:
+            raise BackendUnavailable("模拟器结果不可用：" + str(e)) from e
+        problems = self._check(data, case)
         if problems:
             raise BackendUnavailable("模拟器结果不可用：" + "；".join(problems))
-        return self._to_result(self._load())
+        return self._to_result(data)
 
     def _to_result(self, data: dict) -> SimulationResult:
+        def series(name: str) -> list[float]:
+            values = data.get(name)
+            if not isinstance(values, list):
+                raise TypeError(f"{name} 必须是数组")
+            if any(isinstance(x, bool) for x in values):
+                raise TypeError(f"{name} 不接受布尔值")
+            return [float(x) for x in values]
+
+        notes = data.get("notes", [])
+        if not isinstance(notes, list) or any(not isinstance(s, str) for s in notes):
+            raise TypeError("notes 必须是字符串数组")
+        units = data.get("units")
+        if not isinstance(units, dict):
+            raise TypeError("units 必须是对象")
         return SimulationResult(
-            backend=str(data.get("backend") or "external"),
+            backend=data.get("backend", ""),
             kind=self.kind,
-            converged=bool(data.get("converged", False)),
-            units=data.get("units") or {},
-            time_days=[float(x) for x in data.get("time_days") or []],
-            co2_saturation=[float(x) for x in data.get("co2_saturation") or []],
-            pressure_bar=[float(x) for x in data.get("pressure_bar") or []],
-            co2_column_height_m=data.get("co2_column_height_m"),
-            entry_pressure_bar=data.get("entry_pressure_bar"),
-            notes=list(data.get("notes") or []),
+            converged=data.get("converged") is True,
+            units=units,
+            time_days=series("time_days"),
+            co2_saturation=series("co2_saturation"),
+            pressure_bar=series("pressure_bar"),
+            co2_column_height_m=(
+                float(data["co2_column_height_m"])
+                if data.get("co2_column_height_m") is not None else None
+            ),
+            entry_pressure_bar=(
+                float(data["entry_pressure_bar"])
+                if data.get("entry_pressure_bar") is not None else None
+            ),
+            notes=notes,
         )
 
     def summarise(self, result: SimulationResult) -> str:
@@ -343,10 +395,10 @@ class ExternalResultBackend:
 # ══════════════════════════════════════════════════════════
 # 注册表
 # ══════════════════════════════════════════════════════════
-def available_backends(external_path: str | None = None) -> dict:
-    """
-    列出可用后端及其状态。给前端/报告用，让人一眼看出"这次是哪种后端算的"。
-    """
+def available_backends(
+    external_path: str | None = None, case: SimulationCase | None = None
+) -> dict:
+    """按**真实算例**探测后端。未给 case 时不能用假算例证明外部结果可用。"""
     out = {
         "analytical-screening": {
             "kind": "analytical",
@@ -356,9 +408,10 @@ def available_backends(external_path: str | None = None) -> dict:
     }
     if external_path:
         backend = ExternalResultBackend(external_path)
-        case = SimulationCase(name="probe", depth_m=2500, injection_pressure_bar=300,
-                              temperature_celsius=60)
-        problems = backend.validate(case)
+        problems = (
+            backend.validate(case) if case is not None
+            else ["未提供 SimulationCase：不能确认结果是否属于当前算例"]
+        )
         out["external-json"] = {
             "kind": "external",
             "available": not problems,
@@ -368,13 +421,94 @@ def available_backends(external_path: str | None = None) -> dict:
     return out
 
 
-def run_case(case: SimulationCase, external_path: str | None = None) -> dict:
-    """
-    按"有外部结果就用外部、没有就用解析"的顺序跑一次，返回结果 + 摘要。
+def compare_screening_to_external(
+    case: SimulationCase, external_path: str, *,
+    pressure_tolerance_bar: float, saturation_tolerance: float,
+) -> dict:
+    """对齐时间轴并量化筛查模型与外部模拟结果的差异；**不是现场验证**。
 
-    顺序是有讲究的：外部模拟器结果优先，因为它包含了本项目不建模的物理
-    （重力分异、非均质、溶解）。但**不可用时不静默降级** —— 摘要里写明
-    用了哪个后端、为什么，否则读者会以为结论来自模拟器。
+    输入必须已绑定相同 case，并声明压力与饱和度的观测位置/空间支撑一致；
+    缺声明或时间不覆盖筛查时间轴时返回 not_comparable，绝不外推或假装验证。
+    容差由调用者根据数据质量预先指定，不在代码里发明及格线。
+    """
+    for label, value in (
+        ("pressure_tolerance_bar", pressure_tolerance_bar),
+        ("saturation_tolerance", saturation_tolerance),
+    ):
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"{label} 必须为有限非负数")
+    backend = ExternalResultBackend(external_path)
+    try:
+        data = backend._load()
+    except BackendUnavailable as e:
+        return {"status": "rejected", "problems": [str(e)]}
+    problems = backend._check(data, case)
+    if problems:
+        return {"status": "rejected", "problems": problems}
+    if data.get("comparison_basis") != {
+        "pressure_bar": "injection_well_bottomhole",
+        "co2_saturation": "same_control_volume_mean",
+    }:
+        return {
+            "status": "not_comparable",
+            "reason": "未声明两条曲线对应同一井底观测点及同一体积的平均饱和度",
+        }
+    external = backend._to_result(data)
+    screening = AnalyticalScreeningBackend().run(case)
+    if len(external.time_days) < 2 or (
+        external.time_days[0] > screening.time_days[0]
+        or external.time_days[-1] < screening.time_days[-1]
+    ):
+        return {
+            "status": "not_comparable",
+            "reason": "外部时间轴未覆盖筛查模型全部采样时刻；不允许外推或只挑重叠段",
+        }
+
+    def interpolate(times: list[float], values: list[float], at: float) -> float:
+        from bisect import bisect_left
+
+        pos = bisect_left(times, at)
+        if pos < len(times) and times[pos] == at:
+            return values[pos]
+        left, right = pos - 1, pos
+        weight = (at - times[left]) / (times[right] - times[left])
+        return values[left] * (1.0 - weight) + values[right] * weight
+
+    metrics = {}
+    for key, predicted, observed, tolerance in (
+        ("pressure_bar", screening.pressure_bar, external.pressure_bar, pressure_tolerance_bar),
+        ("co2_saturation", screening.co2_saturation, external.co2_saturation, saturation_tolerance),
+    ):
+        errors = [
+            abs(p - interpolate(external.time_days, observed, t))
+            for t, p in zip(screening.time_days, predicted)
+        ]
+        metrics[key] = {
+            "mae": sum(errors) / len(errors), "max_abs_error": max(errors),
+            "tolerance": tolerance, "within_tolerance": max(errors) <= tolerance,
+        }
+    return {
+        "status": "compared", "time_days": screening.time_days,
+        "metrics": metrics,
+        "within_user_tolerances": all(m["within_tolerance"] for m in metrics.values()),
+        "external_backend": external.backend,
+        "source_identity_verified": False,
+        "limitations": (
+            "仅量化声明同支撑区域的两条曲线差异；case 与比较口径均由文件作者声明，"
+            "未独立核验来源、网格或真实油田观测，不构成场地级验证"
+        ),
+    }
+
+
+def run_case(
+    case: SimulationCase, external_path: str | None = None, *,
+    allow_screening_fallback: bool = False,
+) -> dict:
+    """运行外部结果或解析筛查；指定外部结果失败时默认**拒绝**。
+
+    旧版即使外部结果的算例或字段不匹配也会返回 ``ok=True`` 的解析结果，
+    下游若只检查 ok 就会误认为外部验证成功。现在只有显式选择
+    ``allow_screening_fallback=True`` 才会退回筛查，并在结果里写明原因。
     """
     problems = case.validate()
     if problems:
@@ -396,7 +530,11 @@ def run_case(case: SimulationCase, external_path: str | None = None) -> dict:
                 "summary": backend.summarise(result),
             }
         except BackendUnavailable as e:
-            # 不静默降级：明确记录"外部不可用，改用解析"
+            if not allow_screening_fallback:
+                return {
+                    "ok": False, "backend": None, "adapter": backend.name,
+                    "degraded": False, "problems": [str(e)], "result": None,
+                }
             fallback = AnalyticalScreeningBackend()
             result = fallback.run(case)
             return {

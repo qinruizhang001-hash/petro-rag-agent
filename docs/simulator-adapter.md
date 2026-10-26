@@ -1,4 +1,8 @@
-# 储层模拟器适配契约（`ccus-sim-result/1`）
+# 储层模拟器适配契约（`ccus-sim-result/2`）
+
+> **不兼容更新**：`/1` 没有记录输入算例；把旧结果文件传给新算例也会被当成模拟器结论。
+> `/2` 要求 `case` 包含 `SimulationCase` 的全部字段，运行时逐字段对照。
+> 旧文件不会被猜测升级；必须从原始输入与模拟结果重新生成。契约通过只表示格式与输入匹配，**不代表经过真实油田验证**。
 
 本文件是 `utils/reservoir_backend.py` 的外部契约说明。代码里两处引用它
 （`ExternalResultBackend` 的类说明与 `BackendUnavailable` 的消息），所以它
@@ -50,13 +54,20 @@ SimulationCase(
 | `permeability_md` / `plume_radius_m` / 注入速率 | > 0 | 负值无物理意义 |
 | `fault_dip_deg` | (0, 90) | 90° 是垂直面，剪切分量为零，不在模型适用域内 |
 
-## 输出契约：`ccus-sim-result/1`
+## 输出契约：`ccus-sim-result/2`
 
 外部适配器需要产出一个 JSON 文件：
 
 ```json
 {
-  "schema": "ccus-sim-result/1",
+  "schema": "ccus-sim-result/2",
+  "case": {
+    "name": "case-A", "depth_m": 2500.0, "injection_pressure_bar": 250.0,
+    "temperature_celsius": 60.0, "thickness_m": 50.0, "porosity": 0.2,
+    "permeability_md": 100.0, "plume_radius_m": 500.0,
+    "injection_rate_m3_per_day": null, "rho_brine": 1030.0,
+    "fault_dip_deg": 60.0, "fault_azimuth_deg": 90.0
+  },
   "backend": "eclipse-2021",
   "converged": true,
   "units": {"pressure": "bar", "length": "m", "time": "day", "saturation": "fraction"},
@@ -71,17 +82,20 @@ SimulationCase(
 
 逐项校验规则（全部来自 `SimulationResult.validate()`）：
 
-1. **`schema` 必须精确等于** `ccus-sim-result/1`。不做版本兼容猜测 —— 字段
+1. **`schema` 必须精确等于** `ccus-sim-result/2`。不做版本兼容猜测 —— 字段
    含义变了却"看起来还能解析"，比直接拒绝更危险。
-2. **`converged` 必须为 `true`**。`false` 时结果里的数字仍然存在、看起来完全
+2. **`case` 必须与本次 `SimulationCase` 完全相同**（含可选字段的实际值）。
+   这只能证明文件声称属于相同输入，不能证明输出确实由模拟器算出。
+3. **`converged` 必须是 JSON 布尔值 `true`**；字符串 `"false"` 不是 true。
+   `false` 时结果里的数字仍然存在、看起来完全
    正常，但那是迭代失败后的残值。把它当结论写进报告，等于用噪声做安全判定。
    这是 fail-closed，与质量闸门同一条原则：拒绝，而不是打个警告放行。
-3. **`units` 四项必须全部显式给出且等于约定值**。缺一个就拒绝。不做换算，
+4. **`units` 四项必须全部显式给出且等于约定值**。缺一个就拒绝。不做换算，
    因为"猜单位"是这类集成里最容易出错的一步 —— psi 与 bar 两个数字都
    "看起来合理"。
-4. **时间严格递增**，长度一致。回退的时间轴说明后处理脚本拼接错了。
-5. **饱和度落在 [0, 1]**。出现 20 说明给的是百分数。
-6. **压力为正**。
+5. **时间严格递增且有限**，长度一致。回退的时间轴说明后处理脚本拼接错了。
+6. **饱和度是有限的 [0, 1] 内数**。出现 20 说明给的是百分数。
+7. **压力必须为有限正数**。NaN/Infinity（包括 Python JSON 默认宽容的非标准写法）直接拒绝。
 
 ## 两种后端，一个是真的
 
@@ -107,13 +121,15 @@ SimulationCase(
 }
 ```
 
-外部结果不可用时**不静默降级**：`degraded=True` 且 `degraded_reason` 写明
-缺什么、怎么补。降级本身是允许的（没有模拟器也要能出筛查结论），但"用了
-哪个后端"必须可见 —— 否则报告读者会以为结论来自储层模拟。
+指定外部结果但文件缺失或不合法时，**默认 `ok=False`，不把解析结果伪装成成功**。
+调用方确实允许退回筛查时，显式传 `allow_screening_fallback=True`；这时
+`degraded=True` 且 `degraded_reason` 写明缺什么、怎么补，返回的 `backend`
+仍是 `analytical-screening`。
 
 ## 写一个适配器：三步
 
-1. 让模拟器输出上面那个 JSON（推荐在模拟器侧做单位换算，而不是在这里猜）。
+1. 让模拟器输出上面那个 JSON：`case` 可用 `dataclasses.asdict(case)` 生成，
+   单位在适配器侧明确换算，不在这里猜。
 2. 用 `ExternalResultBackend(path).validate(case)` 探测 —— 它返回问题列表，
    不抛异常，适合放进 CI。
 3. 通过后接进 `run_case(case, external_path=path)`。
@@ -123,11 +139,44 @@ SimulationCase(
 ```python
 from utils.reservoir_backend import ExternalResultBackend, SimulationCase
 
-case = SimulationCase(name="check", depth_m=2500, injection_pressure_bar=250,
+case = SimulationCase(name="case-A", depth_m=2500, injection_pressure_bar=250,
                       temperature_celsius=60)
 problems = ExternalResultBackend("out/eclipse_case_A.json").validate(case)
 print("\n".join(problems) or "契约通过")
 ```
+
+## 可重复的跨模型对照（尚无真实参考数据）
+
+`compare_screening_to_external` 是**对照工具，不是已经完成的验证**。在有独立
+模拟器结果时，先让其通过上述 case/单位/收敛校验，再在文件里声明：
+
+```json
+"comparison_basis": {
+  "pressure_bar": "injection_well_bottomhole",
+  "co2_saturation": "same_control_volume_mean"
+}
+```
+
+这两个声明必须由导出人员核对：若数值模拟器输出的是**储层平均压力**而筛查模型是
+**井底压力**，或两条饱和度曲线覆盖不同体积，即使数值相近也不能比较。
+函数无法独立证明声明是真的，结果里因此始终是
+`"source_identity_verified": false`，**不颁发场地级通过证书**。
+
+```python
+from utils.reservoir_backend import compare_screening_to_external
+
+result = compare_screening_to_external(
+    case, "out/eclipse_case_A.json",
+    pressure_tolerance_bar=2.0,  # 示意，实际容差须在看结果前由工程师确定
+    saturation_tolerance=0.02,   # 示意，不是本项目的内置及格线
+)
+# status: rejected / not_comparable / compared
+```
+
+返回两条曲线在筛查模型全部时间点上的 MAE 和最大绝对误差；只有参考时间轴**完整覆盖**
+筛查时间轴时才线性插值，绝不外推或挑一段有利的重叠区间。容差没有默认值，比较是否
+落在用户容差内也不代表模型通过了真实油田验证。仓库现有测试仅用**合成曲线**确认
+比较器逻辑，**没有**独立 CMG/ECLIPSE 输出或现场监测数据。
 
 ## 这个契约故意不包含的东西
 

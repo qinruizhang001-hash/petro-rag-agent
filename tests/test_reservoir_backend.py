@@ -12,6 +12,7 @@
 """
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ def _case(**kw):
 def _valid_payload(**kw):
     base = {
         "schema": rb.SCHEMA,
+        "case": rb.asdict(_case()),
         "backend": "eclipse-2021",
         "converged": True,
         "units": dict(rb.REQUIRED_UNITS),
@@ -123,6 +125,47 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(any("压力" in p for p in problems))
 
 
+class ExternalResultSafetyTests(unittest.TestCase):
+    def test_result_is_bound_to_the_exact_case(self):
+        tmp = _TempJson(_valid_payload())
+        other = _case(injection_pressure_bar=400)
+        backend = rb.ExternalResultBackend(tmp.path)
+        self.assertTrue(any("case" in s for s in backend.validate(other)))
+        with self.assertRaises(rb.BackendUnavailable):
+            backend.run(other)
+        self.assertFalse(rb.run_case(other, external_path=tmp.path)["ok"])
+
+    def test_old_schema_cannot_bypass_case_binding(self):
+        tmp = _TempJson(_valid_payload(schema="ccus-sim-result/1"))
+        self.assertTrue(rb.ExternalResultBackend(tmp.path).validate(_case()))
+
+    def test_converged_string_is_not_true(self):
+        tmp = _TempJson(_valid_payload(converged="false"))
+        self.assertTrue(any("converged" in s for s in rb.ExternalResultBackend(tmp.path).validate(_case())))
+
+    def test_nonfinite_numbers_and_malformed_arrays_are_rejected(self):
+        for bad in ([300, float("nan")], [300, float("inf")], "bad-array", [True, 300]):
+            with self.subTest(bad=bad):
+                tmp = _TempJson(_valid_payload(pressure_bar=bad))
+                self.assertTrue(rb.ExternalResultBackend(tmp.path).validate(_case()))
+        self.assertTrue(_case(permeability_md=float("nan")).validate())
+
+    def test_replaced_file_is_not_served_from_cache(self):
+        tmp = _TempJson(_valid_payload())
+        backend = rb.ExternalResultBackend(tmp.path)
+        self.assertEqual(backend.validate(_case()), [])
+        with open(tmp.path, "w", encoding="utf-8") as fh:
+            json.dump(_valid_payload(converged=False), fh)
+        self.assertTrue(backend.validate(_case()))
+        with self.assertRaises(rb.BackendUnavailable):
+            backend.run(_case())
+
+    def test_probe_cannot_use_a_fabricated_case(self):
+        tmp = _TempJson(_valid_payload())
+        self.assertFalse(rb.available_backends(tmp.path)["external-json"]["available"])
+        self.assertTrue(rb.available_backends(tmp.path, _case())["external-json"]["available"])
+
+
 class AnalyticalBackendTests(unittest.TestCase):
     def setUp(self):
         self.backend = rb.AnalyticalScreeningBackend()
@@ -208,14 +251,18 @@ class RunCaseTests(unittest.TestCase):
         self.assertEqual(out["backend"], "analytical-screening")
         self.assertFalse(out["degraded"])
 
-    def test_degrades_explicitly_when_external_missing(self):
-        """
-        外部结果缺失时降级到解析，但**必须写明降级原因**。
-
-        静默降级会让读者以为结论来自模拟器 —— 那比直接失败更糟。
-        """
+    def test_requested_external_missing_fails_closed(self):
         missing = os.path.join(tempfile.mkdtemp(), "absent.json")
         out = rb.run_case(_case(), external_path=missing)
+        self.assertFalse(out["ok"])
+        self.assertIsNone(out["result"])
+        self.assertIn("找不到", out["problems"][0])
+
+    def test_explicit_fallback_names_the_degradation(self):
+        missing = os.path.join(tempfile.mkdtemp(), "absent.json")
+        out = rb.run_case(
+            _case(), external_path=missing, allow_screening_fallback=True
+        )
         self.assertTrue(out["ok"])
         self.assertTrue(out["degraded"])
         self.assertIn("找不到", out["degraded_reason"])
@@ -250,6 +297,77 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(out["external-json"]["problems"])
 
 
+class CrossModelComparisonTests(unittest.TestCase):
+    """合成输入只测试机制，绝不计作真实油田或专业模拟器验证。"""
+
+    def _payload(self, **overrides):
+        result = rb.AnalyticalScreeningBackend().run(_case())
+        payload = _valid_payload(
+            time_days=[0.0] + result.time_days,
+            pressure_bar=[result.pressure_bar[0]] + result.pressure_bar,
+            co2_saturation=[result.co2_saturation[0]] + result.co2_saturation,
+            comparison_basis={
+                "pressure_bar": "injection_well_bottomhole",
+                "co2_saturation": "same_control_volume_mean",
+            },
+        )
+        payload.update(overrides)
+        return payload
+
+    def test_equal_synthetic_curves_compare_but_do_not_certify(self):
+        tmp = _TempJson(self._payload())
+        out = rb.compare_screening_to_external(
+            _case(), tmp.path, pressure_tolerance_bar=0,
+            saturation_tolerance=0,
+        )
+        self.assertEqual(out["status"], "compared")
+        self.assertTrue(out["within_user_tolerances"])
+        self.assertFalse(out["source_identity_verified"])
+        self.assertIn("不构成场地级验证", out["limitations"])
+
+    def test_disagreement_exceeds_declared_tolerance(self):
+        payload = self._payload()
+        payload["pressure_bar"] = [p + 5.0 for p in payload["pressure_bar"]]
+        tmp = _TempJson(payload)
+        out = rb.compare_screening_to_external(
+            _case(), tmp.path, pressure_tolerance_bar=2.0,
+            saturation_tolerance=0.1,
+        )
+        self.assertFalse(out["within_user_tolerances"])
+        self.assertAlmostEqual(out["metrics"]["pressure_bar"]["max_abs_error"], 5.0)
+
+    def test_time_extrapolation_and_missing_support_are_rejected(self):
+        payload = self._payload()
+        payload["time_days"] = payload["time_days"][:-1]
+        payload["pressure_bar"] = payload["pressure_bar"][:-1]
+        payload["co2_saturation"] = payload["co2_saturation"][:-1]
+        tmp = _TempJson(payload)
+        out = rb.compare_screening_to_external(
+            _case(), tmp.path, pressure_tolerance_bar=1,
+            saturation_tolerance=0.01,
+        )
+        self.assertEqual(out["status"], "not_comparable")
+        tmp = _TempJson(self._payload(comparison_basis={}))
+        out = rb.compare_screening_to_external(
+            _case(), tmp.path, pressure_tolerance_bar=1,
+            saturation_tolerance=0.01,
+        )
+        self.assertEqual(out["status"], "not_comparable")
+
+    def test_wrong_case_and_missing_reference_do_not_compare(self):
+        tmp = _TempJson(self._payload())
+        out = rb.compare_screening_to_external(
+            _case(injection_pressure_bar=400), tmp.path,
+            pressure_tolerance_bar=1, saturation_tolerance=0.01,
+        )
+        self.assertEqual(out["status"], "rejected")
+        with self.assertRaises(ValueError):
+            rb.compare_screening_to_external(
+                _case(), tmp.path, pressure_tolerance_bar=-1,
+                saturation_tolerance=0.01,
+            )
+
+
 class DocumentedExampleTests(unittest.TestCase):
     """
     ``docs/simulator-adapter.md`` 里的示例 JSON 必须真的能通过契约。
@@ -259,7 +377,8 @@ class DocumentedExampleTests(unittest.TestCase):
     """
 
     DOC_EXAMPLE = {
-        "schema": "ccus-sim-result/1",
+        "schema": rb.SCHEMA,
+        "case": rb.asdict(_case()),
         "backend": "eclipse-2021",
         "converged": True,
         "units": {"pressure": "bar", "length": "m",
@@ -292,6 +411,12 @@ class DocumentedExampleTests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             body = fh.read()
         self.assertIn(rb.SCHEMA, body)
+        match = re.search(r"```json\s*\n(.*?)\n```", body, flags=re.DOTALL)
+        self.assertIsNotNone(match, "文档里缺可执行的 JSON 样例")
+        payload = json.loads(match.group(1))
+        case = rb.SimulationCase(**payload["case"])
+        tmp = _TempJson(payload)
+        self.assertEqual(rb.ExternalResultBackend(tmp.path).validate(case), [])
 
 
 if __name__ == "__main__":

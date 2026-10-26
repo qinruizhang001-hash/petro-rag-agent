@@ -331,7 +331,8 @@ def run_simulator_case(depth_m: float, injection_pressure_bar: float,
                        injection_rate_m3_per_day: float | None = None,
                        external_path: str | None = None) -> dict:
     """
-    走模拟器适配层跑一次。外部结果优先，缺失时降级到解析并**写明原因**。
+    走模拟器适配层。指定外部结果但缺失/不匹配时返回 ok=False；
+    不指定外部结果才直接运行解析筛查，绝不把降级伪装成验证。
     """
     case = rb.SimulationCase(
         name="inline-assessment",
