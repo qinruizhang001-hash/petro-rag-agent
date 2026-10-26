@@ -93,5 +93,55 @@ class PinnStaysOutOfTheVerdictTests(unittest.TestCase):
         self.assertNotIn("pinn", source.lower())
 
 
+class PhysicsLimitsIndexTests(unittest.TestCase):
+    """限制汇总页必须与真实模块对齐，否则它就是一份会过期的免责声明。
+
+    `docs/physics-limits.md` 的价值全在"能查到"，一旦某个模块改名、删掉，
+    表里那一行就变成指向不存在的文件的承诺 —— 而没有任何东西会红。
+    """
+
+    DOC = Path(__file__).resolve().parent.parent / "docs" / "physics-limits.md"
+
+    # 会对外输出结论、因而必须出现在索引里的模块。新增同类模块时应补进来，
+    # 这里不自动扫描：目录里还有一堆不产生物理结论的工具模块。
+    REQUIRED = (
+        "pressure_model.py",
+        "utils/physics_rules.py",
+        "utils/geomechanics.py",
+        "utils/poroelastic.py",
+        "utils/caprock.py",
+        "utils/co2_properties.py",
+        "utils/relperm.py",
+        "utils/flow1d.py",
+        "utils/reservoir_backend.py",
+        "core/optimize.py",
+        "utils/physics_deep.py",
+    )
+
+    def setUp(self):
+        self.text = self.DOC.read_text(encoding="utf-8")
+        self.root = self.DOC.parent.parent
+
+    def test_every_referenced_module_exists(self):
+        import re
+
+        for rel in re.findall(r"`([\w/]+\.py)`", self.text):
+            with self.subTest(module=rel):
+                self.assertTrue(
+                    (self.root / rel).is_file(),
+                    f"docs/physics-limits.md 提到的 {rel} 不存在（改名后忘了同步？）",
+                )
+
+    def test_every_conclusion_module_is_indexed(self):
+        for rel in self.REQUIRED:
+            with self.subTest(module=rel):
+                self.assertIn(rel, self.text)
+
+    def test_it_says_it_is_not_a_simulator(self):
+        # 这份文档唯一的目的就是防止被当成完整地质力学，所以这两句必须在
+        self.assertIn("没有一个是数值模拟器", self.text)
+        self.assertIn("筛查级", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

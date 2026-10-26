@@ -45,6 +45,23 @@ import numpy as np
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 CHART_DIR = os.path.join(PROJECT_ROOT, "charts")
 
+# ─── 图表保留策略 ──────────────────────────────────────
+# 每次评估生成一张 PNG，文件名带秒级时间戳与随机后缀，所以**永远不会覆盖**。
+# 代价是无上限增长：实测 9 天累积 465 个文件、50 MB，而其中真正还被引用的
+# 只有最近几次报告。project_history.md 有三道防线（按条读取 / 软压缩 /
+# 写入侧硬上限），图表目录一道都没有 —— 这里补上的就是"数量上限 + 总量上限"，
+# 并且与历史文件不同：图表生命周期跟**运行次数**有关，跟时间无关，
+# 所以规则不写成"删掉 7 天前的"。
+#
+# 只删自己生成的东西：文件名必须匹配 ``pressure_curve_*.png``，
+# 不递归、不碰其它文件 —— 清理脚本最危险的失败方式就是"删对了目录、删错了文件"。
+CHART_PREFIX = "pressure_curve_"
+CHART_GLOB = CHART_PREFIX + "*.png"
+DEFAULT_KEEP = 200
+DEFAULT_MAX_TOTAL_MB = 200.0
+# 设为 0 可完全关闭自动清理（有些部署希望归档全部图）。
+ENV_RETENTION = "CHART_RETENTION"
+
 # 公式与常数统一住在 pressure_model（零依赖），这里只做 re-export：
 # 前端 app.py 也要算同样的三条线，但它禁止 import matplotlib（CI 会拦），
 # 所以公式不能留在这个模块里，否则前端只能抄一份 —— 两份实现必然漂移。
@@ -138,6 +155,110 @@ def _relative_to_project(path: str) -> str:
     except ValueError:
         pass
     return os.path.abspath(path).replace(os.sep, "/")
+
+
+def prune_charts(
+    keep: int = DEFAULT_KEEP,
+    max_total_mb: float = DEFAULT_MAX_TOTAL_MB,
+    dry_run: bool = False,
+    directory: str | None = None,
+) -> dict:
+    """
+    删掉过旧的图表，返回做了什么（以及**为什么**）。
+
+    两条规则，任一触发就删：
+
+    * 按修改时间倒序，第 ``keep`` 个之后的全删；
+    * 剩下的总量仍超过 ``max_total_mb`` 时，从最旧的开始删到不超。
+
+    为什么不是"删掉 7 天前的"：图表的生命周期跟**运行次数**有关，不跟时间有关。
+    一个演示项目一天跑 200 次、生产环境一周跑 3 次，同一条时间规则会一边删太狠
+    一边删不动。
+
+    返回 ``{"kept", "deleted", "freed_mb", "dry_run", "reason"}``，
+    ``deleted`` 是**文件名列表**而不是计数 —— 删了什么必须可复核，
+    只报一个数字等于让清理不可审计。
+    """
+    directory = directory or CHART_DIR
+    result = {
+        "directory": directory,
+        "keep": int(keep),
+        "max_total_mb": float(max_total_mb),
+        "kept": 0,
+        "deleted": [],
+        "freed_mb": 0.0,
+        "dry_run": bool(dry_run),
+        "reason": "",
+    }
+    if keep < 0:
+        raise ValueError(f"保留数量不能为负，收到 {keep}")
+    if not os.path.isdir(directory):
+        result["reason"] = "目录不存在，无需清理"
+        return result
+
+    # 只认自己生成的文件名；目录里可能有别的东西（前端上传、手工放置）
+    candidates = [
+        os.path.join(directory, name)
+        for name in os.listdir(directory)
+        if name.startswith(CHART_PREFIX) and name.endswith(".png")
+    ]
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    result["kept"] = min(len(candidates), int(keep))
+
+    victims = candidates[int(keep):]
+    survivors = candidates[: int(keep)]
+
+    # 第二条规则：数量已合规，但总量仍超限 → 从最旧的继续删
+    total_mb = sum(os.path.getsize(p) for p in survivors) / 1024 ** 2
+    if total_mb > float(max_total_mb):
+        for path in reversed(survivors):        # survivors 是新→旧，反过来取最旧
+            if total_mb <= float(max_total_mb):
+                break
+            size_mb = os.path.getsize(path) / 1024 ** 2
+            victims.append(path)
+            survivors.remove(path)
+            total_mb -= size_mb
+        result["reason"] = "超出总量上限"
+    else:
+        result["reason"] = "超出保留数量"
+
+    result["kept"] = len(survivors)
+    for path in victims:
+        size_mb = os.path.getsize(path) / 1024 ** 2
+        result["deleted"].append(os.path.basename(path))
+        result["freed_mb"] += size_mb
+        if not dry_run:
+            try:
+                os.remove(path)
+            except OSError as exc:              # 被占用 / 权限不足：不中断，记下来
+                result["deleted"].pop()
+                result["freed_mb"] -= size_mb
+                result.setdefault("errors", []).append(f"{os.path.basename(path)}: {exc}")
+    result["freed_mb"] = round(result["freed_mb"], 2)
+    return result
+
+
+def _auto_prune(directory: str) -> None:
+    """生成完一张图之后顺手清一次；任何异常都不该影响出图。"""
+    raw = os.environ.get(ENV_RETENTION)
+    if raw is not None:
+        try:
+            keep = int(raw)
+        except ValueError:
+            keep = DEFAULT_KEEP
+        if keep == 0:                            # 显式关闭
+            return
+    else:
+        keep = DEFAULT_KEEP
+    try:
+        report = prune_charts(keep=keep, directory=directory)
+        if report["deleted"]:
+            print(
+                f"[chart] 清理 {len(report['deleted'])} 个旧图"
+                f"（{report['freed_mb']} MB，{report['reason']}）"
+            )
+    except Exception as exc:                     # noqa: BLE001
+        print(f"[chart] 清理旧图失败（不影响出图）：{exc}")
 
 
 def generate_pressure_curve(
@@ -262,6 +383,10 @@ def generate_pressure_curve(
     fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)  # 必须关：否则反复调用会泄漏内存与文件句柄
 
+    # 出图之后顺手清一次旧图。放在这里而不是定时任务里：增长就发生在这行，
+    # 清理也就该发生在这行；一个"每天凌晨跑"的 cron 在开发机上根本没人装。
+    _auto_prune(out_dir)
+
     rel_path = _relative_to_project(path)
     assumed_note = "（未提供储层深度，按 2000 m 估算）" if depth_assumed else ""
 
@@ -302,3 +427,45 @@ def generate_pressure_curve(
         "depth_assumed": bool(depth_assumed),
         "cjk_font": _pick_cjk_font() or "",
     }
+
+
+def _main(argv: list[str] | None = None) -> int:
+    """
+    命令行入口：``python chart_tools.py --prune [--dry-run]``
+
+    保留一个显式入口的理由：自动清理只在"又生成了一张图"时发生，而想先看看
+    会删掉什么的时候，没人愿意为了预览去生成一张图。
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="图表目录清理")
+    parser.add_argument("--prune", action="store_true", help="清理旧图")
+    parser.add_argument("--dry-run", action="store_true", help="只报告，不删")
+    parser.add_argument("--keep", type=int, default=DEFAULT_KEEP)
+    parser.add_argument("--max-mb", type=float, default=DEFAULT_MAX_TOTAL_MB)
+    parser.add_argument("--dir", default=None, help="默认 charts/")
+    args = parser.parse_args(argv)
+
+    if not args.prune:
+        parser.print_help()
+        return 0
+    report = prune_charts(
+        keep=args.keep, max_total_mb=args.max_mb,
+        dry_run=args.dry_run, directory=args.dir,
+    )
+    print(f"目录      {report['directory']}")
+    print(f"保留上限  {report['keep']} 个 / {report['max_total_mb']:.0f} MB")
+    print(f"保留      {report['kept']} 个")
+    print(f"待删/已删 {len(report['deleted'])} 个（{report['freed_mb']} MB，{report['reason']}）")
+    if report["deleted"]:
+        head = report["deleted"][:5]
+        print("  最旧的几个：" + "、".join(head))
+    if args.dry_run:
+        print("（预演模式，未删除任何文件）")
+    for err in report.get("errors") or []:
+        print(f"  失败：{err}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

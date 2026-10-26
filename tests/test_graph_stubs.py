@@ -166,5 +166,108 @@ class TestStubsCoverTheRuntimeImports(unittest.TestCase):
         )
 
 
+# ─── 桩泄漏到别的测试模块 ──────────────────────────────
+# 这两个文件就是**装桩的人**：它们消费替身是设计意图，不是事故。
+_STUB_CONSUMERS = {"test_quality_gate.py", "test_negative_gate.py"}
+
+
+def _released_modules(path: str) -> set[str]:
+    """取出文件里所有 ``_graph_stubs.release("x")`` 的 ``x``。"""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
+
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "release"):
+            continue
+        if not (isinstance(func.value, ast.Name) and func.value.id == "_graph_stubs"):
+            continue
+        if node.args and isinstance(node.args[0], ast.Constant):
+            out.add(str(node.args[0].value))
+    return out
+
+
+def _top_level_stub_imports() -> list[tuple[str, str, str]]:
+    """
+    扫描 ``tests/*.py`` 里对**被替模块**的顶层 import，返回 ``[(文件, 模块, 名字)]``。
+
+    只看模块顶层（``tree.body``）而不是 ``ast.walk``：写在测试方法内部的
+    import 发生在运行期，那时桩早已装好但也不会再影响别处；真正会被污染的是
+    **顶层** import —— 它在 ``unittest discover`` 的收集阶段执行，
+    而收集阶段会把所有测试模块先导一遍。
+    """
+    tests_dir = os.path.join(ROOT, "tests")
+    found: list[tuple[str, str, str]] = []
+    for fname in sorted(os.listdir(tests_dir)):
+        if not fname.endswith(".py") or fname.startswith("_"):
+            continue
+        if fname in _STUB_CONSUMERS or fname == "test_graph_stubs.py":
+            continue
+        path = os.path.join(tests_dir, fname)
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=path)
+        for node in tree.body:
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            for alias in node.names:
+                found.append((fname, node.module, alias.name))
+    return found
+
+
+class TestStubLeakageIntoOtherTestModules(unittest.TestCase):
+    """
+    谁在顶层 import 被替模块，谁就必须先声明 ``_graph_stubs.release(...)``。
+
+    ``install_leaf_stubs()`` 写在两个图测试的**模块顶层**（桩必须早于
+    ``import workflow``），而 discover 是"先导入全部测试模块，再跑"，
+    于是桩的存活期覆盖了所有测试模块的导入期。
+
+    2026-10 踩过：手工按 ``tests.test_negative_gate`` → ``tests.test_optimize``
+    的顺序跑，``injection_risk_uq`` 变成 ``_fake_injection_uq``，它返回的
+    dict 没有 ``counts``，4 项契约测试当场 ``KeyError: 'counts'``。
+    全量 discover 不复现，只是因为 ``test_optimize`` 恰好先被加载 ——
+    那是**碰巧**，不是设计。所以必须有一条不依赖加载顺序的断言。
+    """
+
+    def test_every_top_level_stub_import_is_released_first(self):
+        stubs = _installed_stubs()
+        problems: list[str] = []
+        for fname, module, name in _top_level_stub_imports():
+            if module not in stubs:
+                continue            # 没被替，顶层 import 拿到的一直是真实模块
+            if module in _released_modules(os.path.join(ROOT, "tests", fname)):
+                continue
+            problems.append(f"{fname}: from {module} import {name}")
+
+        self.assertEqual(
+            problems, [],
+            "以下测试模块在顶层 import 了会被整图测试替换成替身的模块，"
+            "却没有先把它要回真实实现：\n"
+            + "\n".join(problems)
+            + "\n修法：在 import 之前加一行 "
+              '_graph_stubs.release("<模块名>")。\n'
+              "理由：模块加载顺序不该决定拿到的是真实现还是替身。",
+        )
+
+    def test_the_scan_actually_sees_the_two_known_imports(self):
+        """
+        解析失败会让上面那条"因为没有命中而通过"，所以先钉住扫描确实有输出。
+
+        这两个模块就是当前唯一需要 ``release()`` 的地方；如果哪天它们改名或
+        删掉了 import，这条会红，提醒去更新上面的白名单判断。
+        """
+        stubs = _installed_stubs()
+        hits = {
+            (fname, module)
+            for fname, module, _name in _top_level_stub_imports()
+            if module in stubs
+        }
+        self.assertIn(("test_optimize.py", "tools.physics_tools"), hits)
+        self.assertIn(("test_chart_tools.py", "chart_tools"), hits)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

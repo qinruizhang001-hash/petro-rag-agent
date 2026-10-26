@@ -64,6 +64,12 @@
 ## 单位
 
 与 ``geomechanics`` 一致：MPa。
+
+## 索引
+
+本模块的假设、适用范围与偏差方向，与其余物理模块并列在
+``docs/physics-limits.md``（一页总表）。改公式或默认值时要同步改那张表 ——
+只改代码不改表，读者会拿旧边界去读新数字。
 """
 from __future__ import annotations
 

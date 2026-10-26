@@ -146,6 +146,20 @@ _NOISE_RULES: tuple[tuple[str, re.Pattern], ...] = (
         r"^(?:this\s+study|this\s+paper|current\s+models?|empirical\s+results?|"
         r"additional\s+measurements?|unreliable\s+results?|co-?author|"
         r"corresponding\s+author|author)$", re.I)),
+    # 资助 / 行政机构。它们和"作者单位"是同一类噪声：一篇论文的资助方会把
+    # 几十篇不相关的论文连成一个假枢纽，连的是**经费关系**，不是地质知识。
+    #
+    # 为什么单独一条而不是把 `organization` 整类删：`IPCC`、`IEA` 也是
+    # organization，但它们是论文里被讨论的**监管主体**。区分标准是"资助者
+    # 还是被讨论者"，名字规则能分开这两者（ministry / alliance 只出现在前者），
+    # 类型不能。
+    #
+    # 命中面里有一个必须保护的例外：`International Energy Agency` 含 agency，
+    # 但它在别名表里（并成 IEA）。所以 `noise_reason` 里有一道 `_PROTECTED`
+    # 前置判断 —— 别名表声明过的实体，任何名字规则都不许删。
+    ("funding-body", re.compile(
+        r"\b(?:federal\s+ministry|ministry\s+of|research\s+alliance|"
+        r"economic\s+affairs|funding\s+agency)\b", re.I)),
 )
 
 # 国家/地区/城市。它们会变成高连接度"假枢纽"：几乎每篇论文都提到 Poland 或
@@ -235,6 +249,27 @@ def _alias_lookup() -> dict[str, str]:
 _ALIASES = _alias_lookup()
 
 
+def protected_names() -> frozenset[str]:
+    """
+    别名表里出现过的**全部**写法（规范化后）。
+
+    它们代表"我们明确认定这是知识实体"—— 所以任何按名字的删除规则都不许
+    删它们。这不是防御性编程，是修一个真实的矛盾：``_ALIASES`` 把
+    ``International Energy Agency`` 收成 ``IEA``（政策主体，要保留），
+    而"删掉资助机构"这条规则会命中 ``agency`` 一词，把它当噪音删掉。
+    两条规则各自都对，撞在一起就成了"静默删掉刻意保留的实体"。
+    """
+    out: set[str] = set()
+    for canonical, variants in CANONICAL_GROUPS.items():
+        out.add(normalize_key(canonical))
+        for variant in variants:
+            out.add(normalize_key(variant))
+    return frozenset(out)
+
+
+_PROTECTED = protected_names()
+
+
 def canonical_name(name: str) -> str:
     """返回实体名的规范写法（若在别名表里），否则返回原文去空白。"""
     key = normalize_key(name)
@@ -250,6 +285,12 @@ def noise_reason(name: str, entity_type: str | None = None) -> str | None:
     raw = str(name).strip()
     if not raw:
         return "empty"
+
+    # 别名表声明过的实体一律不删 —— 它在建图阶段就被认定为"这是知识"，
+    # 任何按名字的删除规则与它冲突时，都是规则错了，不是实体错了。
+    # 放在类型判断之前：类型是模型标的，别名表是人定的，人定的优先。
+    if normalize_key(raw) in _PROTECTED:
+        return None
 
     # 容错：调用方常直接把手里的节点属性字典传进来（graphml 读出来就是
     # {"entity_type": ..., "description": ...}），这里统一取出来，
@@ -278,6 +319,23 @@ def noise_reason(name: str, entity_type: str | None = None) -> str | None:
         return "title-like"
 
     return None
+
+
+def noise_rule_names() -> tuple[str, ...]:
+    """
+    全部**可能的**噪声原因，包括本语料一次都没命中的那些。
+
+    为什么需要它：``build_merge_plan`` 只返回命中项，于是"某条规则从没命中过"
+    与"这条规则不存在"在结果里长得一样。报告必须能区分这两件事 ——
+    一条零命中的规则不是"已验证有效"，它只是"还没被验证"。
+    """
+    # 顺序与 noise_reason() 的判定顺序一致：空名 → 类型 → 名字规则 → 地名 →
+    # 过短 → 标题式。报告里照这个顺序列，读的人才能顺着代码核对。
+    reasons = ["empty"]
+    reasons += [f"type:{etype}" for etype in sorted(_NOISE_TYPES)]
+    reasons += [reason for reason, _pattern in _NOISE_RULES]
+    reasons += ["geo-political", "too-short", "title-like"]
+    return tuple(reasons)
 
 
 def build_merge_plan(

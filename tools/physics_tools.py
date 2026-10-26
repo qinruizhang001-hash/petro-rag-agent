@@ -456,6 +456,7 @@ def optimize_injection_strategy(
     rate_cap_mt_per_year: float | None = None,
     well_spacing_m: float | None = None,
     drainage_radius_m: float = 500.0,
+    interference_coefficient: float | None = None,
 ) -> dict:
     """
     给定当前方案，反解一个满足风险预算的注入方案（井数 / 井底压力 / 速率）。
@@ -464,6 +465,11 @@ def optimize_injection_strategy(
     参数之前逐位一致；给了之后按稳态径向叠加计入干扰，加井不再线性增注。
     井距是**设计输入**，所以没有默认值 —— 替调用方假定一个井距，等于替
     他做了一个他没做过的决定，而这个决定会直接改变推荐方案。
+
+    ``interference_coefficient`` 是另一条入口：井位还没定时，评审真正想问的
+    往往是"假设 f=0.2 会怎样"，而不是"300 m 井距会怎样"。直接给 f 跳过几何
+    反算，返回值的 ``interference_source`` 会写 ``user_coefficient``，
+    ``notes`` 也会明说这是假设而非某个可实现井网的结果。两者不能同时给。
 
     与 ``injection_risk_uq`` 的关系：那个工具回答"当前方案有多危险"，
     这个工具回答"改成什么才不危险"。两者用**同一套判据与同一批抽样**
@@ -479,11 +485,23 @@ def optimize_injection_strategy(
     """
     from core.optimize import optimize_plan
 
+    # 干扰口径写进日志：排障时"这次到底有没有计干扰"是最先要分清的一件事，
+    # 而三态（未计 / 按井距 / 按给定系数）从结果里看不出区别。
+    if interference_coefficient is not None:
+        interference_label = f"f={interference_coefficient:g}（用户给定）"
+    elif well_spacing_m is not None:
+        interference_label = f"井距 {well_spacing_m:g} m"
+    else:
+        interference_label = "未计"
+    if injection_pressure_bar is not None:
+        target_label = f"井底压力 {injection_pressure_bar} bar"
+    else:
+        target_label = f"目标速率 {storage_rate_mt_per_year} Mt/yr"
+
     log.info(
-        f"  [Tool 调用] 注入策略优化：埋深 {depth_m} m、"
-        f"{'井底压力 ' + str(injection_pressure_bar) + ' bar' if injection_pressure_bar else '目标速率 ' + str(storage_rate_mt_per_year) + ' Mt/yr'}，"
+        f"  [Tool 调用] 注入策略优化：埋深 {depth_m} m、{target_label}，"
         f"风险预算 {p_target if p_target is not None else '默认(warn)'}，"
-        f"{n} 次抽样..."
+        f"井间干扰 {interference_label}，{n} 次抽样..."
     )
     result = optimize_plan(
         depth_m,
@@ -505,8 +523,15 @@ def optimize_injection_strategy(
         rate_cap_mt_per_year=rate_cap_mt_per_year,
         well_spacing_m=well_spacing_m,
         drainage_radius_m=drainage_radius_m,
+        interference_coefficient=interference_coefficient,
     )
-    log.info(f"  [Tool 调用] 注入策略 → {result['text']}")
+    physics = result.get("physics") or {}
+    log.info(
+        f"  [Tool 调用] 注入策略 → {result['text']} "
+        f"（status={result.get('status')}，f={physics.get('interference_factor')}，"
+        f"来源={physics.get('interference_source')}，"
+        f"回代一致={((result.get('verification') or {}).get('agrees'))}）"
+    )
     return result
 
 

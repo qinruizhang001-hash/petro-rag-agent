@@ -51,8 +51,13 @@ def mark_failed(state: AgentState):
     if physics_blocking:
         draft = body
         final_report = banner + _QUARANTINE
+        # 隔离这件事必须留下**是哪条规则、差多少**：只写"物理否决"的话，
+        # 事后只能从 draft_report 里反推，而草稿会被后续轮次覆盖。
         log.error(
-            f"[Gate] 物理否决 → 正文已隔离（{len(body)} 字），final_report 只保留阻断说明"
+            f"[Gate] 物理否决 → 正文已隔离（{len(body)} 字）"
+            f"｜规则={gate.get('physics_status')}"
+            f"｜rules_version={gate.get('physics_rules_version')}"
+            f"｜原因={reason}"
         )
     else:
         final_report = banner + "\n" + body

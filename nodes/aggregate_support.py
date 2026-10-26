@@ -165,6 +165,10 @@ def plan_payload(plan: dict | None) -> dict:
             "injectivity_m3_per_day_per_bar", "density_kg_m3",
             "permeability_md", "thickness_m", "temperature_celsius",
             "skin", "cap_ratio", "fracture_ratio",
+            # 干扰项：没有 f 就没法回代 q = n·J·Δp/(1+(n−1)f)，
+            # 而"报告说考虑了干扰"这件事本身也需要数字支撑。
+            "interference_factor", "interference_active",
+            "interference_source", "well_spacing_m", "drainage_radius_m",
         ) if physics.get(k) is not None
     }
     out["limit"] = dict(plan.get("limit") or {})
@@ -185,6 +189,7 @@ def plan_payload(plan: dict | None) -> dict:
                 "n_wells", "pressure_bar", "pressure_needed_bar",
                 "rate_m3_per_day", "rate_mt_per_year",
                 "per_well_mt_per_year", "binding", "meets_target",
+                "interference_scope",
             ) if o.get(k) is not None},
             "risk": _slim_risk(o.get("risk")),
             "risk_at_needed": _slim_risk(o.get("risk_at_needed")),
@@ -198,6 +203,7 @@ def plan_payload(plan: dict | None) -> dict:
             **{k: rec.get(k) for k in (
                 "n_wells", "pressure_bar", "rate_m3_per_day",
                 "rate_mt_per_year", "per_well_mt_per_year", "binding",
+                "interference_scope",
             ) if rec.get(k) is not None},
             "risk": _slim_risk(rec.get("risk")),
             "risk_if_pressed": _slim_risk(rec.get("risk_if_pressed")),

@@ -315,10 +315,34 @@ def interference_factor(
     }
 
 
+def interference_scope(interference: dict | None, n_wells: int) -> str:
+    """
+    这个井数下的干扰结论**凭什么成立**，三选一：
+
+    ``independent_wells``
+        没有干扰（f=0），每口井各算各的。
+    ``assumed_coefficient``
+        f 是用户直接给的假设值，没有对应任何井位。n 多大都一样是假设。
+    ``pairwise_geometry``
+        f 由井距反算，且 n ≤ 3 —— 平面里确实存在两两等距的布法。
+    ``mean_field_not_a_well_layout``
+        f 由井距反算，但 n > 3 —— 平面里不可能所有井对等距，单一井距
+        只是"所有井对同一耦合"的均值场情景。
+
+    分开写的原因：这三种情形的**可信度完全不同**，而调用方通常只读
+    ``recommended`` 一个数。把它写在字段里，就不必指望读者去翻 docstring。
+    """
+    f = float((interference or {}).get("factor") or 0.0)
+    if f <= 0.0:
+        return "independent_wells"
+    if (interference or {}).get("source") == "user_coefficient":
+        return "assumed_coefficient"
+    return "mean_field_not_a_well_layout" if n_wells > 3 else "pairwise_geometry"
+
+
 def mass_mt_per_year(rate_m3_day: float, density_kg_m3: float) -> float:
     """m³/d → Mt/yr。1 Mt = 1e9 kg。"""
     return float(rate_m3_day) * 365.0 * float(density_kg_m3) / 1e9
-
 
 def rate_for_mass(mt_per_year: float, density_kg_m3: float) -> float:
     """Mt/yr → m³/d。"""
@@ -466,6 +490,7 @@ def optimize_plan(
     rate_cap_mt_per_year: float | None = None,
     well_spacing_m: float | None = None,
     drainage_radius_m: float = DEFAULT_DRAINAGE_RADIUS_M,
+    interference_coefficient: float | None = None,
     thresholds: dict | None = None,
 ) -> dict:
     """
@@ -495,6 +520,13 @@ def optimize_plan(
                               他没做过的决定，而且这个假定会直接改变推荐方案。
     drainage_radius_m       : 单井泄油半径，默认 500 m（与 relperm 的径向几何
                               同源）。只在给了 ``well_spacing_m`` 时起作用。
+    interference_coefficient: 直接给定干扰系数 ``f ∈ [0, 1)``，跳过几何反算。
+                              存在的理由：井距往往不是已知量（井位还没定），
+                              而"假设 f=0.2 会怎样"是评审最常问的那一句。
+                              没有它，用户得先反解出一个等效井距才能问这个
+                              问题 —— 而那个井距会被当成真实几何读走。
+                              与 ``well_spacing_m`` 同时给会抛错：两个来源
+                              指向同一个量，静默选一个等于藏起一次矛盾。
 
     返回
     ----
@@ -512,8 +544,35 @@ def optimize_plan(
     if rate_cap_mt_per_year is not None and rate_cap_mt_per_year <= 0.0:
         raise ValueError(f"速率上限必须为正，收到 {rate_cap_mt_per_year}")
 
-    # 井间干扰：不给井距就是 0，行为与引入本功能之前完全一致。
-    if well_spacing_m is None:
+    # 井间干扰：三个来源互斥 —— 直接给系数 / 给井距反算 / 都没有（f=0）。
+    # 都不给时行为与引入本功能之前逐位一致（有断言）。
+    if well_spacing_m is not None and interference_coefficient is not None:
+        raise ValueError(
+            "well_spacing_m 与 interference_coefficient 不能同时给："
+            "前者由几何算出 f，后者直接指定 f，两个来源指向同一个量。"
+            "静默选一个会让报告里的 f 与实际用的 f 不是同一件事"
+        )
+    if interference_coefficient is not None:
+        f_given = float(interference_coefficient)
+        if not math.isfinite(f_given) or not 0.0 <= f_given < 1.0:
+            raise ValueError(
+                f"干扰系数必须在 [0, 1) 内，收到 {interference_coefficient!r}。"
+                "f≥1 意味着邻井比井壁还近，那已经不是本模型能描述的情形"
+            )
+        interference = {
+            "factor": f_given,
+            "active": f_given > 0.0,
+            "ln_own": None,
+            "ln_interference": None,
+            "spacing_m": None,
+            "drainage_radius_m": float(drainage_radius_m),
+            "source": "user_coefficient",
+            "reason": (
+                f"用户直接给定 f={f_given:.4f}，未由井距反算 —— "
+                f"这是一个假设情景，不是某个可实现井网的几何结果"
+            ),
+        }
+    elif well_spacing_m is None:
         interference = {
             "factor": 0.0,
             "active": False,
@@ -521,12 +580,14 @@ def optimize_plan(
             "ln_interference": None,
             "spacing_m": None,
             "drainage_radius_m": float(drainage_radius_m),
-            "reason": "未提供井距：按独立井计算（无井间干扰）",
+            "source": "none",
+            "reason": "未提供井距或干扰系数：按独立井计算（无井间干扰）",
         }
     else:
         interference = interference_factor(
             well_spacing_m, drainage_radius_m, DEFAULT_WELLBORE_RADIUS_M, skin
         )
+        interference["source"] = "spacing_geometry"
     f_int = float(interference["factor"])
 
     th = thresholds if thresholds is not None else load_thresholds()
@@ -573,6 +634,9 @@ def optimize_plan(
         # f 不出现在返回值里，读者就无法复算，也就无法判断这个数是算的还是编的。
         "interference_factor": float(interference["factor"]),
         "interference_active": bool(interference["active"]),
+        # 来源必须跟着数字走：同样是 f=0.12，"由 300 m 井距算出"和
+        # "用户直接假设"在报告里的可信度不是一回事，而单看 f 无法区分。
+        "interference_source": interference.get("source"),
         "well_spacing_m": interference["spacing_m"],
         "drainage_radius_m": interference["drainage_radius_m"],
     }
@@ -633,10 +697,7 @@ def optimize_plan(
         )
         options.append({
             "n_wells": n_w,
-            "interference_scope": (
-                "mean_field_not_a_well_layout" if f_int > 0 and n_w > 3
-                else "pairwise_geometry" if f_int > 0 else "independent_wells"
-            ),
+            "interference_scope": interference_scope(interference, n_w),
             "pressure_bar": p_star,
             "pressure_needed_bar": p_need,
             "rate_m3_per_day": q_max,
@@ -745,10 +806,8 @@ def optimize_plan(
         o["n_wells"] > 3 for o in options
     )
     if recommended is not None:
-        recommended["interference_scope"] = (
-            "mean_field_not_a_well_layout"
-            if f_int > 0 and recommended["n_wells"] > 3
-            else "pairwise_geometry" if f_int > 0 else "independent_wells"
+        recommended["interference_scope"] = interference_scope(
+            interference, recommended["n_wells"]
         )
 
     # ─── 前沿（单井，压力 → 风险 → 速率）────────────────
@@ -936,13 +995,23 @@ def _notes(
         "本模型不含井筒摩阻与非达西（高速湍流）：两项都会让实际速率低于此处数值"
     )
     if interference and interference.get("active"):
-        notes.append(
-            f"井间干扰已计入（均值场情景）：等效井距 {interference['spacing_m']:g} m、"
-            f"泄油半径 {interference['drainage_radius_m']:g} m、"
-            f"f={interference['factor']:.4f}。"
-            "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算；固定 f 下的饱和"
-            "只是均值场模型的代数极限，不是有限井场的工程结论"
-        )
+        if interference.get("source") == "user_coefficient":
+            notes.append(
+                f"井间干扰已计入（**用户给定假设系数** f="
+                f"{interference['factor']:.4f}，未由井距反算）："
+                "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算。"
+                "f 是假设值而非某个井网的几何结果，改 f 会直接改推荐方案 —— "
+                "报告引用时必须写明这一点，不能写成'已按井距计算'"
+            )
+        else:
+            notes.append(
+                f"井间干扰已计入（均值场情景）：等效井距 "
+                f"{interference['spacing_m']:g} m、"
+                f"泄油半径 {interference['drainage_radius_m']:g} m、"
+                f"f={interference['factor']:.4f}。"
+                "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算；固定 f 下的饱和"
+                "只是均值场模型的代数极限，不是有限井场的工程结论"
+            )
         if interference.get("has_non_geometric_options"):
             notes.append(
                 "警告：平面中超过 3 口井不可能两两等距；4/8 井数字仅作等效耦合"

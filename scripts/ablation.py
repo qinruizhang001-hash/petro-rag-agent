@@ -245,6 +245,126 @@ def render_offline(result: dict) -> str:
     return "\n".join(lines)
 
 
+def render_markdown(payload: dict) -> str:
+    """
+    把 ``eval/ablation.json`` 渲染成一份能直接给人看的短报告。
+
+    为什么要单独一份 Markdown：JSON 是给脚本的，但"这个模块到底有没有用"
+    这个问题，我自己半年后回来看也要先读一遍结构。报告里的每个数字都来自
+    payload，**没有一句是手写的** —— 手写结论与自动数据一旦分叉，谁也不会
+    发现（这个仓库已经因为手写表格吃过一次 1.6% 的亏）。
+
+    ``payload`` 可以只含 ``offline`` 或 ``online`` 之一：两者触发条件不同
+    （离线不需要模型），分开跑、分开写是常态。
+    """
+    lines: list[str] = [
+        "# 消融对照结果",
+        "",
+        "> 由 `scripts/ablation.py --report` 生成，数字全部来自 `eval/ablation.json`。",
+        "> 这份报告回答的是「关掉某个模块之后，什么变了」，**不是**「系统有多准」。",
+        "",
+    ]
+
+    offline = payload.get("offline") or {}
+    if offline:
+        lines += [
+            "## 离线对照（不需要模型）",
+            "",
+            f"图：{offline.get('nodes')} 节点 / {offline.get('edges')} 边。",
+            "",
+            "| 对照项 | 问题 | 判读 |",
+            "|---|---|---|",
+        ]
+        for arm in offline.get("arms") or []:
+            lines.append(
+                f"| `{arm.get('arm')}` | {arm.get('question', '')} | "
+                f"{arm.get('verdict', '')} |"
+            )
+        lines.append("")
+
+        # 别名合并是唯一有"开/关两套完整指标"的对照，单独摊开，
+        # 因为它是这几个模块里唯一能被量化成"连通性变化"的。
+        for arm in offline.get("arms") or []:
+            if arm.get("arm") != "alias_merge":
+                continue
+            lines += [
+                "### 别名合并的连通性影响",
+                "",
+                "| 口径 | 节点 | 边 | 连通分量 | 最大分量 | 占比 | 孤立节点 |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+            for label, key in (("合并后（当前）", "with_merge"), ("不合并", "without_merge")):
+                d = arm.get(key) or {}
+                lines.append(
+                    f"| {label} | {d.get('nodes')} | {d.get('edges')} | "
+                    f"{d.get('components')} | {d.get('largest')} | "
+                    f"{d.get('largest_ratio', 0):.1%} | {d.get('isolated')} |"
+                )
+            delta = arm.get("delta") or {}
+            lines += [
+                "",
+                f"差：分量 {delta.get('components')}、最大分量 {delta.get('largest')}、"
+                f"合并节点 {delta.get('nodes_merged')}。",
+                "",
+            ]
+
+    online = payload.get("online") or {}
+    if online:
+        lines += [
+            "## 在线对照（需要 Ollama）",
+            "",
+            "| 组 | arm | 用例集 | 用例数 | 通过 | 失败 | 闸门状态 | 物理状态 | 重写次数 |",
+            "|---|---|---|---:|---:|---:|---|---|---:|",
+        ]
+        for tag, group in sorted(online.items()):
+            rows = group.get("results") or []
+            if not rows:
+                lines.append(
+                    f"| `{tag}` | `{group.get('arm')}` | {group.get('case_set', '')} | "
+                    f"{group.get('cases')} | {group.get('passed')} | "
+                    f"{group.get('failed')} | — | — | — |"
+                )
+                continue
+            for row in rows:
+                lines.append(
+                    f"| `{tag}` | `{group.get('arm')}` | "
+                    f"{group.get('case_set', '')} | {group.get('cases')} | "
+                    f"{group.get('passed')} | {group.get('failed')} | "
+                    f"{row.get('gate_status', '')} | {row.get('physics_status', '')} | "
+                    f"{row.get('retry_count', '')} |"
+                )
+        notes = {g.get("note") for g in online.values() if g.get("note")}
+        envs = {g.get("environment") for g in online.values() if g.get("environment")}
+        lines.append("")
+        for env in sorted(envs):
+            lines.append(f"环境：{env}")
+        for note in sorted(notes):
+            lines.append(f"\n注意：{note}")
+
+    lines += [
+        "",
+        "## 复现",
+        "",
+        "```bash",
+        "python scripts/ablation.py --offline --write          # 离线三组",
+        "python scripts/ablation.py --online --probe --arm baseline --write",
+        "python scripts/ablation.py --online --probe --arm no_physics_gate --write",
+        "python scripts/ablation.py --online --probe --arm no_rewrite --write",
+        "python scripts/ablation.py --report docs/ablation-report.md",
+        "```",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_markdown(path: str, payload: dict) -> str:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    text = render_markdown(payload)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return text
+
+
 # ─── 在线对照（需要 Ollama）─────────────────────────────────
 
 
@@ -413,7 +533,19 @@ def main() -> int:
                     help="用内置探针用例（唯一能触发物理阻断的那一题），不用 golden set")
     ap.add_argument("--write", action="store_true", help=f"写 {OUT_JSON}")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--report", default=None, metavar="PATH",
+                    help="把 eval/ablation.json 渲染成 Markdown（不跑任何对照）")
     args = ap.parse_args()
+
+    if args.report:
+        # 只渲染已存的结果：渲染不该触发一次 20 分钟的在线对照。
+        if not os.path.exists(OUT_JSON):
+            raise SystemExit(f"没有可渲染的结果：{OUT_JSON} 不存在。先跑 --offline/--online --write")
+        with open(OUT_JSON, encoding="utf-8") as fh:
+            stored = json.load(fh)
+        write_markdown(args.report, stored)
+        print(f"[written] {args.report}")
+        return 0
 
     payload = {}
     if args.offline or not args.online:

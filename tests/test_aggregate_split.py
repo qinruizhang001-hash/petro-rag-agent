@@ -126,6 +126,111 @@ class FinalizeTests(unittest.TestCase):
         self.assertIn("盖层完整", text)
 
 
+class DecisionBlockTests(unittest.TestCase):
+    """warn / alert 时，概率与阈值必须出现在正文里。
+
+    模型完全可能写"存在压裂风险"却不给数字，而数字正是这一档结论的全部
+    内容。所以判据不是"有没有提到风险"，而是"概率串和阈值在不在"。
+    """
+
+    def _decision(self, risky: float, n: int = 100) -> dict:
+        from core.risk_policy import decide
+
+        return decide({"risky": risky, "safe": 1.0 - risky}, n)
+
+    def test_alert_is_backfilled_with_probability_and_threshold(self):
+        text, _ = finalize_report(
+            "存在压裂风险，建议复核。", uq_summary={"decision": self._decision(0.23)}
+        )
+        self.assertIn("风险决策（告警）", text)
+        self.assertIn("23.0%", text)
+        self.assertIn("20%", text)      # 告警阈值
+        self.assertIn("5%", text)       # 提示阈值（规则要完整）
+
+    def test_warn_is_backfilled_too(self):
+        text, _ = finalize_report(
+            "结论。", uq_summary={"decision": self._decision(0.10)}
+        )
+        self.assertIn("风险决策（提示）", text)
+        self.assertIn("10.0%", text)
+
+    def test_no_duplication_when_model_already_wrote_it(self):
+        decision = self._decision(0.23)
+        body = "压裂概率 23.0% 已超过阈值 20%，判定为告警。"
+        # probability_source 必须跟着给：真实链路里它包含 tool_facts，
+        # 而决策文案本身就在 tool_facts 里。不给的话，溯源守卫会把这句话
+        # 当成编造百分比整句删掉 —— 那是守卫在正常工作，不是收尾的 bug。
+        text, _ = finalize_report(
+            body,
+            uq_summary={"decision": decision},
+            probability_source=decision["text"],
+        )
+        self.assertEqual(text, body)
+
+    def test_ok_level_adds_nothing(self):
+        text, _ = finalize_report(
+            "结论。", uq_summary={"decision": self._decision(0.01)}
+        )
+        self.assertNotIn("风险决策", text)
+
+    def test_env_thresholds_are_declared(self):
+        from core.risk_policy import decide, load_thresholds
+
+        th = load_thresholds(environ={"UQ_WARN_P_LEAK": "0.08"})
+        decision = decide({"risky": 0.30}, 100, thresholds=th)
+        text, _ = finalize_report("结论。", uq_summary={"decision": decision})
+        self.assertIn("8%", text)
+        self.assertIn("环境变量覆盖", text)
+
+
+class InterferenceStatementTests(unittest.TestCase):
+    """算过干扰就必须写出来：两种情形给出的是两个不同的速率。"""
+
+    PLAN_WITH_GAP = {
+        "physics": {
+            "interference_active": True,
+            "interference_factor": 0.1234,
+            "interference_source": "spacing_geometry",
+            "well_spacing_m": 300.0,
+            "drainage_radius_m": 500.0,
+        }
+    }
+
+    def test_statement_is_appended_when_absent(self):
+        text, _ = finalize_report("正文。", uq_summary={"plan": self.PLAN_WITH_GAP})
+        self.assertIn("已考虑井间干扰", text)
+        self.assertIn("0.1234", text)
+        self.assertIn("300", text)
+
+    def test_factor_is_appended_when_only_the_words_are_there(self):
+        text, _ = finalize_report(
+            "已考虑井间干扰，加井不线性。", uq_summary={"plan": self.PLAN_WITH_GAP}
+        )
+        self.assertIn("0.1234", text)
+        self.assertEqual(text.count("已考虑井间干扰"), 1)
+
+    def test_no_statement_without_interference(self):
+        text, _ = finalize_report(
+            "正文。",
+            uq_summary={"plan": {"physics": {"interference_active": False}}},
+        )
+        self.assertEqual(text, "正文。")
+
+    def test_assumed_coefficient_is_labelled_as_assumption(self):
+        plan = {
+            "physics": {
+                "interference_active": True,
+                "interference_factor": 0.2,
+                "interference_source": "user_coefficient",
+                "well_spacing_m": None,
+                "drainage_radius_m": 500.0,
+            }
+        }
+        text, _ = finalize_report("正文。", uq_summary={"plan": plan})
+        self.assertIn("假设干扰系数", text)
+        self.assertNotIn("等效井距", text)
+
+
 class SupportTests(unittest.TestCase):
     def test_tool_json_fence_is_removed(self):
         text = '正文\n```json\n{"tool": "x"}\n```\n结尾'

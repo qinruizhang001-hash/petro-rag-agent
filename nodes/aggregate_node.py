@@ -569,7 +569,13 @@ def aggregate_report(state: AgentState, config=None):
             )
             log.info(f"  [UQ] 注入策略：{uq_summary['plan']['text']}")
         except Exception as e:
-            log.warning(f"  [Warning] 注入策略优化失败（不影响报告）: {e}")
+            # 失败要能定位：写清输入与异常类型。只写"优化失败"时，看到的是
+            # 一份没有处方的报告，而日志里没有任何线索说明是哪组参数把它弄崩的。
+            log.warning(
+                f"  [Warning] 注入策略优化失败（埋深 {depth_val} m、"
+                f"井底压力 {p_val} bar）：{type(e).__name__}: {e}。"
+                f"报告将不含推荐方案，只有诊断结论"
+            )
 
     if uq_summary:
         log.info(
@@ -663,6 +669,25 @@ def aggregate_report(state: AgentState, config=None):
     plan = uq_summary.get("plan") or {}
     if plan.get("text"):
         tool_facts.append(f"注入策略优化：{plan['text']}")
+    # 干扰口径单独成一条事实，不塞进上面那句里：
+    # ① 它是读者判断"加井还能不能线性增注"的前提；
+    # ② ``finalize_report`` 兜底时以 tool_facts 为证据源，只在 notes 里
+    #    提一句的话，模型十次有八次不写，而代码补进去又会被判成无出处。
+    plan_physics = plan.get("physics") or {}
+    if plan_physics.get("interference_active"):
+        f_val = plan_physics.get("interference_factor")
+        if plan_physics.get("interference_source") == "user_coefficient":
+            how = "按给定的假设干扰系数（未由井距反算）"
+        else:
+            how = (
+                f"按等效井距 {plan_physics.get('well_spacing_m'):g} m、"
+                f"泄油半径 {plan_physics.get('drainage_radius_m'):g} m 的稳态径向叠加"
+            )
+        tool_facts.append(
+            f"井间干扰：**已计入**，{how}，f={f_val:.4f}；"
+            f"速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算，"
+            f"加井不再线性增注。报告中必须写明'已考虑井间干扰'及 f 值"
+        )
 
     # ─── 深层物理：断层活化 / 盖层封闭性 / 两相流 ────────────
     # **确定性触发**，不进规划器（与注入风险 UQ 同一条理由）：只要参数里

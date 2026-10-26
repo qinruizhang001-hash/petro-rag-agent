@@ -40,13 +40,13 @@
     }
   },
   "projected": {
-    "nodes": 4419,
-    "edges": 4763,
-    "components": 1087,
+    "nodes": 4415,
+    "edges": 4760,
+    "components": 1085,
     "largest": 2829,
-    "largest_ratio": 0.6402,
-    "isolated": 822,
-    "isolated_ratio": 0.186,
+    "largest_ratio": 0.6408,
+    "isolated": 820,
+    "isolated_ratio": 0.1857,
     "top": [
       2829,
       24,
@@ -2736,6 +2736,18 @@
         "reason": "title-like"
       },
       {
+        "name": "Georgia Research Alliance",
+        "reason": "funding-body"
+      },
+      {
+        "name": "German Federal Ministry of Research, Technology, and Space",
+        "reason": "funding-body"
+      },
+      {
+        "name": "German Ministry of Economic Affairs and Climate Protection (BMWK)",
+        "reason": "funding-body"
+      },
+      {
         "name": "Germany",
         "reason": "geo-political"
       },
@@ -2826,6 +2838,10 @@
       {
         "name": "Mikhaltsevitch et al.",
         "reason": "citation"
+      },
+      {
+        "name": "Ministry of Economic Affairs (The Netherlands)",
+        "reason": "funding-body"
       },
       {
         "name": "Miocic et al.",
@@ -3208,6 +3224,6 @@
         "reason": "too-short"
       }
     ],
-    "kept": 4071
+    "kept": 4067
   }
 }

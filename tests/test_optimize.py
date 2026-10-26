@@ -42,7 +42,26 @@ from core.optimize import (
     risk_at_pressure,
 )
 from core.uq import wilson_interval
-from tools.physics_tools import injection_risk_uq
+from tests import _graph_stubs
+
+# 先声明"本模块要的是真实实现"，再 import。
+#
+# 为什么不能直接 ``from tools.physics_tools import injection_risk_uq``：
+# ``tests/test_quality_gate.py`` / ``tests/test_negative_gate.py`` 在**模块顶层**
+# 调用 ``install_leaf_stubs()``（桩必须早于 ``import workflow``），而
+# ``unittest discover`` 是"先导入全部测试模块，再跑"。于是替身的存活期覆盖了
+# 所有测试模块的导入期：只要本模块排在它们之后被加载，拿到的是
+# ``_fake_injection_uq`` —— 它返回的 dict 没有 ``counts``，第 3 条契约
+# （优化器与 UQ 逐样本相等）就退化成 4 个 ``KeyError: 'counts'``。
+#
+# 实测过：``python -m unittest tests.test_negative_gate tests.test_optimize``
+# 必红；全量 discover 不复现，因为本模块恰好先被加载。那是碰巧，不是设计。
+#
+# ``release()`` 在没有装过桩时是空操作（返回 False），所以在 CI 的
+# unit-core 里（只跑本模块，桩从未生效）行为完全不变。
+_graph_stubs.release("tools.physics_tools")
+
+from tools.physics_tools import injection_risk_uq  # noqa: E402
 
 
 class TestInjectivity(unittest.TestCase):
@@ -376,6 +395,79 @@ class TestWellInterference(unittest.TestCase):
         self.assertIn("平面中超过 3 口井不可能两两等距", " ".join(result["notes"]))
 
 
+class TestInterferenceCoefficientTests(unittest.TestCase):
+    """直接给定 f 的入口：井位没定时，评审问的是"假设 f=0.2 会怎样"。
+
+    这条路径与"按井距反算"必须**可区分**：同样是 f=0.12，一个来自几何、
+    一个是假设，在报告里的可信度完全不同。所以 source / scope / notes
+    三处都要跟着变，只改数值不改标注等于把假设伪装成几何结果。
+    """
+
+    def test_zero_coefficient_matches_no_interference(self):
+        base = optimize_plan(2500.0, 380.0, n=200, seed=7)
+        zero = optimize_plan(
+            2500.0, 380.0, n=200, seed=7, interference_coefficient=0.0
+        )
+        self.assertEqual(
+            [o["rate_m3_per_day"] for o in base["well_options"]],
+            [o["rate_m3_per_day"] for o in zero["well_options"]],
+        )
+        # f=0 时"用户给了系数"这件事不影响结论，scope 仍是独立井
+        self.assertEqual(
+            zero["recommended"]["interference_scope"], "independent_wells"
+        )
+
+    def test_rate_follows_the_formula(self):
+        out = optimize_plan(
+            2500.0, 380.0, n=200, seed=7, interference_coefficient=0.2
+        )
+        physics = out["physics"]
+        self.assertAlmostEqual(physics["interference_factor"], 0.2, places=12)
+        self.assertEqual(physics["interference_source"], "user_coefficient")
+        n_w = 8
+        q = rate_m3_per_day(
+            360.0, 2500.0, physics["injectivity_m3_per_day_per_bar"], n_w, 0.2
+        )
+        manual = (
+            n_w * physics["injectivity_m3_per_day_per_bar"]
+            * (360.0 - physics["hydrostatic_bar"]) / (1 + (n_w - 1) * 0.2)
+        )
+        self.assertAlmostEqual(q, manual, places=9)
+
+    def test_scope_says_assumed_not_geometric(self):
+        out = optimize_plan(
+            2500.0, 380.0, n=200, seed=7, interference_coefficient=0.2
+        )
+        self.assertEqual(
+            out["recommended"]["interference_scope"], "assumed_coefficient"
+        )
+        for option in out["well_options"]:
+            with self.subTest(n_wells=option["n_wells"]):
+                self.assertEqual(option["interference_scope"], "assumed_coefficient")
+
+    def test_note_calls_it_an_assumption(self):
+        out = optimize_plan(
+            2500.0, 380.0, n=200, seed=7, interference_coefficient=0.2
+        )
+        text = " ".join(out["notes"])
+        self.assertIn("用户给定假设系数", text)
+        # 不能写成"已按井距计算" —— 这句话在没有井距时是假的
+        self.assertNotIn("等效井距", text)
+
+    def test_spacing_and_coefficient_cannot_coexist(self):
+        with self.assertRaises(ValueError) as ctx:
+            optimize_plan(
+                2500.0, 380.0, well_spacing_m=300.0, interference_coefficient=0.2
+            )
+        self.assertIn("不能同时给", str(ctx.exception))
+
+    def test_out_of_range_coefficient_is_rejected(self):
+        for bad in (1.0, 1.5, -0.1, float("nan"), float("inf")):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    optimize_plan(2500.0, 380.0, interference_coefficient=bad)
+
+
 class TestInterferenceInThePlan(unittest.TestCase):
     """把干扰接进 ``optimize_plan``：同样的井数，能力必须下降。"""
 
@@ -655,6 +747,89 @@ class DocumentedNumbersTests(unittest.TestCase):
             "跑 python scripts/interference_table.py --write 重新生成；"
             "如果 diff 里是数字变化，那是物理改了，需要在同一提交里说明原因。",
         )
+
+
+class TestAggregateContract(unittest.TestCase):
+    """
+    真实现的返回结构，必须与下游**真正读的键**一致。
+
+    与 ``tests/test_graph_stubs.py`` 的分工要说清楚，因为两者容易混淆：
+
+    ==================  ==========================  ==================
+    文件                 锁什么                      能抓到什么
+    ==================  ==========================  ==================
+    test_graph_stubs    替身提供了哪些**名字**（静态）  整图 import 阶段崩
+    test_optimize（本类） 真实现返回哪些**键**（运行期）   报告生成时 KeyError
+    ==================  ==========================  ==================
+
+    两者都不能省。替身可以完美对齐 aggregate 的 import 列表，而真实现少返回
+    一个 ``physics.interference_factor`` 时：替身测试全绿、CI 全绿、单元测试
+    全绿 —— 因为替身里有那个键。真实运行到"写干扰声明"那一行才崩，而那时
+    报告已经生成了 90%。
+
+    所以这里不测"结构大致对不对"，只测**下游会解引用到的键**，
+    并且连格式串都按下游的原样跑一遍：``f"{x:g}"`` 遇到 None 会 TypeError，
+    而"键存在但值是 None"正是最容易漏的一种。
+    """
+
+    # 三种干扰来源各测一遍：none / user_coefficient / spacing_geometry。
+    # 只测一种等于只验证一条分支，而这三条的 physics 块内容不同。
+    CASES = (
+        ("none", {}),
+        ("user_coefficient", {"interference_coefficient": 0.2}),
+        ("spacing_geometry", {"well_spacing_m": 300.0}),
+    )
+
+    def _plan(self, **kwargs) -> dict:
+        from tools.physics_tools import optimize_injection_strategy
+
+        return optimize_injection_strategy(
+            depth_m=2500.0, injection_pressure_bar=300.0, n=200, seed=7, **kwargs
+        )
+
+    def test_top_level_keys_aggregate_reads(self):
+        plan = self._plan()
+        for key in ("status", "text", "physics", "notes", "current",
+                    "recommended", "well_options", "verification"):
+            self.assertIn(key, plan, f"aggregate 会读 plan[{key!r}]")
+        self.assertIsInstance(plan["text"], str)
+        self.assertTrue(plan["text"].strip(), "text 为空时这条事实不会进 tool_facts")
+        self.assertIsInstance(plan["physics"], dict)
+
+    def test_interference_block_is_consistent_for_every_source(self):
+        for source, kwargs in self.CASES:
+            with self.subTest(source=source):
+                physics = self._plan(**kwargs)["physics"]
+                self.assertEqual(physics.get("interference_source"), source)
+                self.assertIn("interference_active", physics)
+                self.assertIn("interference_factor", physics)
+
+                # 这一行照抄 nodes/aggregate_node.py 的格式串。那边改了这里要跟着改，
+                # 否则测试会"通过"而生产环境 TypeError。
+                if physics.get("interference_active"):
+                    f_val = physics.get("interference_factor")
+                    self.assertIsInstance(f_val, float,
+                                          f"{source}: 有 active 却没有可格式化的 f")
+                    f"{f_val:.4f}"
+                    self.assertGreater(f_val, 0.0)
+                    self.assertLess(f_val, 1.0)
+
+                # 同样是照抄：spacing_geometry 分支会 f"{...:g}" 打印井距与泄油半径
+                if physics.get("interference_source") == "spacing_geometry":
+                    for key in ("well_spacing_m", "drainage_radius_m"):
+                        val = physics.get(key)
+                        self.assertIsInstance(val, float,
+                                              f"spacing_geometry 分支会用 {key} 做 :g 格式化")
+                        f"{val:g}"
+
+    def test_user_coefficient_does_not_fake_a_well_spacing(self):
+        """
+        给了假设系数就不该出现井距 —— 否则报告里"按等效井距 300 m"是一句
+        凭空捏造的几何描述，而它读起来比"假设系数 0.2"可信得多。
+        """
+        physics = self._plan(interference_coefficient=0.2)["physics"]
+        self.assertIsNone(physics.get("well_spacing_m"))
+        self.assertAlmostEqual(physics["interference_factor"], 0.2, places=9)
 
 
 if __name__ == "__main__":

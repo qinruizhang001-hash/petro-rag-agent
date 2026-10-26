@@ -21,6 +21,10 @@
    用 threading.Lock 保证条目不会交错撕裂。压缩的重写是"先写临时文件再
    os.replace"，保证中途失败不会留下半截文件。
 5. **写入幂等**：节点可能因重试被再次执行，用 state 里的标记位挡住重复写。
+6. **硬上限兜底**：压缩依赖摘要器与"旧条目够多"，两者都可能长期不满足
+   （没接大模型 / 摘要失败 / 每轮只多一条）。写入后立即检查字符数上限，
+   超了就丢掉最旧的条目 —— 不调模型、不做摘要，只保证文件有界。
+   软压缩保结论，硬裁剪保体积，两者都要。
 """
 from __future__ import annotations
 
@@ -69,6 +73,26 @@ HISTORY_COMPRESS_THRESHOLD = _env_int("HISTORY_COMPRESS_THRESHOLD", 3000)
 KEEP_RECENT_ENTRIES = _env_int("HISTORY_KEEP_RECENT", 2)
 # 至少要有这么多"旧条目"才值得压缩；见 compress_history_if_needed 的自限说明
 MIN_ENTRIES_TO_COMPRESS = 2
+
+# ─── 硬上限（不依赖大模型）────────────────────────────────
+#
+# 压缩是"软"防线：它要一个大模型摘要器，还要"旧条目够多"。于是有三种情况会
+# 让 project_history.md 无限增长，而**没有任何日志会报错**：
+#   1. 摘要器没接（build_memory_context 不带 summarizer）；
+#   2. 摘要调用失败（本地模型没起来 / 超时）；
+#   3. 旧条目不足 MIN_ENTRIES_TO_COMPRESS（每轮只多 1 条时很容易卡在这）。
+#
+# 后果不是"上下文爆掉"（读取侧只取最近 N 条，那一道是有效的），而是文件本身
+# 无限长：history_char_count() 每次全量读，报告里"当前 N 字符"持续变大，
+# 备份/同步/CI 的 checkout 都被它拖着。
+#
+# 所以再加一道**确定性**防线：超过上限就丢掉最旧的条目，不调模型、不看分数、
+# 不做摘要。它保证的是"文件有界"，不是"信息无损"—— 两者都要，顺序是先压缩
+# （尽量保住结论），再硬裁（保证有界）。
+HISTORY_HARD_LIMIT = _env_int("HISTORY_HARD_LIMIT", 12000)
+# 硬裁时保留的最近条目数。比 KEEP_RECENT_ENTRIES 大：硬裁是"没摘要可用"时的
+# 兜底，这时候更该多留原始记录，而不是按压缩的激进口径只留 2 条。
+HISTORY_KEEP_ON_TRIM = _env_int("HISTORY_KEEP_ON_TRIM", 8)
 
 _WRITE_LOCK = threading.Lock()
 
@@ -285,6 +309,87 @@ def compress_history_if_needed(
                 "dropped_entries": len(older), "lessons": lessons}
 
 
+def trim_history_if_needed(
+    max_chars: int | None = None,
+    keep_entries: int | None = None,
+) -> dict:
+    """
+    硬裁：文件超过上限就丢掉最旧的条目。**不调用大模型，不做摘要。**
+
+    与 ``compress_history_if_needed`` 的分工：
+
+    ==============  ==================  ==================
+    维度             压缩（软）          硬裁（硬）
+    ==============  ==================  ==================
+    依赖             需要摘要器          不需要
+    触发             阈值 + 旧条目够多    超过硬上限
+    保留             最近 N 条 + 经验块   最近 M 条 + 经验块
+    失败可能         摘要失败即跳过      只在写盘失败时失败
+    ==============  ==================  ==================
+
+    返回 ``{"status": "skipped"|"trimmed"|"failed", "reason": ...,
+    "before_chars": int, "after_chars": int, "dropped_entries": int}``。
+
+    两条刻意的规则：
+
+    1. **"项目核心经验"块永不裁掉。** 它是压缩产出的唯一沉淀，丢了就等于
+       每次压缩白做，而且不会有任何报错。
+    2. **至少保留 ``keep_entries`` 条最新记录。** 即使它们本身就超过上限也不裁 ——
+       裁到 0 条等于把历史文件变成一个空壳，而"文件很小"看起来还挺健康。
+       真出现这种情况时返回 ``reason="still_over_limit"``，让人知道上限没达成。
+    """
+    ensure_files()
+    limit = HISTORY_HARD_LIMIT if max_chars is None else max_chars
+    keep = HISTORY_KEEP_ON_TRIM if keep_entries is None else max(1, keep_entries)
+
+    before_chars = history_char_count()
+    if before_chars <= limit:
+        return {"status": "skipped", "reason": "below_limit",
+                "before_chars": before_chars, "after_chars": before_chars,
+                "dropped_entries": 0}
+
+    with _WRITE_LOCK:
+        # 锁内重读：与 compress 一样，避免和并发 append 交错导致丢条目
+        text = _safe_read(PROJECT_HISTORY_PATH)
+        header, entries = _split_entries(text)
+
+        lessons = [e for e in entries if e.startswith(LESSONS_HEADING)]
+        plain = [e for e in entries if not e.startswith(LESSONS_HEADING)]
+
+        if len(plain) <= keep:
+            log.warning(
+                f"  [FileMemory] 历史 {before_chars} 字超过硬上限 {limit}，"
+                f"但只有 {len(plain)} 条记录（保留下限 {keep}），不裁 —— "
+                f"请调大 HISTORY_HARD_LIMIT 或调小 HISTORY_KEEP_ON_TRIM"
+            )
+            return {"status": "skipped", "reason": "still_over_limit",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0}
+
+        dropped = len(plain) - keep
+        kept = plain[-keep:]
+        parts = [header] if header else []
+        parts += ["## " + e for e in lessons]
+        parts += ["## " + e for e in kept]
+        new_text = "\n\n".join(parts) + "\n\n"
+
+        if not _atomic_write(PROJECT_HISTORY_PATH, new_text):
+            return {"status": "failed", "reason": "write_failed",
+                    "before_chars": before_chars, "after_chars": before_chars,
+                    "dropped_entries": 0}
+
+        after_chars = len(new_text)
+        log.warning(
+            f"  [FileMemory] 历史 {before_chars} 字超过硬上限 {limit}，"
+            f"已丢弃最旧 {dropped} 条（保留最近 {keep} 条 + 经验块）："
+            f"{before_chars} → {after_chars} 字。"
+            f"这是兜底，不是压缩 —— 结论没有被提炼，只是被丢掉了"
+        )
+        return {"status": "trimmed", "reason": "over_hard_limit",
+                "before_chars": before_chars, "after_chars": after_chars,
+                "dropped_entries": dropped}
+
+
 def _atomic_write(path: str, text: str) -> bool:
     """
     原子重写：先写同目录临时文件，再 os.replace。
@@ -364,4 +469,18 @@ def append_project_history(entry: str, timestamp: str | None = None) -> int:
     with _WRITE_LOCK:
         with open(PROJECT_HISTORY_PATH, "a", encoding="utf-8") as f:
             f.write(block)
-        return history_char_count()
+
+    # 追加之后立刻检查硬上限。放在这里而不是只靠读取前的压缩，是因为
+    # 压缩可能一直不生效（没摘要器 / 摘要失败 / 旧条目不够），而写入是无条件的：
+    # 只要还在写，文件就会一直长。写入侧必须自己兜住自己的增长。
+    #
+    # 注意 trim 内部会再拿一次 _WRITE_LOCK —— 这里必须**已经释放**，
+    # threading.Lock 不可重入。
+    trim = trim_history_if_needed()
+    if trim["status"] == "trimmed":
+        log.warning(
+            f"  [FileMemory] 历史超过硬上限，已丢弃最旧 "
+            f"{trim['dropped_entries']} 条（{trim['before_chars']} → "
+            f"{trim['after_chars']} 字）"
+        )
+    return history_char_count()

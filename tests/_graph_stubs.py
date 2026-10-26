@@ -20,11 +20,16 @@
 """
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 
 # 已被替换的模块名（供测试断言"确实没加载重依赖"）
 STUBBED: list[str] = []
+
+# 被 ``release()`` 还回去的模块名。与 ``STUBBED`` 分开记，是为了让
+# "装过哪些桩"这个历史事实保持可查，同时不让人误以为它还生效。
+RELEASED: list[str] = []
 
 
 def _install(name: str, **attrs) -> None:
@@ -102,6 +107,36 @@ def install_leaf_stubs() -> list[str]:
         record_experience=lambda *_a, **_k: {"recorded": False},
     )
     return list(STUBBED)
+
+
+def release(name: str) -> bool:
+    """
+    把 ``name`` 从替身还原成**真实模块**。返回是否真的做了还原。
+
+    为什么需要它：``install_leaf_stubs()`` 是在 ``test_quality_gate`` /
+    ``test_negative_gate`` 的**模块顶层**调用的（桩必须早于 ``import workflow``，
+    见上），而 ``unittest discover`` 是"先导入全部测试模块，再跑"。于是桩的
+    存活期覆盖了所有测试模块的导入期 —— 任何在顶层写
+    ``from tools.physics_tools import ...`` 的模块，只要加载顺序排在这两个之后，
+    拿到的就是替身里的假实现。
+
+    这个缺陷已经真实发生过：手工按 ``tests.test_negative_gate`` →
+    ``tests.test_optimize`` 的顺序跑时，``injection_risk_uq`` 是
+    ``_fake_injection_uq``，它返回的 dict 没有 ``counts``，于是 4 项
+    ``KeyError: 'counts'``。全量 discover 不复现，只是因为
+    ``test_optimize`` 恰好先被加载 —— 那是**碰巧**，不是设计。
+
+    所以需要真实实现的测试模块要显式调用 ``release(...)``，
+    把"我依赖真实实现"写在代码里，而不是依赖模块加载顺序。
+    """
+    if name not in STUBBED:
+        return False
+    # 必须先 pop 再 import，否则 importlib 会把替身原样还回来。
+    sys.modules.pop(name, None)
+    STUBBED.remove(name)
+    RELEASED.append(name)
+    importlib.import_module(name)
+    return True
 
 
 # ─── 具体替身 ────────────────────────────────────────────

@@ -4,9 +4,11 @@
 终稿生成之后，还有一串"代码保证、不靠模型自觉"的动作：
 
 1. 工具算出的数值没写进正文 → 补一段带区间的结论
-2. 降级说明 → 追加「数据完整性提示」
-3. 图表引用 → 补 Markdown 相对路径
-4. 无法溯源的百分比 → 整句删除
+2. 决策等级为 warn / alert → 补一个带概率与阈值的高亮块
+3. 已计入井间干扰 → 补一句"已考虑井间干扰"及 f 值
+4. 降级说明 → 追加「数据完整性提示」
+5. 图表引用 → 补 Markdown 相对路径
+6. 无法溯源的百分比 → 整句删除
 
 这些动作原来直接写在 ``aggregate_report`` 里，和模型调用、流式输出、记忆写入
 交替出现，改一处收尾逻辑得在一屏里找半天。抽出来之后它们变成**对字符串的
@@ -80,6 +82,69 @@ def finalize_report(
         if pnum not in report_text:
             log.info(f"  [System] 报告未包含 PINN 预测 {pnum} bar → 追加数值说明")
             report_text = report_text.rstrip() + f"\n\n> {pinn_result['text']}。"
+
+    # ─── 风险决策：warn / alert 必须带概率与阈值出现在正文里 ──────
+    # 判据是"概率串 + 阈值"两样都在。只查一个"有风险"之类的词不行：
+    # 模型完全可能写"存在压裂风险"却不给数字，而那正是最需要数字的地方。
+    # 反过来，两样都在就说明它确实写了，不必重复。
+    decision = (uq_summary or {}).get("decision") or {}
+    level = decision.get("level")
+    if level in ("warn", "alert") and decision.get("p") is not None:
+        th = decision.get("thresholds") or {}
+        p_txt = f"{decision['p'] * 100:.1f}%"
+        if p_txt not in report_text or "阈值" not in report_text:
+            log.info(
+                f"  [System] 决策等级 {level} 但正文缺少概率/阈值"
+                f"（{p_txt} / 阈值）→ 追加高亮决策块"
+            )
+            ci = decision.get("p_ci") or []
+            ci_txt = (
+                f"（95% 区间 {ci[0] * 100:.1f}%–{ci[1] * 100:.1f}%，"
+                f"{decision.get('n')} 次模拟）"
+                if len(ci) == 2 else ""
+            )
+            label = decision.get("label", "压裂风险")
+            warn_txt = f"{th.get('warn', 0) * 100:.0f}%"
+            alert_txt = f"{th.get('alert', 0) * 100:.0f}%"
+            # 阈值来路必须跟着数字走：环境变量覆盖过的阈值与默认值不是一回事，
+            # 报告写"5%"而实际用的是 8% 是这类系统最难发现的错之一。
+            prov = (
+                "（阈值由环境变量覆盖，非默认值）"
+                if th.get("source") == "env" else ""
+            )
+            report_text = report_text.rstrip() + (
+                f"\n\n> **风险决策（{decision.get('level_label', level)}）**："
+                f"P({label}) = {p_txt}{ci_txt}，"
+                f"{'达到告警阈值' if level == 'alert' else '达到提示阈值'} "
+                f"{alert_txt if level == 'alert' else warn_txt}。"
+                f"判定规则：P({label}) ≥ {alert_txt} → 告警；"
+                f"≥ {warn_txt} → 提示{prov}。"
+            )
+
+    # ─── 井间干扰：算过就必须写出来 ────────────────
+    # "已考虑干扰"与"没考虑"给出的是两个不同的速率，而正文里看不出来。
+    # 这里只保证**声明与 f 值**出现；具体论证仍在 notes / 面板里。
+    plan_physics = ((uq_summary or {}).get("plan") or {}).get("physics") or {}
+    if plan_physics.get("interference_active"):
+        f_txt = f"{plan_physics['interference_factor']:.4f}"
+        if "井间干扰" not in report_text:
+            log.info("  [System] 报告未提井间干扰（已计入）→ 追加声明")
+            how = (
+                "按给定的假设干扰系数"
+                if plan_physics.get("interference_source") == "user_coefficient"
+                else f"按等效井距 {plan_physics.get('well_spacing_m'):g} m"
+            )
+            report_text = report_text.rstrip() + (
+                f"\n\n> **已考虑井间干扰**：{how}，f = {f_txt}。"
+                f"注入速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算，"
+                f"因此加井不按线性增注。"
+            )
+        elif f_txt not in report_text:
+            log.info("  [System] 报告提到干扰但缺 f 值 → 追加 f")
+            report_text = report_text.rstrip() + (
+                f"\n\n> 井间干扰系数 f = {f_txt}"
+                f"（q = n·J·(p−P_h)/(1+(n−1)f)），供回代核对。"
+            )
 
     # ─── 降级说明：代码追加，不依赖模型照做 ────────────────
     # 这段必须放在图片引用**之前**吗？不必 —— 但要放在正文之后、且保证唯一。

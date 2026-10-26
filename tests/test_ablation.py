@@ -353,5 +353,70 @@ class TestRunOffline(unittest.TestCase):
         self.assertIn("离线消融", text)
 
 
+class TestMarkdownReport(unittest.TestCase):
+    """Markdown 报告只能**转述** JSON，不能自带结论。
+
+    手写结论与自动数据分叉之后，没有任何东西会红 —— 而这个仓库已经因为
+    手写表格偏了 1.6% 吃过一次亏。所以这里的断言是：报告里的数字必须
+    全部能在 payload 里找到。
+    """
+
+    PAYLOAD = {
+        "offline": {
+            "nodes": 100,
+            "edges": 120,
+            "arms": [
+                {
+                    "arm": "alias_merge",
+                    "question": "别名合并对连通性的贡献",
+                    "with_merge": {"nodes": 90, "edges": 110, "components": 30,
+                                   "largest": 40, "largest_ratio": 0.44,
+                                   "isolated": 12},
+                    "without_merge": {"nodes": 95, "edges": 112, "components": 41,
+                                      "largest": 43, "largest_ratio": 0.45,
+                                      "isolated": 15},
+                    "delta": {"components": 11, "largest": -3, "nodes_merged": 5},
+                    "verdict": "合并 5 个节点",
+                }
+            ],
+        },
+        "online": {
+            "baseline@probe": {
+                "arm": "baseline", "case_set": "probe", "cases": 1,
+                "passed": 0, "failed": 1,
+                "results": [{"case_id": "p", "gate_status": "failed",
+                             "physics_status": "violation", "retry_count": 2}],
+                "note": "小样本诊断", "environment": "本地模型",
+            }
+        },
+    }
+
+    def test_numbers_come_from_the_payload(self):
+        text = ablation.render_markdown(self.PAYLOAD)
+        for token in ("100", "120", "41", "30", "11", "5"):
+            self.assertIn(token, text)
+        self.assertIn("failed", text)
+        self.assertIn("violation", text)
+
+    def test_it_says_it_is_not_a_benchmark(self):
+        text = ablation.render_markdown(self.PAYLOAD)
+        self.assertIn("不是", text)
+        self.assertIn("小样本诊断", text)
+
+    def test_offline_only_payload_still_renders(self):
+        text = ablation.render_markdown({"offline": self.PAYLOAD["offline"]})
+        self.assertIn("离线对照", text)
+        self.assertNotIn("在线对照", text)
+
+    def test_report_can_be_written_and_read_back(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "report.md")
+            ablation.write_markdown(path, self.PAYLOAD)
+            with open(path, encoding="utf-8") as fh:
+                self.assertIn("消融对照结果", fh.read())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,6 +39,11 @@ class FileMemoryTestBase(unittest.TestCase):
         with open(file_memory.PROJECT_HISTORY_PATH, "w", encoding="utf-8") as f:
             f.write(text)
 
+    def read_history(self) -> str:
+        """读回历史文件。用 with 关文件 —— 裸 open().read() 会留 ResourceWarning。"""
+        with open(file_memory.PROJECT_HISTORY_PATH, encoding="utf-8") as f:
+            return f.read()
+
 
 class TestEnsureFiles(FileMemoryTestBase):
     def test_creates_missing_files_with_template(self):
@@ -317,6 +322,104 @@ class TestHistoryCompression(FileMemoryTestBase):
         )
         self.assertEqual(r["status"], "skipped")
         self.assertEqual(r["reason"], "below_threshold")
+
+
+class TestHistoryHardLimit(FileMemoryTestBase):
+    """
+    硬上限：不依赖大模型的那道防线。
+
+    为什么它必须单独存在（而不是"有压缩就够了"）：
+    压缩要求 ① 传了摘要器 ② 摘要成功 ③ 旧条目 ≥ MIN_ENTRIES_TO_COMPRESS。
+    三者任一不满足就静默跳过，而写入是无条件的 —— 文件继续长，且**没有日志
+    会报错**。所以写入侧必须自己兜住自己的增长。
+    """
+
+    def _entries(self, n, body="x" * 80):
+        return "".join(f"## 2026-01-{i:02d} 10:00\n{body}\n\n" for i in range(1, n + 1))
+
+    def test_no_trim_below_limit(self):
+        self.write_history("# 历史\n\n" + self._entries(2))
+        r = file_memory.trim_history_if_needed(max_chars=10**6)
+        self.assertEqual(r["status"], "skipped")
+        self.assertEqual(r["reason"], "below_limit")
+        self.assertEqual(r["dropped_entries"], 0)
+
+    def test_trims_oldest_and_keeps_newest(self):
+        self.write_history("# 历史\n\n" + self._entries(20))
+        r = file_memory.trim_history_if_needed(max_chars=200, keep_entries=3)
+        self.assertEqual(r["status"], "trimmed", r)
+        self.assertEqual(r["dropped_entries"], 17)
+        text = self.read_history()
+        # 最新的三条还在（01-18 / 01-19 / 01-20），最旧的已经不在了
+        self.assertIn("2026-01-20", text)
+        self.assertIn("2026-01-18", text)
+        self.assertNotIn("2026-01-01", text)
+        self.assertLess(r["after_chars"], r["before_chars"])
+
+    def test_lessons_block_survives_trim(self):
+        """
+        经验块是压缩唯一的沉淀。裁掉它等于每次压缩白做，而且不会有任何报错。
+        """
+        self.write_history(
+            "# 历史\n\n"
+            f"## {file_memory.LESSONS_HEADING}\n- 注入压力必须低于破裂压力\n\n"
+            + self._entries(20)
+        )
+        file_memory.trim_history_if_needed(max_chars=200, keep_entries=2)
+        text = self.read_history()
+        self.assertIn(file_memory.LESSONS_HEADING, text)
+        self.assertIn("注入压力必须低于破裂压力", text)
+
+    def test_never_drops_below_keep_floor(self):
+        """
+        保留下限优先于上限：宁可文件仍然超限，也不能把历史裁成空壳。
+        "文件很小"看起来比"文件超限"健康得多，正是它危险的地方。
+        """
+        self.write_history("# 历史\n\n" + self._entries(3))
+        r = file_memory.trim_history_if_needed(max_chars=10, keep_entries=3)
+        self.assertEqual(r["status"], "skipped")
+        self.assertEqual(r["reason"], "still_over_limit")
+        text = self.read_history()
+        self.assertEqual(text.count("## 2026-01-"), 3, "一条都不许丢")
+
+    def test_append_triggers_trim(self):
+        """
+        写入路径必须自己检查上限 —— 否则"压缩一直不生效"时文件会无限长。
+        """
+        self.write_history("# 历史\n\n" + self._entries(10))
+        orig_limit = file_memory.HISTORY_HARD_LIMIT
+        orig_keep = file_memory.HISTORY_KEEP_ON_TRIM
+        try:
+            file_memory.HISTORY_HARD_LIMIT = 300
+            file_memory.HISTORY_KEEP_ON_TRIM = 3
+            size = file_memory.append_project_history("新的一条记录")
+        finally:
+            file_memory.HISTORY_HARD_LIMIT = orig_limit
+            file_memory.HISTORY_KEEP_ON_TRIM = orig_keep
+
+        text = self.read_history()
+        self.assertIn("新的一条记录", text, "最新写入的条目不能被裁掉")
+        self.assertNotIn("2026-01-01", text)
+        self.assertEqual(size, len(text))
+
+    def test_append_is_not_blocked_by_lock(self):
+        """
+        append 里先释放 _WRITE_LOCK 再调 trim（trim 内部会再拿一次锁）。
+        threading.Lock 不可重入 —— 顺序写错就是永久死锁，而不是报错。
+        这条测试的作用就是"如果哪天顺序被改坏，它会挂住超时"。
+        """
+        import threading
+
+        done = []
+
+        def worker():
+            file_memory.append_project_history("并发记录")
+            done.append(True)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        self.assertTrue(done, "append_project_history 疑似死锁（5s 未返回）")
 
 
 if __name__ == "__main__":

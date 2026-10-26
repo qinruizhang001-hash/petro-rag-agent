@@ -14,13 +14,23 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chart_tools import (
+from tests import _graph_stubs
+
+# 同一个坑的另一半：整图测试把 ``chart_tools`` 换成只含
+# ``generate_pressure_curve`` 的替身。本模块在顶层 import 了 7 个名字，
+# 一旦加载顺序排在桩之后，报的是 "cannot import name 'DEFAULT_DEPTH_M'
+# from 'chart_tools' (unknown location)" —— 听起来像打包问题，实际是替身。
+# 这里显式要回真实模块；没装过桩时是空操作。
+_graph_stubs.release("chart_tools")
+
+from chart_tools import (  # noqa: E402
     DEFAULT_DEPTH_M,
     FRACTURE_RATIO,
     admissible_depth_range,
     fracture_bar,
     generate_pressure_curve,
     hydrostatic_bar,
+    prune_charts,
 )
 
 
@@ -148,6 +158,76 @@ class TestChartOutput(unittest.TestCase):
             for _ in range(6):
                 generate_pressure_curve(2000, 250, output_dir=d)
             self.assertEqual(len(plt.get_fignums()), 0, "figure 未关闭，存在泄漏")
+
+
+class PruneTests(unittest.TestCase):
+    """图表目录的保留策略：只删自己生成的、按数量与总量双限、可预演。"""
+
+    def _make(self, d, count, *, prefix="pressure_curve_", size=1024):
+        """造 count 个假图，mtime 递增（第 i 个比第 i-1 个新）。"""
+        import time
+
+        paths = []
+        base = time.time() - 10_000
+        for i in range(count):
+            p = os.path.join(d, f"{prefix}20260101-0000{i:02d}_abc{i:03d}.png")
+            with open(p, "wb") as fh:
+                fh.write(b"\0" * size)
+            os.utime(p, (base + i, base + i))
+            paths.append(p)
+        return paths
+
+    def test_keeps_the_newest_and_reports_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = self._make(d, 6)
+            report = prune_charts(keep=2, directory=d)
+            self.assertEqual(report["kept"], 2)
+            self.assertEqual(len(report["deleted"]), 4)
+            # 留下的是最新的两个
+            survivors = sorted(os.listdir(d))
+            self.assertEqual(survivors, [os.path.basename(p) for p in paths[-2:]])
+            # 删掉的是最旧的两个 —— 名字必须可复核，不能只报计数
+            self.assertIn(os.path.basename(paths[0]), report["deleted"])
+
+    def test_dry_run_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._make(d, 5)
+            report = prune_charts(keep=1, dry_run=True, directory=d)
+            self.assertEqual(len(os.listdir(d)), 5)
+            self.assertEqual(len(report["deleted"]), 4)
+            self.assertTrue(report["dry_run"])
+
+    def test_only_its_own_files_are_candidates(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._make(d, 4)
+            stranger = os.path.join(d, "uploaded_by_user.png")
+            note = os.path.join(d, "notes.txt")
+            for p in (stranger, note):
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write("x")
+            prune_charts(keep=1, directory=d)
+            self.assertTrue(os.path.exists(stranger), "误删了不是自己生成的文件")
+            self.assertTrue(os.path.exists(note))
+
+    def test_size_cap_trims_further(self):
+        with tempfile.TemporaryDirectory() as d:
+            # 5 个 × 1 MB，上限 2 MB → 数量合规（keep=5）但总量超限
+            self._make(d, 5, size=1024 * 1024)
+            report = prune_charts(keep=5, max_total_mb=2.0, directory=d)
+            self.assertEqual(report["kept"], 2)
+            self.assertEqual(report["reason"], "超出总量上限")
+            self.assertLessEqual(len(os.listdir(d)), 2)
+
+    def test_negative_keep_is_rejected(self):
+        with self.assertRaises(ValueError):
+            prune_charts(keep=-1, directory=tempfile.gettempdir())
+
+    def test_missing_directory_is_not_an_error(self):
+        report = prune_charts(keep=3, directory=os.path.join(
+            tempfile.gettempdir(), "definitely-not-here-xyz"
+        ))
+        self.assertEqual(report["deleted"], [])
+        self.assertIn("不存在", report["reason"])
 
 
 if __name__ == "__main__":

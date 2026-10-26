@@ -30,6 +30,7 @@ README 用五处声明同一个测试总数（badge / highlights 表 / §3 正�
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -111,10 +112,82 @@ def check(text: str) -> str:
     return f"{total} total · {in_ci} in CI · {local_n} local-only · 分项自洽"
 
 
+# ─── 图谱归一化投影数字 ────────────────────────────────────
+#
+# 这一组不是"内部一致性"，而是**与审计记录比对**：README 里那几处
+# 「4,988 → 4,415 节点 / 1,226 → 1,085 分量」必须等于 docs/graph-normalization.json
+# 里存的值。JSON 由 `python normalize_graph.py` 生成，是这次预演的原始记录。
+#
+# 为什么值得单独一条：这几处数字在 README 里出现过三个不同版本（4,419 / 4,415），
+# 全都没人发现 —— 因为没有任何东西在核对它们。规则改一条、语料加一篇，
+# 投影就变，而 README 里那句话读起来依然斩钉截铁。
+_PROJECTION_JSON = ROOT / "docs" / "graph-normalization.json"
+
+
+def _fmt(n: int) -> str:
+    return f"{n:,}"
+
+
+def check_projection(text: str, json_path: Path) -> str:
+    """
+    README 的投影数字 vs 归一化报告的 JSON。JSON 不存在时跳过（不算失败）。
+
+    "找不到"要算失败而不是跳过：如果哪天这几句话被改写成了别的形式，
+    这个检查会静默变成永不触发的空壳 —— 与 ``_collect`` 里的理由相同。
+    """
+    if not json_path.exists():
+        return f"跳过（{json_path.name} 不存在，先跑 python normalize_graph.py）"
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    before = data["before"]
+    projected = data["projected"]
+
+    probes = [
+        ("节点", f"{_fmt(before['nodes'])} → ", r"([\d,]+) nodes", projected["nodes"]),
+        ("连通分量", f"{_fmt(before['components'])} → ",
+         r"([\d,]+) components", projected["components"]),
+        # 最大分量后面必须跟一个百分比。这条限定不是凑格式，是为了避开另一处
+        # 恰好也以 "3,073 → " 开头的数字：README 里还有一句
+        # "enforcing the type constraint would take the largest component
+        #  3,073 → 2,759 (−314)"，那是个**反事实**（不执行），不是这次投影。
+        # 只按前缀匹配会把它当成投影，报一个假的不一致。
+        ("最大分量", f"{_fmt(before['largest'])} → ",
+         r"([\d,]+) \(([\d.]+) %\)", projected["largest"]),
+    ]
+
+    problems: list[str] = []
+    for label, prefix, tail, expect in probes:
+        pattern = re.escape(prefix) + tail
+        # 有的正则有捕获组（最大分量那条要顺带锁住百分比），findall 会返回
+        # 元组；统一只取第一组，也就是"箭头右边的数"。
+        found = {
+            int((m[0] if isinstance(m, tuple) else m).replace(",", ""))
+            for m in re.findall(pattern, text)
+        }
+        if not found:
+            problems.append(f"{label}：README 里找不到「{prefix}…」形式的投影数字")
+        elif found != {expect}:
+            problems.append(
+                f"{label}：README 说 {sorted(found)}，JSON 记录 {expect}"
+            )
+
+    if problems:
+        raise SystemExit(
+            "::error::README 的归一化投影数字与 docs/graph-normalization.json 不一致：\n"
+            + "\n".join("  - " + p for p in problems)
+            + "\n修法：重跑 python normalize_graph.py，然后按新的 JSON 改 README。"
+            "\n不要手算 —— 手算出来的数和 JSON 对不上时，没人知道该信哪个。"
+        )
+    return "与 graph-normalization.json 一致"
+
+
 def main(argv: list[str]) -> int:
     path = Path(argv[1]) if len(argv) > 1 else ROOT / "README.md"
-    summary = check(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    summary = check(text)
+    projection = check_projection(text, _PROJECTION_JSON)
     print(f"README numbers OK: {summary}")
+    print(f"README projection OK: {projection}")
     return 0
 
 

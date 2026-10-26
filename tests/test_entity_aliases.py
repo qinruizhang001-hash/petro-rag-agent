@@ -26,8 +26,10 @@ from utils.entity_aliases import (
     build_merge_plan,
     canonical_name,
     noise_reason,
+    noise_rule_names,
     normalize_key,
     plan_summary,
+    protected_names,
 )
 
 
@@ -131,6 +133,62 @@ class TestNoiseReason(unittest.TestCase):
     def test_policy_bodies_are_not_noise(self):
         # organization 类型不整类丢弃：IPCC 是监管实体，删掉就是丢知识
         self.assertIsNone(noise_reason("IPCC", "organization"))
+
+    def test_funding_bodies_are_noise(self):
+        """
+        资助 / 行政机构是噪声：一篇论文的资助方会把几十篇不相关的论文连成
+        假枢纽，连的是经费关系而不是地质知识。
+
+        这四个名字是实测从当前语料里取出来的，不是编的 —— 规则必须真的
+        命中它们，否则"已处理机构名"就只是文档里的一句话。
+        """
+        for name in (
+            "Georgia Research Alliance",
+            "German Federal Ministry of Research, Technology, and Space",
+            "German Ministry of Economic Affairs and Climate Protection (BMWK)",
+            "Ministry of Economic Affairs (The Netherlands)",
+        ):
+            self.assertEqual(noise_reason(name, "organization"), "funding-body", name)
+
+    def test_alias_table_beats_name_rules(self):
+        """
+        别名表声明过的实体，任何名字规则都不许删。
+
+        这条修的是一个真实矛盾：`funding-body` 规则含 `agency`，而
+        `International Energy Agency` 在别名表里（并成 IEA，政策主体要保留）。
+        没有 `_PROTECTED` 前置判断的话，两条各自正确的规则撞在一起，
+        结果就是静默删掉一个刻意保留的实体 —— 而且删得"有理有据"。
+        """
+        for name in (
+            "International Energy Agency",
+            "IEA",
+            "Intergovernmental Panel on Climate Change",
+            "IPCC",
+            "Geological Carbon Storage",
+        ):
+            self.assertIsNone(noise_reason(name, "organization"), name)
+
+    def test_every_rule_name_is_registered(self):
+        """
+        `noise_rule_names()` 与 `noise_reason()` 必须给出同一套原因。
+
+        报告靠前者列"零命中的规则"，靠后者写实际命中原因。两边不一致时，
+        报告会漏掉某条规则（看起来像"没有这条规则"），而这正是这份报告
+        存在要解决的问题。
+        """
+        from utils.entity_aliases import _NOISE_RULES
+
+        declared = set(noise_rule_names())
+        for reason, _pattern in _NOISE_RULES:
+            self.assertIn(reason, declared)
+        self.assertEqual(len(declared), len(noise_rule_names()), "原因名有重复")
+
+    def test_protected_names_covers_alias_variants(self):
+        names = protected_names()
+        self.assertGreaterEqual(len(names), 20, names)
+        # 规范名与变体都要在保护名单里，只护规范名等于没护
+        for probe in ("iea", "international energy agency", "ipcc", "gcs"):
+            self.assertIn(probe, names)
 
     def test_real_entities_kept(self):
         for name in (
