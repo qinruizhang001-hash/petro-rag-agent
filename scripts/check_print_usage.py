@@ -76,7 +76,12 @@ def check(path: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    targets = [Path(a) for a in argv[1:]] or [ROOT / "chart_tools.py"]
+    # 默认检查运行链路上的全部模块。ops/ 一并纳入：那四个 Agent 会跑在
+    # 常驻进程里，它们的输出必须进 app.log，而不是只留在 stdout
+    targets = [Path(a) for a in argv[1:]] or [
+        ROOT / "chart_tools.py",
+        *sorted((ROOT / "ops").glob("*.py")),
+    ]
     problems: list[str] = []
     for path in targets:
         if not path.exists():

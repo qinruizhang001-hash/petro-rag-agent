@@ -356,6 +356,10 @@ jobs:
             tests.test_text_cleaning \
             tests.test_entity_aliases \
             tests.test_normalize_graph \
+            tests.test_ops_contracts \
+            tests.test_ops_alarms \
+            tests.test_ops_condition \
+            tests.test_ops_reports \
             tests.test_graph_analysis \
             tests.test_domain_ontology \
             tests.test_ablation \

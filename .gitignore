@@ -201,3 +201,9 @@ eval/*.partial.jsonl
 
 # 摘要 PDF 的 SVG→PNG 栅格化缓存（按源文件 mtime 失效，可随时重建）。
 .pdfbuild/
+
+# 运维阈值：实际配置含项目设计值、许可编号与联系人，属于现场信息，
+# 不进仓库。模板 config/ops_thresholds.example.json 进仓库。
+config/ops_thresholds.json
+config/ops_thresholds.*.json
+!config/ops_thresholds.example.json
