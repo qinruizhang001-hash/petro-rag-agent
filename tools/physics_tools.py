@@ -454,9 +454,16 @@ def optimize_injection_strategy(
     skin: float = 0.0,
     cap_ratio: float = 1.0,
     rate_cap_mt_per_year: float | None = None,
+    well_spacing_m: float | None = None,
+    drainage_radius_m: float = 500.0,
 ) -> dict:
     """
     给定当前方案，反解一个满足风险预算的注入方案（井数 / 井底压力 / 速率）。
+
+    ``well_spacing_m`` 默认 ``None`` = 按独立井计算（无井间干扰），与引入该
+    参数之前逐位一致；给了之后按稳态径向叠加计入干扰，加井不再线性增注。
+    井距是**设计输入**，所以没有默认值 —— 替调用方假定一个井距，等于替
+    他做了一个他没做过的决定，而这个决定会直接改变推荐方案。
 
     与 ``injection_risk_uq`` 的关系：那个工具回答"当前方案有多危险"，
     这个工具回答"改成什么才不危险"。两者用**同一套判据与同一批抽样**
@@ -496,6 +503,8 @@ def optimize_injection_strategy(
         skin=skin,
         cap_ratio=cap_ratio,
         rate_cap_mt_per_year=rate_cap_mt_per_year,
+        well_spacing_m=well_spacing_m,
+        drainage_radius_m=drainage_radius_m,
     )
     log.info(f"  [Tool 调用] 注入策略 → {result['text']}")
     return result

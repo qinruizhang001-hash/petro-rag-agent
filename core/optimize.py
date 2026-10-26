@@ -29,7 +29,9 @@
 风险**不直接依赖速率**：速率是压力差的函数，同一压力下换一台泵不影响
 破裂压力。所以把速率当决策变量会让优化器在一个错误的自由度上搜索 ——
 它会把"降低速率"当成降低风险的手段，而真正的机制是"降低井底压力"。
-反过来说，井数不改变风险（本模型无井间干扰），只改变同一压力下能注入多少。
+反过来说，井数不改变风险，只改变同一压力下能注入多少。
+**默认按独立井计算**（不给井距即无干扰）；给了 ``well_spacing_m`` 之后
+按稳态径向叠加计入井间干扰，加井就不再线性增注，并且存在饱和井数。
 
 这个方向性是有代价的：它意味着**速率与风险在本模型里不能同时改善**。
 想要"又安全又注得多"，唯一的手段是加井。这一点在 ``notes`` 里明写。
@@ -103,6 +105,14 @@ DEFAULT_YEARS = 20.0             # 规划期，仅用于累计封存量换算
 DEFAULT_WELL_COUNTS = (1, 2, 4, 8)
 CAP_RATIO_DEFAULT = 1.0          # 不额外加设计余量：风险预算已经在约束压力
 
+# 井间干扰用到的两个几何量。**故意与 utils.relperm.injectivity_index 的
+# 默认值取同一个数**（re=500 m / rw=0.1 m）：那个函数算的是 J，干扰系数
+# 算的是同一套径向几何下的对数比，两个默认值一旦分叉，"注入能力"和
+# "干扰代价"就会各自按不同的井距在说话，且不报错。
+# tests/test_optimize.py 里有一条断言把两边钉死。
+DEFAULT_DRAINAGE_RADIUS_M = 500.0
+DEFAULT_WELLBORE_RADIUS_M = 0.1
+
 # 优化器的模拟次数。与报告里的 100 次不同，理由见模块文档"为什么约束用
 # Wilson 上界"：n=100 时 5% 预算只允许 0 次命中，约束会退化成最小值。
 OPTIMIZE_N = 1000
@@ -151,10 +161,22 @@ def injectivity_m3_per_day_per_bar(
 
 
 def rate_m3_per_day(
-    pressure_bar: float, depth_m: float, injectivity: float, n_wells: int = 1
+    pressure_bar: float,
+    depth_m: float,
+    injectivity: float,
+    n_wells: int = 1,
+    interference: float = 0.0,
 ) -> float:
     """
-    井底压力 p → 总注入速率 q = n·J·(p − P_h)。
+    井底压力 p → 总注入速率。
+
+    无干扰时 ``q = n·J·(p − P_h)``；给了井间干扰系数 ``f`` 之后是
+
+        q = n·J·(p − P_h) / (1 + (n−1)·f)
+
+    分母就是"多井互相抢压差"的代价：n 口井各自要克服另外 n−1 口井造成的
+    压降，所以同样的井底压力下，总速率**不是**线性放大。``f=0`` 时两条式子
+    完全一致 —— 默认值就是 0，所以不传井距的调用方行为不变。
 
     压差为负时返回 0 而不是负数：``p < P_h`` 意味着注不进去（甚至倒流），
     负速率在后续质量换算里会变成一个"负的封存量"，不会报错但整段结论反了。
@@ -162,18 +184,112 @@ def rate_m3_per_day(
     drawdown = float(pressure_bar) - float(pm.hydrostatic_bar(depth_m))
     if drawdown <= 0.0:
         return 0.0
-    return float(n_wells) * float(injectivity) * drawdown
+    n = float(n_wells)
+    f = float(interference)
+    return n * float(injectivity) * drawdown / (1.0 + (n - 1.0) * f)
 
 
 def pressure_bar_for_rate(
-    rate_m3_day: float, depth_m: float, injectivity: float, n_wells: int = 1
+    rate_m3_day: float,
+    depth_m: float,
+    injectivity: float,
+    n_wells: int = 1,
+    interference: float = 0.0,
 ) -> float:
-    """总注入速率 q → 井底压力 p = P_h + q/(n·J)。"""
+    """总注入速率 q → 井底压力 p，是 ``rate_m3_per_day`` 的严格逆运算。"""
     if rate_m3_day <= 0.0:
         return float(pm.hydrostatic_bar(depth_m))
-    return float(pm.hydrostatic_bar(depth_m)) + float(rate_m3_day) / (
-        float(n_wells) * float(injectivity)
-    )
+    n = float(n_wells)
+    f = float(interference)
+    return float(pm.hydrostatic_bar(depth_m)) + float(rate_m3_day) * (
+        1.0 + (n - 1.0) * f
+    ) / (n * float(injectivity))
+
+
+def interference_factor(
+    spacing_m: float,
+    drainage_radius_m: float = DEFAULT_DRAINAGE_RADIUS_M,
+    rw_m: float = DEFAULT_WELLBORE_RADIUS_M,
+    skin: float = DEFAULT_SKIN,
+) -> dict:
+    """
+    稳态径向叠加下的井间干扰系数 ``f``（无因次）。
+
+    推导（不是抄公式，推导过程决定了它什么时候失效）
+    -------------------------------------------------
+    单井稳态径向 Darcy：
+
+        q_w = 2πkh/μ · Δp_own / (ln(r_e/r_w) + S)  ⇒  Δp_own = q_w/J
+
+    把每口邻井看成同强度线汇，它在目标井处造成的压降（同一外边界 r_e 的
+    稳态解）是
+
+        Δp_ij = q_w · μ/(2πkh) · ln(r_e/d_ij)
+
+    两者相除，``μ/(2πkh)`` 消掉，只剩对数项之比：
+
+        Δp_ij / Δp_own = ln(r_e/d) / (ln(r_e/r_w) + S) ≡ f
+
+    于是 n 口等间距、等产量的井：
+
+        p − P_h = Δp_own · (1 + (n−1)f)  ⇒  q_total = n·J·(p−P_h)/(1+(n−1)f)
+
+    两个极限可以直接读出来：``d → r_e`` 时 ``f → 0``（两井分属独立泄油区，
+    互不影响）；``n → ∞`` 时 ``q_total → J·(p−P_h)/f``，**井数存在饱和** ——
+    这是本模型唯一能给出的"加井不再有用"的结论，也是它值得存在的原因。
+
+    为什么 ``f`` 一定小于 1：``d ≥ r_w`` 时 ``ln(r_e/d) ≤ ln(r_e/r_w)``，
+    而 ``S ≥ 0``，所以分子不超过分母。f=1 意味着"邻井离你和井壁一样近"，
+    物理上不可能，代码里也不该出现。
+
+    偏差方向
+    --------
+    这是**等产量、等间距、稳态、均质**下的叠加。真实情况里井位不均匀、产量
+    会按压力自动分配（干扰强的那口自然注得少），所以这个式子倾向于**高估**
+    干扰；但另一侧，它完全不含井间导流能力差异与储层非均质，局部又可能
+    **低估**。两个方向都有，所以结论里只把它当敏感性项，不当作阻断依据。
+    """
+    spacing = float(spacing_m)
+    re = float(drainage_radius_m)
+    rw = float(rw_m)
+    if spacing <= rw:
+        raise ValueError(
+            f"井距 {spacing} m 不大于井筒半径 {rw} m，无法计算干扰"
+        )
+    if re <= rw:
+        raise ValueError(f"泄油半径 {re} m 必须大于井筒半径 {rw} m")
+    if skin < 0:
+        raise ValueError(f"表皮系数不能为负，收到 {skin}")
+
+    ln_own = math.log(re / rw) + float(skin)
+    if spacing >= re:
+        # 井距不小于泄油半径：两井各自圈一块地，稳态叠加的前提不成立。
+        # 返回 0 而不是负数 —— ln(r_e/d) 在 d>r_e 时是负的，直接代进公式
+        # 会得到"有邻井反而注得更多"，那是个纯粹的建模事故。
+        return {
+            "factor": 0.0,
+            "active": False,
+            "ln_own": ln_own,
+            "ln_interference": 0.0,
+            "spacing_m": spacing,
+            "drainage_radius_m": re,
+            "reason": (
+                f"井距 {spacing:g} m ≥ 泄油半径 {re:g} m：两井分属独立泄油区，"
+                f"稳态叠加不适用，未计干扰"
+            ),
+        }
+    ln_interf = math.log(re / spacing)
+    return {
+        "factor": ln_interf / ln_own,
+        "active": True,
+        "ln_own": ln_own,
+        "ln_interference": ln_interf,
+        "spacing_m": spacing,
+        "drainage_radius_m": re,
+        "reason": (
+            f"井距 {spacing:g} m / 泄油半径 {re:g} m → f={ln_interf / ln_own:.4f}"
+        ),
+    }
 
 
 def mass_mt_per_year(rate_m3_day: float, density_kg_m3: float) -> float:
@@ -325,6 +441,8 @@ def optimize_plan(
     skin: float = DEFAULT_SKIN,
     cap_ratio: float = CAP_RATIO_DEFAULT,
     rate_cap_mt_per_year: float | None = None,
+    well_spacing_m: float | None = None,
+    drainage_radius_m: float = DEFAULT_DRAINAGE_RADIUS_M,
     thresholds: dict | None = None,
 ) -> dict:
     """
@@ -346,6 +464,14 @@ def optimize_plan(
     cap_ratio               : 井底压力上限 = cap_ratio × 破裂压力。默认 1.0，
                               即不再额外加设计余量（风险预算已经压住了压力）
     rate_cap_mt_per_year    : 设施/许可的速率上限，默认 None（不设）
+    well_spacing_m          : 井距。**默认 None = 不计井间干扰**，与旧行为逐位
+                              一致。给了之后按 ``interference_factor`` 的稳态
+                              叠加计算：同样的井底压力下，n 口井不再线性放大。
+                              为什么不给默认井距：井距是**设计输入**，不是地质
+                              未知量；替用户假定一个井距，等于替他做了一个
+                              他没做过的决定，而且这个假定会直接改变推荐方案。
+    drainage_radius_m       : 单井泄油半径，默认 500 m（与 relperm 的径向几何
+                              同源）。只在给了 ``well_spacing_m`` 时起作用。
 
     返回
     ----
@@ -362,6 +488,23 @@ def optimize_plan(
         raise ValueError(f"规划期 years 必须为正，收到 {years}")
     if rate_cap_mt_per_year is not None and rate_cap_mt_per_year <= 0.0:
         raise ValueError(f"速率上限必须为正，收到 {rate_cap_mt_per_year}")
+
+    # 井间干扰：不给井距就是 0，行为与引入本功能之前完全一致。
+    if well_spacing_m is None:
+        interference = {
+            "factor": 0.0,
+            "active": False,
+            "ln_own": None,
+            "ln_interference": None,
+            "spacing_m": None,
+            "drainage_radius_m": float(drainage_radius_m),
+            "reason": "未提供井距：按独立井计算（无井间干扰）",
+        }
+    else:
+        interference = interference_factor(
+            well_spacing_m, drainage_radius_m, DEFAULT_WELLBORE_RADIUS_M, skin
+        )
+    f_int = float(interference["factor"])
 
     th = thresholds if thresholds is not None else load_thresholds()
     target = float(th["warn"] if p_target is None else p_target)
@@ -397,13 +540,20 @@ def optimize_plan(
         "skin": float(skin),
         "cap_ratio": float(cap_ratio),
         "fracture_ratio": float(pm.FRACTURE_RATIO),
+        # 干扰系数必须进 physics：回代核对要用的式子已经不是
+        # q = n·J·(p−P_h)，而是 q = n·J·(p−P_h)/(1+(n−1)f)。
+        # f 不出现在返回值里，读者就无法复算，也就无法判断这个数是算的还是编的。
+        "interference_factor": float(interference["factor"]),
+        "interference_active": bool(interference["active"]),
+        "well_spacing_m": interference["spacing_m"],
+        "drainage_radius_m": interference["drainage_radius_m"],
     }
 
     # ─── 当前方案 ────────────────────────────────────────
     current: dict = {}
     if injection_pressure_bar is not None:
         p_cur = float(injection_pressure_bar)
-        q_cur = rate_m3_per_day(p_cur, depth, j, 1)
+        q_cur = rate_m3_per_day(p_cur, depth, j, 1, f_int)
         current = {
             "pressure_bar": p_cur,
             "n_wells": 1,
@@ -414,7 +564,7 @@ def optimize_plan(
         }
     elif storage_rate_mt_per_year is not None:
         q_cur = rate_for_mass(storage_rate_mt_per_year, density)
-        p_cur = pressure_bar_for_rate(q_cur, depth, j, 1)
+        p_cur = pressure_bar_for_rate(q_cur, depth, j, 1, f_int)
         current = {
             "pressure_bar": p_cur,
             "n_wells": 1,
@@ -441,7 +591,7 @@ def optimize_plan(
     p_star = limit["pressure_bar"]
     options: list[dict] = []
     for n_w in sorted({int(w) for w in well_counts if int(w) >= 1}):
-        q_max = rate_m3_per_day(p_star, depth, j, n_w)
+        q_max = rate_m3_per_day(p_star, depth, j, n_w, f_int)
         binding = limit["binding"]
         if rate_cap_mt_per_year is not None:
             q_ceiling = rate_for_mass(rate_cap_mt_per_year, density)
@@ -449,7 +599,9 @@ def optimize_plan(
                 q_max = q_ceiling
                 binding = BIND_RATE_CAP
         p_need = (
-            pressure_bar_for_rate(q_req, depth, j, n_w) if q_req > 0 else p_star
+            pressure_bar_for_rate(q_req, depth, j, n_w, f_int)
+            if q_req > 0
+            else p_star
         )
         options.append({
             "n_wells": n_w,
@@ -519,7 +671,7 @@ def optimize_plan(
             # 那个速率对应的压力远低于 p_star，写成 p_star 会让
             # q = n·J·(p−P_h) 两边不等 —— 而这是唯一能回代核对的式子
             p_impl = pressure_bar_for_rate(
-                best["rate_m3_per_day"], depth, j, best["n_wells"]
+                best["rate_m3_per_day"], depth, j, best["n_wells"], f_int
             )
             recommended = {
                 "n_wells": best["n_wells"],
@@ -564,6 +716,7 @@ def optimize_plan(
         sampler=sampler, cap_ratio=cap_ratio, th=th, critical=critical,
         rel_sigma=rel_sigma, current=current,
         rate_cap_mt_per_year=rate_cap_mt_per_year, q_req=q_req, density=density,
+        interference=interference,
     )
 
     text = _text(
@@ -678,6 +831,7 @@ def _notes(
     sampler: JointSampler, cap_ratio: float, th: dict,
     critical: list[float], rel_sigma: float, current: dict,
     rate_cap_mt_per_year: float | None, q_req: float, density: float,
+    interference: dict | None = None,
 ) -> list[str]:
     """把"这个建议在什么条件下成立"逐条写出来。不写就等于默认它无条件成立。"""
     notes: list[str] = []
@@ -729,9 +883,23 @@ def _notes(
         notes.append(f"注入指数已计入表皮系数 S={skin:g}")
 
     notes.append(
-        "本模型不含井筒摩阻、非达西（高速湍流）与井间干扰："
-        "前两项会让实际速率低于此处数值，第三项会让'加井线性增注'失效"
+        "本模型不含井筒摩阻与非达西（高速湍流）：两项都会让实际速率低于此处数值"
     )
+    if interference and interference.get("active"):
+        notes.append(
+            f"井间干扰已计入：井距 {interference['spacing_m']:g} m、"
+            f"泄油半径 {interference['drainage_radius_m']:g} m、"
+            f"f={interference['factor']:.4f}。"
+            "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算，**加井不再线性增注**，"
+            "井数存在饱和；这是等产量等间距稳态叠加的结果，"
+            "真实井网下更接近敏感性区间而非确定值"
+        )
+    else:
+        notes.append(
+            "未计井间干扰（"
+            + (interference or {}).get("reason", "未提供井距")
+            + "）：'加井线性增注'在本模型里成立，真实井网下会偏低"
+        )
     notes.append(
         "风险只由井底压力决定，与速率无关；同一压力下加井只增加速率、"
         "不改变风险。所以'又安全又注得多'在本模型里只有加井一条路"
@@ -872,7 +1040,7 @@ def _provenance(thresholds: dict, skin: float) -> dict:
         ),
         "injectivity": (
             "径向稳态 Darcy J = 2πkh/(μ(ln(re/rw)+S))，"
-            "utils.relperm.injectivity_index；单相、均质、无井间干扰"
+            "utils.relperm.injectivity_index；单相、均质"
         ),
         "viscosity": "CO₂ 黏度常数 0.06 mPa·s（utils.co2_properties，区间 0.03–0.1）",
         "density": "Peng-Robinson 状态方程（utils.co2_properties），按注前静水压力取值",

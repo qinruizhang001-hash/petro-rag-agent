@@ -23,12 +23,15 @@ from core.optimize import (
     BIND_CAP,
     BIND_RATE_CAP,
     CAP_RATIO_DEFAULT,
+    DEFAULT_DRAINAGE_RADIUS_M,
+    DEFAULT_WELLBORE_RADIUS_M,
     OPTIMIZE_N,
     STATUS_INFEASIBLE,
     STATUS_NO_INJECTION,
     STATUS_OK,
     critical_pressure_samples,
     injectivity_m3_per_day_per_bar,
+    interference_factor,
     mass_mt_per_year,
     max_pressure_for_target,
     optimize_plan,
@@ -245,6 +248,170 @@ class TestSolverAgreesWithBruteForce(unittest.TestCase):
             risk_at_pressure(above[0], critical)["p_upper"], 0.05,
             "比解高一个样本的压力仍然满足预算 —— 说明解不是最大的",
         )
+
+
+class TestWellInterference(unittest.TestCase):
+    """井间干扰：默认不启用，启用后必须让"加井"不再是线性增益。
+
+    这一组防的是两种相反的错误：
+
+    * **默认行为被悄悄改掉** —— 不传井距时必须逐位等于旧公式。这个项目里
+      所有对外数字都建立在 ``q = n·J·(p−P_h)`` 上，改默认值等于一次无声的
+      结论变更。
+    * **干扰项自己算错** —— 尤其是 ``d ≥ r_e`` 时 ``ln(r_e/d)`` 会变负，
+      直接代进公式会得出"有邻井反而注得更多"。那不是精度问题，是符号错。
+    """
+
+    def test_absent_spacing_is_bit_identical_to_the_old_formula(self):
+        """不传井距 = 无干扰 = 与引入本功能之前完全一致。"""
+        j = injectivity_m3_per_day_per_bar()
+        for n_w in (1, 2, 4, 8):
+            with self.subTest(n_wells=n_w):
+                new = rate_m3_per_day(350.0, 2500.0, j, n_w)
+                old = n_w * j * (350.0 - pm.hydrostatic_bar(2500.0))
+                self.assertAlmostEqual(new, old, places=12)
+
+    def test_spacing_at_or_beyond_drainage_radius_is_not_interference(self):
+        """井距 ≥ 泄油半径：两井各自圈地，稳态叠加不成立，f 必须是 0。"""
+        for spacing in (DEFAULT_DRAINAGE_RADIUS_M, 800.0):
+            with self.subTest(spacing=spacing):
+                out = interference_factor(spacing)
+                self.assertEqual(out["factor"], 0.0)
+                self.assertFalse(out["active"])
+                self.assertIn("独立泄油区", out["reason"])
+
+    def test_factor_grows_as_wells_get_closer(self):
+        """井距越小干扰越强 —— 单调性，且不依赖具体常数。"""
+        factors = [
+            interference_factor(s)["factor"] for s in (450.0, 300.0, 150.0, 20.0)
+        ]
+        self.assertEqual(factors, sorted(factors))
+        self.assertGreater(factors[-1], factors[0])
+
+    def test_factor_stays_below_one(self):
+        """f=1 意味着"邻井离你和井壁一样近"，物理上不可能。"""
+        for spacing in (0.2, 1.0, 10.0, 100.0, 499.0):
+            with self.subTest(spacing=spacing):
+                self.assertLess(interference_factor(spacing)["factor"], 1.0)
+
+    def test_geometry_matches_the_injectivity_module(self):
+        """干扰用的对数项必须与 ``relperm.injectivity_index`` 同源。
+
+        两处各写一份 ``ln(re/rw)+S``，默认值一旦分叉，"注入能力"和"干扰代价"
+        就会按不同的井距在说话，而且不报错。这里把两边钉死。
+        """
+        from utils.relperm import injectivity_index
+
+        for re_m, rw_m, skin in ((500.0, 0.1, 0.0), (2000.0, 0.1, 3.0)):
+            with self.subTest(re=re_m, skin=skin):
+                expected = injectivity_index(
+                    100.0, 50.0, 0.06, re_m=re_m, rw_m=rw_m, skin=skin
+                )["ln_term"]
+                got = interference_factor(
+                    re_m / 2.0, re_m, rw_m, skin
+                )["ln_own"]
+                self.assertAlmostEqual(got, expected, places=12)
+
+    def test_one_well_ignores_the_factor(self):
+        """单井时 f 无从谈起：公式里 (n−1)=0，结果必须一模一样。"""
+        j = injectivity_m3_per_day_per_bar()
+        self.assertAlmostEqual(
+            rate_m3_per_day(350.0, 2500.0, j, 1, 0.0),
+            rate_m3_per_day(350.0, 2500.0, j, 1, 0.4),
+            places=12,
+        )
+
+    def test_rate_and_pressure_round_trip(self):
+        """有干扰时也必须能回代，否则推荐压力不可核对。"""
+        j = injectivity_m3_per_day_per_bar()
+        for n_w in (1, 2, 4):
+            for f in (0.0, 0.08, 0.3):
+                with self.subTest(n_wells=n_w, f=f):
+                    q = rate_m3_per_day(360.0, 2500.0, j, n_w, f)
+                    back = pressure_bar_for_rate(q, 2500.0, j, n_w, f)
+                    self.assertAlmostEqual(back, 360.0, places=9)
+
+    def test_well_count_saturates(self):
+        """加井存在饱和：n→∞ 时 q → J·Δp/f，而不是无限增长。
+
+        这是本功能唯一能给出的"加井不再有用"的结论。没有它，干扰就只是
+        一个把数字调小一点的系数，不值得单独建模。
+        """
+        j = injectivity_m3_per_day_per_bar()
+        f = 0.12
+        drawdown = 360.0 - pm.hydrostatic_bar(2500.0)
+        limit = j * drawdown / f
+
+        q100 = rate_m3_per_day(360.0, 2500.0, j, 100, f)
+        q1000 = rate_m3_per_day(360.0, 2500.0, j, 1000, f)
+        self.assertLess(q100, limit)
+        self.assertLess(q1000, limit)
+        # 收敛到上限：1000 口井已经吃掉 99% 的可用速率
+        self.assertGreater(q1000 / limit, 0.99)
+        # 而线性模型在这个井数下会给出 8.3 倍的"上限"，正是要否掉的那个结论
+        self.assertGreater(
+            rate_m3_per_day(360.0, 2500.0, j, 1000, 0.0), 8.0 * limit
+        )
+
+    def test_invalid_geometry_is_rejected(self):
+        with self.assertRaises(ValueError):
+            interference_factor(0.05)          # 井距不大于井筒半径
+        with self.assertRaises(ValueError):
+            interference_factor(200.0, drainage_radius_m=0.05)
+
+
+class TestInterferenceInThePlan(unittest.TestCase):
+    """把干扰接进 ``optimize_plan``：同样的井数，能力必须下降。"""
+
+    def test_spacing_reduces_capacity_at_the_same_pressure(self):
+        base = optimize_plan(2500.0, 380.0, n=300, seed=7)
+        with_gap = optimize_plan(
+            2500.0, 380.0, n=300, seed=7, well_spacing_m=150.0
+        )
+        base_opt = {o["n_wells"]: o for o in base["well_options"]}
+        gap_opt = {o["n_wells"]: o for o in with_gap["well_options"]}
+        for n_w in (2, 4, 8):
+            with self.subTest(n_wells=n_w):
+                self.assertLess(
+                    gap_opt[n_w]["rate_m3_per_day"],
+                    base_opt[n_w]["rate_m3_per_day"],
+                )
+        # 单井不受影响：干扰是井与井之间的事
+        self.assertAlmostEqual(
+            gap_opt[1]["rate_m3_per_day"], base_opt[1]["rate_m3_per_day"], places=6
+        )
+
+    def test_physics_block_carries_the_factor(self):
+        """f 必须出现在 ``physics`` 里，否则回代核对的式子就断了。"""
+        out = optimize_plan(2500.0, 380.0, n=300, seed=7, well_spacing_m=150.0)
+        physics = out["physics"]
+        self.assertTrue(physics["interference_active"])
+        self.assertGreater(physics["interference_factor"], 0.0)
+        self.assertEqual(physics["well_spacing_m"], 150.0)
+        # 用返回的数复算，必须与返回的速率一致
+        q = rate_m3_per_day(
+            360.0, 2500.0,
+            physics["injectivity_m3_per_day_per_bar"],
+            4, physics["interference_factor"],
+        )
+        n_wells = 4
+        f = physics["interference_factor"]
+        manual = (
+            n_wells * physics["injectivity_m3_per_day_per_bar"]
+            * (360.0 - physics["hydrostatic_bar"]) / (1 + (n_wells - 1) * f)
+        )
+        self.assertAlmostEqual(q, manual, places=9)
+
+    def test_notes_say_whether_interference_was_counted(self):
+        """不写清楚，读者无法判断这个速率是乐观还是已打折。"""
+        plain = " ".join(optimize_plan(2500.0, 380.0, n=200, seed=7)["notes"])
+        self.assertIn("未计井间干扰", plain)
+
+        counted = " ".join(
+            optimize_plan(2500.0, 380.0, n=200, seed=7, well_spacing_m=150.0)["notes"]
+        )
+        self.assertIn("井间干扰已计入", counted)
+        self.assertIn("饱和", counted)
 
 
 class TestSameRiskSemantics(unittest.TestCase):

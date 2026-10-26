@@ -163,8 +163,8 @@ def assess_injection_uncertainty(
         "返回 status：ok / infeasible（风险可行但注入能力不够）/ "
         "no_injection（连注都注不进），以及 current / recommended / "
         "well_options / frontier / notes / provenance。"
-        "速率是**压力约束下的上限**（未计井筒摩阻、非达西、井间干扰），"
-        "引用时必须带这句限定。"
+        "速率是**压力约束下的上限**（未计井筒摩阻与非达西；井间干扰需传 "
+        "well_spacing_m 才计入，不传即按独立井计算），引用时必须带这句限定。"
     ),
 )
 def optimize_injection_plan(
@@ -175,8 +175,13 @@ def optimize_injection_plan(
     n_simulations: int = 1000,
     corr: float | None = None,
     skin: float = 0.0,
+    well_spacing_m: float | None = None,
 ) -> dict:
-    """注入策略优化（井数 / 井底压力上限 / 速率）。"""
+    """注入策略优化（井数 / 井底压力上限 / 速率）。
+
+    ``well_spacing_m`` 不传即按独立井计算（无井间干扰）；传了才按稳态径向
+    叠加计入干扰，加井不再线性增注。井距是设计输入，所以没有默认值。
+    """
     from tools.physics_tools import optimize_injection_strategy
 
     return optimize_injection_strategy(
@@ -187,6 +192,7 @@ def optimize_injection_plan(
         n=n_simulations,
         corr=corr,
         skin=skin,
+        well_spacing_m=well_spacing_m,
     )
 
 
