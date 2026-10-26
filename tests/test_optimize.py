@@ -188,6 +188,65 @@ class TestMaxPressure(unittest.TestCase):
         self.assertEqual(limit["binding"], BIND_CAP)
 
 
+class TestSolverAgreesWithBruteForce(unittest.TestCase):
+    """次序统计量的推导，必须能被"直接穷举"独立复现。
+
+    ``TestMaxPressure`` 检查的是"解处的 Wilson 上界刚好用满预算"——但那是
+    **按同一个 k_max 在说话**：如果索引取错一位（比如用 ``critical[k+1]``），
+    自洽性断言会跟着一起错，因为两边用的是同一个错值。这类错误不会让任何
+    现有测试变红，只会让推荐压力系统性偏高或偏低一个样本。
+
+    这里换成最笨的办法：把所有会让命中数发生变化的压力逐个代进
+    ``risk_at_pressure``，取满足预算的最大者，再要求它等于求解器的答案。
+
+    候选集只有 ``len(critical) + 2`` 个点，因为经验 CDF 只在样本值处跳变 ——
+    在别处采样既发现不了新解，也证明不了旧解错。这也顺带说明为什么求解器
+    不需要二分：可行域的边界就是样本值本身。
+    """
+
+    def _brute_force(self, critical, budget, cap_bar, floor_bar):
+        """直接枚举，不使用 k_max / 次序统计量 / Wilson 单调性。"""
+        candidates = {float(cap_bar)}
+        candidates.update(float(v) for v in critical if float(v) <= float(cap_bar))
+        best = None
+        for p in sorted(candidates):
+            if p <= float(floor_bar):
+                continue
+            if risk_at_pressure(p, critical)["p_upper"] <= float(budget):
+                best = p
+        return best
+
+    def test_agrees_across_budgets_and_caps(self):
+        for seed in (3, 9, 17):
+            critical, _ = critical_pressure_samples(2500.0, n=400, seed=seed)
+            for budget in (0.02, 0.05, 0.10, 0.25):
+                for cap in (300.0, 360.0, 1e9):
+                    with self.subTest(seed=seed, budget=budget, cap=cap):
+                        solver = max_pressure_for_target(critical, budget, cap, 0.0)
+                        brute = self._brute_force(critical, budget, cap, 0.0)
+                        self.assertIsNotNone(
+                            brute, "穷举认为无可行解，而求解器给了答案"
+                        )
+                        self.assertAlmostEqual(
+                            solver["pressure_bar"], brute, places=9,
+                            msg="求解器与穷举不一致：索引推导或 cap 处理有问题",
+                        )
+
+    def test_no_grid_point_above_the_answer_is_feasible(self):
+        """反向：答案之上再高一点点必须立刻越界，否则"最大"是假的。"""
+        critical, _ = critical_pressure_samples(2500.0, n=400, seed=9)
+        solver = max_pressure_for_target(critical, 0.05, 1e9, 0.0)
+        p_star = solver["pressure_bar"]
+        if solver["binding"] == BIND_CAP:
+            self.skipTest("cap 绑定：压力上限不是由风险决定的")
+        above = [v for v in critical if v > p_star]
+        self.assertTrue(above, "没有比解更高的样本，无法反向验证")
+        self.assertGreater(
+            risk_at_pressure(above[0], critical)["p_upper"], 0.05,
+            "比解高一个样本的压力仍然满足预算 —— 说明解不是最大的",
+        )
+
+
 class TestSameRiskSemantics(unittest.TestCase):
     """
     优化器与 ``injection_risk_uq`` 的判据必须逐样本一致。
