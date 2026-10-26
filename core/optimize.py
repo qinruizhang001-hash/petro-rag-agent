@@ -182,10 +182,18 @@ def rate_m3_per_day(
     负速率在后续质量换算里会变成一个"负的封存量"，不会报错但整段结论反了。
     """
     drawdown = float(pressure_bar) - float(pm.hydrostatic_bar(depth_m))
-    if drawdown <= 0.0:
-        return 0.0
     n = float(n_wells)
     f = float(interference)
+    if not math.isfinite(f) or not 0.0 <= f < 1.0:
+        raise ValueError(f"井间干扰系数必须在 [0, 1) 内，收到 {f!r}")
+    if not math.isfinite(n) or n < 1 or not n.is_integer():
+        raise ValueError(f"井数必须为正整数，收到 {n_wells!r}")
+    if not math.isfinite(injectivity) or injectivity <= 0:
+        raise ValueError("注入指数必须为有限正数")
+    if not math.isfinite(drawdown):
+        raise ValueError("井底压力和埋深必须为有限数")
+    if drawdown <= 0.0:
+        return 0.0
     return n * float(injectivity) * drawdown / (1.0 + (n - 1.0) * f)
 
 
@@ -197,10 +205,18 @@ def pressure_bar_for_rate(
     interference: float = 0.0,
 ) -> float:
     """总注入速率 q → 井底压力 p，是 ``rate_m3_per_day`` 的严格逆运算。"""
-    if rate_m3_day <= 0.0:
-        return float(pm.hydrostatic_bar(depth_m))
     n = float(n_wells)
     f = float(interference)
+    if not math.isfinite(f) or not 0.0 <= f < 1.0:
+        raise ValueError(f"井间干扰系数必须在 [0, 1) 内，收到 {f!r}")
+    if not math.isfinite(n) or n < 1 or not n.is_integer():
+        raise ValueError(f"井数必须为正整数，收到 {n_wells!r}")
+    if not math.isfinite(injectivity) or injectivity <= 0:
+        raise ValueError("注入指数必须为有限正数")
+    if not math.isfinite(rate_m3_day):
+        raise ValueError("注入速率必须为有限数")
+    if rate_m3_day <= 0.0:
+        return float(pm.hydrostatic_bar(depth_m))
     return float(pm.hydrostatic_bar(depth_m)) + float(rate_m3_day) * (
         1.0 + (n - 1.0) * f
     ) / (n * float(injectivity))
@@ -230,13 +246,18 @@ def interference_factor(
 
         Δp_ij / Δp_own = ln(r_e/d) / (ln(r_e/r_w) + S) ≡ f
 
-    于是 n 口等间距、等产量的井：
+    假设每一对井都具有同一干扰系数 f，得到均值场近似：
 
         p − P_h = Δp_own · (1 + (n−1)f)  ⇒  q_total = n·J·(p−P_h)/(1+(n−1)f)
 
-    两个极限可以直接读出来：``d → r_e`` 时 ``f → 0``（两井分属独立泄油区，
-    互不影响）；``n → ∞`` 时 ``q_total → J·(p−P_h)/f``，**井数存在饱和** ——
-    这是本模型唯一能给出的"加井不再有用"的结论，也是它值得存在的原因。
+    **关键适用域**：平面里至多 3 个点可以两两等距。n≥4 时单一井距
+    不可能代表每一对井的实际距离，f 只是"所有井对相同耦合"的**均值场情景**，
+    不是 4/8 井的二维井网预测；不能把它写成"已模拟多井干扰"。真正的井网
+    需每口井的坐标、不同的两两距离和求解耦合方程，并由外部模拟器对照。
+
+    两个代数极限：``d → r_e`` 时 ``f → 0``；**固定 f** 下 ``n → ∞``
+    时 ``q_total → J·(p−P_h)/f``。后者仅是均值场模型的数学性质，
+    并非有限储层可无限加井的工程预测。
 
     为什么 ``f`` 一定小于 1：``d ≥ r_w`` 时 ``ln(r_e/d) ≤ ln(r_e/r_w)``，
     而 ``S ≥ 0``，所以分子不超过分母。f=1 意味着"邻井离你和井壁一样近"，
@@ -244,17 +265,19 @@ def interference_factor(
 
     偏差方向
     --------
-    这是**等产量、等间距、稳态、均质**下的叠加。真实情况里井位不均匀、产量
-    会按压力自动分配（干扰强的那口自然注得少），所以这个式子倾向于**高估**
-    干扰；但另一侧，它完全不含井间导流能力差异与储层非均质，局部又可能
-    **低估**。两个方向都有，所以结论里只把它当敏感性项，不当作阻断依据。
+    这是**等产量、等效井距、稳态、均质**的均值场情景。井位不均匀、
+    注入率会重新分配、储层连通性和非均质未建模；误差可能向任一方向，
+    **不能声称它系统性高估或低估**。只能用来做假设敏感性，不能作阻断或
+    场地级井数决策。
     """
     spacing = float(spacing_m)
     re = float(drainage_radius_m)
     rw = float(rw_m)
-    if spacing <= rw:
+    if not all(math.isfinite(v) for v in (spacing, re, rw, float(skin))):
+        raise ValueError("井距、泄油半径、井筒半径及表皮系数必须为有限数")
+    if rw <= 0 or spacing <= rw:
         raise ValueError(
-            f"井距 {spacing} m 不大于井筒半径 {rw} m，无法计算干扰"
+            f"井距 {spacing} m 必须大于井筒半径 {rw} m，无法计算干扰"
         )
     if re <= rw:
         raise ValueError(f"泄油半径 {re} m 必须大于井筒半径 {rw} m")
@@ -517,6 +540,11 @@ def optimize_plan(
     j = injectivity_m3_per_day_per_bar(
         permeability_md, thickness_m, temperature_celsius, skin
     )
+    # 密度取**静水压力**下的值，不是注入压力下的值：羽流主体坐在未扰动压力
+    # 附近，注入井周围那一圈高压只占体积的一小部分。这一取舍有方向：p_h 下
+    # 的密度更低（2500 m 处 777 vs 380 bar 下 866 kg/m³），同样的体积速率
+    # 换算出更小的质量速率 —— 也就是**不夸大**可注入量。数值进 physics
+    # 供回代，读者不必相信这里的选择。
     density = _density(p_h, temperature_celsius)
 
     critical, sampler = critical_pressure_samples(
@@ -524,7 +552,7 @@ def optimize_plan(
     )
     limit = max_pressure_for_target(critical, target, cap_bar, p_h)
 
-    # 这里**不四舍五入**：``physics`` 是回代核对的基准（q = n·J·(p−P_h)），
+    # 这里**不四舍五入**：``physics`` 是回代核对的基准（启用干扰时含分母），
     # 取整会让"用返回的数复算"与"返回的数"差一点点，而这种差异恰好会被
     # 当成实现 bug。展示层（前端/文案）自己决定保留几位。
     physics = {
@@ -605,6 +633,10 @@ def optimize_plan(
         )
         options.append({
             "n_wells": n_w,
+            "interference_scope": (
+                "mean_field_not_a_well_layout" if f_int > 0 and n_w > 3
+                else "pairwise_geometry" if f_int > 0 else "independent_wells"
+            ),
             "pressure_bar": p_star,
             "pressure_needed_bar": p_need,
             "rate_m3_per_day": q_max,
@@ -707,6 +739,18 @@ def optimize_plan(
             3.0 * _binomial_se(recommended["risk"]["p"], n) + 1.0 / n
         )
 
+    # 明示 n>3 的均值场模型不是二维井位。不能让使用方只读 recommended
+    # 就以为 4/8 井的实际两两距离相等。
+    interference["has_non_geometric_options"] = f_int > 0 and any(
+        o["n_wells"] > 3 for o in options
+    )
+    if recommended is not None:
+        recommended["interference_scope"] = (
+            "mean_field_not_a_well_layout"
+            if f_int > 0 and recommended["n_wells"] > 3
+            else "pairwise_geometry" if f_int > 0 else "independent_wells"
+        )
+
     # ─── 前沿（单井，压力 → 风险 → 速率）────────────────
     frontier = _frontier(p_h, cap_bar, p_star, critical, depth, j, density)
 
@@ -772,9 +816,14 @@ def _density(pressure_bar: float, temperature_celsius: float) -> float:
     from utils.co2_properties import co2_density_kg_m3
 
     try:
-        return float(co2_density_kg_m3(pressure_bar, temperature_celsius))
-    except Exception:
-        return 700.0        # 状态方程在临界点附近失败时的兜底；数值进 notes
+        density = float(co2_density_kg_m3(pressure_bar, temperature_celsius))
+    except (ValueError, ArithmeticError, OverflowError) as exc:
+        raise ValueError(
+            "CO₂ 物性计算失败，无法从体积速率换算质量速率；拒绝用猜测密度给出注入方案"
+        ) from exc
+    if not math.isfinite(density) or density <= 0:
+        raise ValueError("CO₂ 物性返回非有限正密度，无法给出注入方案")
+    return density
 
 
 def _binomial_se(p: float, n: int) -> float:
@@ -863,8 +912,9 @@ def _notes(
         )
         if not facility:
             notes.append(
-                "所有井数组合都达不到要求的速率：加井在本模型里线性增加速率，"
-                "仍不够说明单井注入能力（渗透率 × 厚度）是瓶颈，不是压力"
+                "给定的井数组合都达不到要求的速率：即便按当前干扰情景计算"
+                "仍不够；可能由注入指数（渗透率 × 厚度）或井场几何约束决定，"
+                "不能仅归因于单井能力"
             )
     if recommended is not None and not verification.get("agrees", True):
         notes.append(
@@ -887,13 +937,17 @@ def _notes(
     )
     if interference and interference.get("active"):
         notes.append(
-            f"井间干扰已计入：井距 {interference['spacing_m']:g} m、"
+            f"井间干扰已计入（均值场情景）：等效井距 {interference['spacing_m']:g} m、"
             f"泄油半径 {interference['drainage_radius_m']:g} m、"
             f"f={interference['factor']:.4f}。"
-            "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算，**加井不再线性增注**，"
-            "井数存在饱和；这是等产量等间距稳态叠加的结果，"
-            "真实井网下更接近敏感性区间而非确定值"
+            "速率按 q = n·J·(p−P_h)/(1+(n−1)f) 计算；固定 f 下的饱和"
+            "只是均值场模型的代数极限，不是有限井场的工程结论"
         )
+        if interference.get("has_non_geometric_options"):
+            notes.append(
+                "警告：平面中超过 3 口井不可能两两等距；4/8 井数字仅作等效耦合"
+                "敏感性情景，不代表实际井位，不能用于场地级选井数。误差方向未知"
+            )
     else:
         notes.append(
             "未计井间干扰（"

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
 import pressure_model as pm
 from core.optimize import (
@@ -358,6 +359,21 @@ class TestWellInterference(unittest.TestCase):
             interference_factor(0.05)          # 井距不大于井筒半径
         with self.assertRaises(ValueError):
             interference_factor(200.0, drainage_radius_m=0.05)
+        for invalid in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    interference_factor(invalid)
+                with self.assertRaises(ValueError):
+                    rate_m3_per_day(350.0, 2500.0, 10.0, 4, invalid)
+                with self.assertRaises(ValueError):
+                    pressure_bar_for_rate(100.0, 2500.0, 10.0, 4, invalid)
+
+    def test_non_geometric_four_well_scenario_is_identified(self):
+        result = optimize_plan(2500.0, 380.0, n=200, seed=7, well_spacing_m=150.0)
+        choices = {o["n_wells"]: o for o in result["well_options"]}
+        self.assertEqual(choices[2]["interference_scope"], "pairwise_geometry")
+        self.assertEqual(choices[4]["interference_scope"], "mean_field_not_a_well_layout")
+        self.assertIn("平面中超过 3 口井不可能两两等距", " ".join(result["notes"]))
 
 
 class TestInterferenceInThePlan(unittest.TestCase):
@@ -412,6 +428,20 @@ class TestInterferenceInThePlan(unittest.TestCase):
         )
         self.assertIn("井间干扰已计入", counted)
         self.assertIn("饱和", counted)
+
+
+class TestDensityCannotBeInvented(unittest.TestCase):
+    def test_property_failure_does_not_become_a_plausible_number(self):
+        with patch(
+            "utils.co2_properties.co2_density_kg_m3", side_effect=ValueError("EOS failed")
+        ):
+            with self.assertRaisesRegex(ValueError, "拒绝用猜测密度"):
+                optimize_plan(2500.0, 380.0, n=100, seed=7)
+
+    def test_nonfinite_density_is_rejected(self):
+        with patch("utils.co2_properties.co2_density_kg_m3", return_value=float("nan")):
+            with self.assertRaisesRegex(ValueError, "非有限正密度"):
+                optimize_plan(2500.0, 380.0, n=100, seed=7)
 
 
 class TestSameRiskSemantics(unittest.TestCase):
@@ -597,6 +627,34 @@ class TestContractAndProvenance(unittest.TestCase):
             optimize_plan(2500.0, 320.0, rate_cap_mt_per_year=-1.0)
         with self.assertRaises(ValueError):
             optimize_plan(2500.0, 320.0, p_target=1.5)
+
+
+class DocumentedNumbersTests(unittest.TestCase):
+    """文档里那张干扰表必须由代码产出，而不是"曾经算过一次"。
+
+    2026-10-26 的版本手写死在 `docs/gap-register.md` 里，所有格子统一偏 1.6 %：
+    反推密度是 789.96 kg/m³，而 `_density(p_h, 60 ℃)` 给 777.20。也就是说
+    那张表来自一个没有被记录下来的状态，密度口径一变就再也没人能复现它。
+    偏 1.6 % 本身不致命，致命的是**没有任何东西会因此变红**。
+    """
+
+    def test_gap_register_table_is_generated_not_hand_written(self):
+        import scripts.interference_table as table
+
+        doc = (table.ROOT / "docs" / "gap-register.md").read_text(encoding="utf-8")
+        self.assertIn(
+            table.BEGIN, doc,
+            "文档里的生成块标记被删掉了 —— 表格又变回手写数字",
+        )
+        start = doc.index(table.BEGIN)
+        end = doc.index(table.END) + len(table.END)
+        self.assertEqual(
+            doc[start:end].strip(),
+            table.render().strip(),
+            "docs/gap-register.md 的干扰表与代码算出来的不一致。"
+            "跑 python scripts/interference_table.py --write 重新生成；"
+            "如果 diff 里是数字变化，那是物理改了，需要在同一提交里说明原因。",
+        )
 
 
 if __name__ == "__main__":
