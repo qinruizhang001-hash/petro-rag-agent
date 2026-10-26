@@ -84,6 +84,18 @@ jobs:
           fi
           echo "No print() in the runtime path."
 
+      - name: Guard print() in chart_tools (CLI entry only)
+        run: |
+          set -e
+          # 中文注释：chart_tools.py 是上一条检查的例外 —— 它既有运行链路
+          # （aggregate 节点调 generate_pressure_curve），又有命令行入口
+          # （_main，输出本身就是产品），所以不能整文件禁 print，只能按
+          # "在哪个函数里"区分。这个区分一开始只写在注释里，结果真漏了：
+          # 自动清理的日志用了 print，而那行是在**出图过程中**执行的 ——
+          # 用户跑一次评估，清理记录只出现在 stdout，app.log 里一个字都没有。
+          # 注释挡不住这种回归，AST 能。
+          python scripts/check_print_usage.py
+
       - name: Guard the import cost of config (no reranker on the config path)
         run: |
           set -e

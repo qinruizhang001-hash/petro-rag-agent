@@ -139,13 +139,13 @@
         "arm": "alias_merge",
         "question": "别名合并对连通性的贡献",
         "with_merge": {
-          "nodes": 4419,
-          "edges": 4763,
-          "components": 1087,
+          "nodes": 4415,
+          "edges": 4760,
+          "components": 1085,
           "largest": 2829,
-          "largest_ratio": 0.6402,
-          "isolated": 822,
-          "isolated_ratio": 0.186,
+          "largest_ratio": 0.6408,
+          "isolated": 820,
+          "isolated_ratio": 0.1857,
           "top": [
             2829,
             24,
@@ -160,13 +160,13 @@
           ]
         },
         "without_merge": {
-          "nodes": 4826,
-          "edges": 4850,
-          "components": 1256,
+          "nodes": 4822,
+          "edges": 4847,
+          "components": 1254,
           "largest": 2905,
-          "largest_ratio": 0.6019,
-          "isolated": 929,
-          "isolated_ratio": 0.1925,
+          "largest_ratio": 0.6024,
+          "isolated": 927,
+          "isolated_ratio": 0.1922,
           "top": [
             2905,
             24,
@@ -185,7 +185,7 @@
           "largest": -76,
           "nodes_merged": 407
         },
-        "verdict": "合并 407 个节点，分量 1256 → 1087，最大分量 2905 → 2829"
+        "verdict": "合并 407 个节点，分量 1254 → 1085，最大分量 2905 → 2829"
       },
       {
         "arm": "type_constraint",

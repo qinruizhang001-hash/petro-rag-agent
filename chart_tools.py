@@ -76,6 +76,14 @@ from pressure_model import (  # noqa: E402,F401  （re-export，测试与旧调�
     hydrostatic_bar,
 )
 
+# 清理动作发生在**运行链路**里（aggregate 节点调 generate_pressure_curve），
+# 所以它的输出必须进日志，不能用 print：print 没有级别、不落盘、没有模块归属，
+# 线上排查时既不能按级别过滤也不能事后回溯。这个模块的命令行入口
+# （``_main``）用 print 是对的 —— 那里的输出本身就是产品。
+from utils.logging_setup import get_logger  # noqa: E402
+
+log = get_logger(__name__)
+
 # ─── 中文字体：优先 CJK，找不到就退回英文标签 ──────────────
 # 不能省：matplotlib 默认字体没有汉字，缺字体时中文全渲染成方块。
 # Linux CI 上通常没有中文字体，所以准备两套标签。
@@ -219,8 +227,12 @@ def prune_charts(
             survivors.remove(path)
             total_mb -= size_mb
         result["reason"] = "超出总量上限"
-    else:
+    elif victims:
         result["reason"] = "超出保留数量"
+    else:
+        # 什么都没删就别说"超出保留数量"。清理报告里最容易误导人的一行是
+        # "删了 0 个（原因：超出保留数量）"——它让人以为规则生效了。
+        result["reason"] = "数量与总量都在上限内，无需清理"
 
     result["kept"] = len(survivors)
     for path in victims:
@@ -253,12 +265,12 @@ def _auto_prune(directory: str) -> None:
     try:
         report = prune_charts(keep=keep, directory=directory)
         if report["deleted"]:
-            print(
+            log.info(
                 f"[chart] 清理 {len(report['deleted'])} 个旧图"
                 f"（{report['freed_mb']} MB，{report['reason']}）"
             )
     except Exception as exc:                     # noqa: BLE001
-        print(f"[chart] 清理旧图失败（不影响出图）：{exc}")
+        log.warning(f"[chart] 清理旧图失败（不影响出图）：{exc}")
 
 
 def generate_pressure_curve(

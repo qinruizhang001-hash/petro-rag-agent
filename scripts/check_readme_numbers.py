@@ -11,17 +11,31 @@ README 用五处声明同一个测试总数（badge / highlights 表 / §3 正�
 错在它们抄的不是同一次测量。人工复核解决不了，因为它没有触发条件；
 断言才有。
 
-检查什么（全部是**内部一致性**，不硬编码任何数字）
---------------------------------------------------
+检查什么
+--------
+前四条是**内部一致性**（不硬编码任何数字）：
+
 1. badge 与所有 "**N unit tests" 声明的总数相同。
 2. 所有 CI 计数声明（"1047 of them on every push" / "1047 in CI" /
    "CI runs 1047 of those tests" …）相同。
 3. 分项之和等于 CI 计数：906 + 78 + 17 + 46 = 1047。
 4. "the other N need torch" 的 N 等于 总数 − CI 计数。
 
+后两条是**与审计记录比对** —— 从"自相矛盾"升级到"与实测不符"：
+
+5. README 里的归一化投影（4,988 → 4,415 节点 / 1,226 → 1,085 分量 /
+   3,073 → 2,829 (64.1 %)）必须等于 `docs/graph-normalization.json`。
+6. `eval/ablation.json` 的 alias_merge 臂必须与 `docs/graph-normalization.json`
+   给出同一组数字 —— 这两个文件**不会同时过期**：改一条噪声规则后只重跑
+   其中一个，另一个就停在旧值上，而它读起来同样斩钉截铁。
+
+第 5 条上线时当场抓到一处陈旧值（README 写 4,419，实际 4,415）；
+第 6 条上线时抓到 `eval/ablation.json` 还停在加 `funding-body` 规则之前的
+4419 / 1087 / 64.0 %。
+
 刻意不检查"这些数字是否等于真实测试数" —— 那需要在 CI 里跑一遍完整依赖
 （torch/chromadb），与这个 job 存在的理由冲突。真实总数由每次全量测试的
-输出负责，README 负责的是**不要自相矛盾**。
+输出负责；本脚本负责的是**不要自相矛盾，也不要与审计记录不符**。
 
 用法::
 
@@ -181,13 +195,77 @@ def check_projection(text: str, json_path: Path) -> str:
     return "与 graph-normalization.json 一致"
 
 
+# ─── 两份审计记录必须说同一件事 ────────────────────────────
+#
+# `docs/graph-normalization.json` 与 `eval/ablation.json` 各自记录了同一次投影：
+# 前者是归一化预演的结果，后者是消融里 alias_merge 那一组的 with_merge 臂。
+# 两者都进仓库，都不需要图谱文件就能读，所以可以在 CI 里直接比对。
+#
+# 为什么值得：这两个文件**不会同时过期**。改一条噪声规则后只跑
+# `normalize_graph.py`，README 和 normalization.json 都更新了，ablation.json
+# 还停在旧数字上 —— 而它看起来同样斩钉截铁。2026-10 实际发生过：ablation
+# 报 4419 / 1087 / 64.0 %，normalization 报 4415 / 1085 / 64.1 %，
+# 两边都"有出处"，读者无法判断该信哪个。
+_ABLATION_JSON = ROOT / "eval" / "ablation.json"
+
+
+def check_audit_records(
+    normalization_path: Path = _PROJECTION_JSON,
+    ablation_path: Path = _ABLATION_JSON,
+) -> str:
+    """两份审计记录里的同一次投影必须逐字段相等。缺文件时跳过（不算失败）。"""
+    if not normalization_path.exists() or not ablation_path.exists():
+        return "跳过（缺少 graph-normalization.json 或 eval/ablation.json）"
+
+    norm = json.loads(normalization_path.read_text(encoding="utf-8"))
+    abl = json.loads(ablation_path.read_text(encoding="utf-8"))
+
+    before = norm["before"]
+    projected = norm["projected"]
+    offline = abl.get("offline") or {}
+
+    merge_arm = next(
+        (a for a in offline.get("arms", []) if a.get("arm") == "alias_merge"), None
+    )
+    if merge_arm is None:
+        raise SystemExit(
+            "::error::eval/ablation.json 里没有 alias_merge 这一组，无法交叉核对。"
+            "\n如果这一组被改名或删掉，请同步改本函数 —— 留着一条永不触发的检查，"
+            "等于没有检查。"
+        )
+
+    with_merge = merge_arm.get("with_merge") or {}
+    problems: list[str] = []
+
+    for label, got, expect in (
+        ("图规模", (offline.get("nodes"), offline.get("edges")),
+         (before["nodes"], before["edges"])),
+        ("合并后节点", with_merge.get("nodes"), projected["nodes"]),
+        ("合并后分量", with_merge.get("components"), projected["components"]),
+        ("合并后最大分量", with_merge.get("largest"), projected["largest"]),
+    ):
+        if got != expect:
+            problems.append(f"{label}：ablation={got}，normalization={expect}")
+
+    if problems:
+        raise SystemExit(
+            "::error::两份审计记录对同一次投影给出了不同的数字：\n"
+            + "\n".join("  - " + p for p in problems)
+            + "\n修法：两个脚本都重跑一遍（先 normalize_graph.py，再 "
+              "scripts/ablation.py --offline --write），不要只跑其中一个。"
+        )
+    return "ablation.json 与 normalization.json 一致"
+
+
 def main(argv: list[str]) -> int:
     path = Path(argv[1]) if len(argv) > 1 else ROOT / "README.md"
     text = path.read_text(encoding="utf-8")
     summary = check(text)
     projection = check_projection(text, _PROJECTION_JSON)
+    records = check_audit_records()
     print(f"README numbers OK: {summary}")
     print(f"README projection OK: {projection}")
+    print(f"Audit records OK: {records}")
     return 0
 
 
