@@ -98,6 +98,15 @@ from core.checkpoint import CHECKPOINT_DB
 from core.config import LOCAL_API_KEY, LOCAL_BASE_URL, LOCAL_MODEL
 from core.gates import is_failed
 
+# 全链条运维（ops/）的接口拆在 api_ops.py —— 那个模块只依赖 ops/（纯 stdlib）
+# 与 FastAPI，因此测试可以直接导入它而不必先拉起 2.2 GB 的重排模型。
+# 鉴权在这里统一施加，见下面的 include_router。
+from api_ops import router as ops_router
+
+# 知识库（ccus_docs/ + lightrag_storage/ + chroma_petro/）的接口拆在 api_kb.py。
+# 首屏就要渲染语料清单与建图状态，让它等重排模型不合理；检索端点自己做懒加载。
+from api_kb import router as kb_router
+
 from utils.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -799,6 +808,15 @@ def _collect_checks() -> dict:
 # 路由注册必须放在所有 @router.* 之后 —— include_router 是"复制此刻已注册的路由"，
 # 写在前面会得到一个空 router，且不会报错。
 api.include_router(router)
+
+# 运维接口的 router 自己不带鉴权（api_ops.py 不能反向导入 require_token，
+# 否则成环），因此鉴权必须在这里施加。漏掉 dependencies 会让 /api/ops/*
+# 裸奔，而这件事不会报错 —— tests/test_api_ops.py 里有一条静态断言盯着这一行。
+api.include_router(ops_router, dependencies=[Depends(require_token)])
+
+# 知识库接口同样由这里施加鉴权（api_kb.py 也不能反向导入 require_token）。
+# 知识库响应里有论文题录与切片原文，属于业务数据，必须与 /api/ops/* 同级保护。
+api.include_router(kb_router, dependencies=[Depends(require_token)])
 
 
 if __name__ == "__main__":
