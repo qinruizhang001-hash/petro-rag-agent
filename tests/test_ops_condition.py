@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import sys
 import unittest
@@ -171,6 +172,11 @@ class StatsTests(unittest.TestCase):
         （3.11 → ``12.566``，3.13 → ``12.565999999999999``），也就是 CI 上
         真的红过的那一次。用随便一组数据写这条测试会得到两个相同的结果，
         于是它永远是绿的，什么也没锁住。
+
+        两种求和**都自己算**，不调用内建 `sum()`：内建的算法本身随版本变
+        （3.12 起改补偿求和），用它当"其中一侧"会让这条测试在 3.10/3.11 上
+        直接失败 —— 那正是第一版的样子。``math.fsum`` 是正确舍入且与版本无关的，
+        拿它当"精确侧"，循环累加当"朴素侧"，两侧在哪个版本上都不同。
         """
         values = [
             12.40, 12.41, 12.42, 12.44, 12.45, 12.46, 12.48, 12.50,
@@ -178,18 +184,18 @@ class StatsTests(unittest.TestCase):
             12.62, 12.64, 12.65, 12.66, 12.68, 12.70, 12.71, 12.72, 12.74,
         ]
         naive = 0.0
-        for v in values:                      # 模拟 3.11 的逐步累加
+        for v in values:                      # 朴素累加：任何版本都一样
             naive += v
-        compensated = sum(values)             # 3.12+ 的补偿求和
+        exact = math.fsum(values)             # 正确舍入，与版本无关
 
         self.assertNotEqual(
             naive / len(values),
-            compensated / len(values),
+            exact / len(values),
             "这组数据必须能让两种求和分家，否则这条测试是空的",
         )
         self.assertEqual(
             condition._stable(naive / len(values)),
-            condition._stable(compensated / len(values)),
+            condition._stable(exact / len(values)),
             "两种求和顺序必须归一到同一个值，否则 fixture 会在换 Python 版本时红",
         )
 
