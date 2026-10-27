@@ -199,6 +199,79 @@ class RegulatoryReportTests(unittest.TestCase):
         self.assertEqual(d.problems, [], [p.render() for p in d.problems])
 
 
+class RegulatoryCeilingTests(unittest.TestCase):
+    """注入压力上限校核在监管材料里的呈现。
+
+    这一节是整份材料里**唯一一项法规直接给定的判据**，所以它有三个不能
+    含糊的地方：缺数据时必须写"未执行"而不是留空；数字必须带引用；
+    结论边界必须声明它没覆盖套管/水泥环/盖层。
+    """
+
+    def _draft(self, ceiling):
+        return reports.build_regulatory(
+            _alarm_report(),
+            _reg(),
+            period=PERIOD,
+            permit_id="CCS-2026-001",
+            ceiling=ceiling,
+        )
+
+    def _check(self, bhp, frac_p):
+        from ops import ceiling as ceiling_mod
+
+        rs = [
+            Reading("bhp", bhp, T0),
+            Reading("frac_p", frac_p, T0),
+        ]
+        return ceiling_mod.check(rs)
+
+    def test_ok_state_reports_ratio_with_citation(self):
+        d = self._draft(self._check(336.0, 452.0))
+        self.assertIn("注入压力上限校核", d.body)
+        self.assertIn("未超上限", d.body)
+        self.assertIn("74.34", d.body)
+        # 数字必须有出处：这是本模块的核心约定
+        self.assertEqual(d.problems, [], [p.render() for p in d.problems])
+
+    def test_exceeded_state_says_so_and_still_passes_citation_check(self):
+        d = self._draft(self._check(420.0, 452.0))
+        self.assertIn("超过上限", d.body)
+        self.assertEqual(d.problems, [], [p.render() for p in d.problems])
+
+    def test_missing_data_says_not_performed_not_blank(self):
+        # 缺一节与写"未执行"是两回事：前者读者无法分辨是"不需要"还是"没做"
+        d = self._draft(None)
+        self.assertIn("未执行", d.body)
+        self.assertIn("本项缺失", d.body)
+
+    def test_indeterminate_is_not_written_as_compliant(self):
+        d = self._draft(self._check(336.0, 0.0))
+        self.assertIn("无法校核", d.body)
+        self.assertIn("未通过校核", d.body)
+        self.assertNotIn("未超上限", d.body)
+
+    def test_boundary_states_what_is_not_covered(self):
+        d = self._draft(self._check(336.0, 452.0))
+        self.assertIn("不覆盖套管抗内压", d.body)
+
+    def test_report_cites_the_regulation_without_the_maintainer_note(self):
+        # `CEILING_SOURCE` 里有一句「换辖区时须同时替换本常量与出处」——
+        # 那是写给维护者的。它出现在监管正文里，等于把内部备忘抄进了
+        # 合规文件，而读者会以为那句话是对他们的要求。
+        #
+        # 断言是结构性的（正文含 citation、不含 source），不锁具体措辞：
+        # source 以 citation 开头，所以只要维护提示被写进正文就会红。
+        check = self._check(336.0, 452.0)
+        d = self._draft(check)
+        self.assertIn(check.citation, d.body)
+        self.assertNotIn(check.source, d.body)
+        self.assertNotEqual(
+            check.source,
+            check.citation,
+            "source 与 citation 合二为一时，上一条断言会永远通过 —— 请确认这个拆分是否还需要",
+        )
+
+
 class ApprovalFlowTests(unittest.TestCase):
     def _draft(self):
         return reports.build_daily(_alarm_report(), _reg(), period=PERIOD)
@@ -424,14 +497,20 @@ class OrchestrationTests(unittest.TestCase):
             self.assertTrue(res.can_submit)
 
     def test_weekly_kind_fails_explicitly(self):
-        # 用一期冒充一周会让周报的"分布"字段只有一个样本
+        # 用一期冒充一周会让周报的"分布"字段只有一个样本。
+        #
+        # 这里刻意**不**锁死措辞。原来是 assertIn("多期")，文案改成
+        # "至少 2 期数据"之后这条就红了 —— 而红的原因不是周报逻辑坏了，
+        # 是测试在替产品文案做决定。真正该锁的是"消息得说清缺多少"：
+        # 运维只看到一句"周报失败"，还得去翻代码才知道该补什么。
         res = supervisor.run(
             self._request(want_report=True, report_kind="weekly"), _reg()
         )
         self.assertIsNone(res.report)
         report_run = [r for r in res.runs if r.agent == "reports"][0]
         self.assertFalse(report_run.ok)
-        self.assertIn("多期", report_run.error)
+        self.assertIn("2 期", report_run.error)
+        self.assertIn("收到 0 期", report_run.error)
 
     def test_report_skipped_when_alarms_failed(self):
         bad = supervisor.OpsRequest(

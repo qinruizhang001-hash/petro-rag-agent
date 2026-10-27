@@ -321,6 +321,53 @@ class ChainRuleTests(unittest.TestCase):
                 self.assertIn(cp.trigger, SENSORS)
                 self.assertIn(cp.response, SENSORS)
 
+    def test_rules_do_not_use_a_pair_that_cannot_discriminate(self):
+        """归因规则不得拿一对"方向无固定关系"的测点当判据。
+
+        这条测试是为了抓一个真实发生过的矛盾：耦合表写着「环空压力与油管
+        压力没有固定方向关系，不用于判定」，而归因表里有两条规则恰恰用这对
+        测点的高低组合去区分「热膨胀」与「窜流」，且两条的映射方向相反。
+        两份表各自读起来都通顺，放在一起才矛盾 —— 而没有任何测试会发现。
+
+        判据是机械的：一条规则同时 ``requires`` 了某对耦合的两个端点，
+        就等于它在用这对读数下结论。若该耦合被标为 ``discriminates=False``，
+        这条规则必须拆掉其中一个端点。
+        """
+        no_discriminate = {
+            (cp.trigger, cp.response)
+            for cp in chain.COUPLINGS
+            if not cp.discriminates
+        }
+        for rule in chain.CAUSE_RULES:
+            required = {sensor for sensor, _state in rule.requires}
+            for pair in no_discriminate:
+                with self.subTest(rule=rule.key, pair=pair):
+                    self.assertFalse(
+                        set(pair) <= required,
+                        f"规则 {rule.key} 同时要求了 {pair}，但耦合表已声明这对测点"
+                        "的方向不能区分原因。要么拆掉其中一个端点，"
+                        "要么在耦合表里说明为什么方向可用 —— 两处不能各说各话",
+                    )
+
+    def test_annulus_rules_do_not_claim_a_type(self):
+        """环空带压的归因不得在泄压测试前指定类型。
+
+        API RP 90 与 NORSOK D-010 规定的判别手段是泄压-恢复测试，
+        压力数值与方向都区分不了热膨胀与窜流。归因里出现「窜流型」或
+        「热膨胀型」这样的结论性措辞，等于给出了一个现有数据无法证伪的判断。
+        """
+        for rule in chain.CAUSE_RULES:
+            if not any(s == "annulus_p" for s, _ in rule.requires):
+                continue
+            with self.subTest(rule=rule.key):
+                for banned in ("窜流型", "热膨胀型", "非窜流"):
+                    self.assertNotIn(
+                        banned,
+                        rule.cause,
+                        f"规则 {rule.key} 的 cause 里出现了 {banned!r}："
+                        "这是在泄压测试之前就指定了带压类型，而现有数据无法证伪它",
+                    )
+
     def test_min_hits_below_two_is_rejected(self):
         # 只命中一条读数不能构成归因，那是猜测
         with self.assertRaises(ValueError) as ctx:

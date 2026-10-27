@@ -20,6 +20,10 @@ personal_chroma_db/
 # Checkpoint / runtime databases
 # ============================================
 checkpoint.db
+# 运维报告草稿库（ops/store.py）。审批要跨班次，所以草稿必须落盘 ——
+# 但它是**本机的运行产物**：里面是某个现场某个时段的读数与签批记录，
+# 进仓库等于把别人的工况数据当源码提交。WAL/SHM 由下面的通配规则覆盖。
+ops_reports.db
 *.db-wal
 *.db-shm
 *.sqlite

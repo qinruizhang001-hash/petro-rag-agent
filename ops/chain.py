@@ -46,6 +46,21 @@ STATE_OK = "ok"
 
 STATES = (STATE_HIGH, STATE_LOW, STATE_NORMAL, STATE_UNKNOWN, STATE_ANY)
 
+#: 状态键 → 给人看的措辞。
+#:
+#: 这些键是**规则表内部的**，直接拼进句子会得到「环空压力 处于 deviated」
+#: 这种半中半英的措辞。而 `Attribution.evidence` 在设计上就是给人读的那一份
+#: （机器核对用的是结构化的 `basis`）—— 一段读起来像调试输出的证据，
+#: 读者会直接跳过，而跳过证据的归因与猜测没有区别。
+STATE_LABELS = {
+    STATE_HIGH: "偏高",
+    STATE_LOW: "偏低",
+    STATE_NORMAL: "正常",
+    STATE_UNKNOWN: "无读数",
+    STATE_DEVIATED: "偏离基线",
+    STATE_OK: "未见偏离",
+}
+
 
 def upstream_of(stage: str) -> str | None:
     i = STAGES.index(stage)
@@ -76,6 +91,17 @@ class Coupling:
     rationale: str
     #: 观测到反向时**可能的额外驱动源**（写在这里，冲突报告才能给出下一步）
     alternatives: tuple[str, ...] = ()
+    #: 这对测点的**方向关系**能否用来区分原因。
+    #:
+    #: ``False`` 表示两者可能同向也可能反向，方向不构成判别依据 —— 此时任何
+    #: 归因规则都不得以这对测点的高低组合当判据。这不是注释，是硬约束：
+    #: ``tests/test_ops_chain.py`` 会静态扫描 ``CAUSE_RULES``，只要有一条规则
+    #: 同时要求这对测点，就判定它在用一对无判别力的读数下结论，直接失败。
+    #:
+    #: 为什么需要这个字段：环空压力那两条规则曾经一个说"同向=窜流"、一个说
+    #: "反向=热膨胀"，而本表的同一对测点写着"方向无固定关系，不用于判定"。
+    #: 两份表各自读起来都通顺，放在一起才矛盾 —— 而没有任何测试会发现。
+    discriminates: bool = True
 
 
 COUPLINGS: tuple[Coupling, ...] = (
@@ -137,10 +163,14 @@ COUPLINGS: tuple[Coupling, ...] = (
         trigger_state=STATE_DEVIATED,
         response="wellhead_p",
         expected=STATE_ANY,
-        rationale="环空带压与油管压力**没有固定方向关系**：热膨胀型环空压力"
-        "与油管压力同向，窜流型则与油管压力反向。因此这条耦合只用于提示"
-        "「需要区分热效应与窜流」，不用于判定",
+        rationale="环空带压与油管压力**没有固定方向关系**。热膨胀型（注入的热 "
+        "CO₂ 加热环空流体）与窜流型（油管/封隔器/水泥环失效）都会让环空压力上升，"
+        "而油管压力由注入工况决定，与环空压力来源无关。API RP 90 与 "
+        "NORSOK D-010 规定的判别手段是**泄压-恢复测试**：泄压后压力重建为"
+        "持续性带压，不重建为热效应。因此这条耦合只用于提示「需要做泄压测试」，"
+        "不用于判定，也不得用两者的高低组合去猜类型",
         alternatives=(),
+        discriminates=False,
     ),
     Coupling(
         trigger="reservoir_p",
@@ -151,6 +181,7 @@ COUPLINGS: tuple[Coupling, ...] = (
         "与运移路径。储层压力高 + 通量正常是一个**可以接受**的组合，"
         "不能据此排除泄漏，也不能据此认定泄漏",
         alternatives=(),
+        discriminates=False,
     ),
 )
 
@@ -243,36 +274,30 @@ CAUSE_RULES: tuple[CauseRule, ...] = (
     ),
     CauseRule(
         key="wellbore_integrity",
-        cause="井筒完整性失效嫌疑（环空带压）",
+        cause="环空带压（井筒完整性失效嫌疑，来源尚未区分）",
         stage="injection",
-        requires=(
-            ("annulus_p", STATE_DEVIATED),
-            ("wellhead_p", STATE_DEVIATED),
-        ),
-        min_hits=2,
+        requires=(("annulus_p", STATE_DEVIATED),),
+        # 环空压力正常时这条原因必须**被排除并写明理由**，而不是悄悄消失：
+        # 读者要看到"我们考虑过井筒完整性、因为环空没带压而排除了它"。
+        # ``excludes`` 先于 ``requires`` 判定，所以一条规则可以同时承担
+        # "成立时给候选"与"不成立时给排除理由"两个职责。
         excludes=(("annulus_p", STATE_OK),),
         exclude_reasons=(
             "环空压力未越限，则不存在「带压」这一前提，"
             "此时讨论完整性失效属于无对象推理",
         ),
-        rationale="环空压力持续上升，同时油管压力也处于高位，是窜流型带压的"
-        "典型组合。需与热膨胀区分：关井后环空压力自行回落即为热效应",
-        actions=("wellbore_shutin_test", "wellbore_notify_integrity", "wellbore_prepare_workover"),
-        caveat="本判定只能提出「需要做关井测试」，不能给出完整性结论。"
-        "完整性结论需要 MIT/噪声测井/温度测井等实测手段",
-    ),
-    CauseRule(
-        key="annulus_thermal",
-        cause="环空带压（热膨胀型，非窜流）",
-        stage="injection",
-        requires=(
-            ("annulus_p", STATE_DEVIATED),
-            ("wellhead_p", STATE_OK),
-        ),
-        min_hits=2,
-        rationale="环空压力上升而油管压力正常，符合注入热流体后环空流体受热"
-        "膨胀的特征。这一类不需要修井，但需要确认环空泄压阀可用",
-        actions=("wellbore_annulus_bleed_check",),
+        rationale="环空压力越限只说明「环空里有压力」，不说明压力从哪来。"
+        "热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流"
+        "（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）"
+        "都会让它上升，且油管压力的高低对两者都可能成立 —— "
+        "所以压力数值和方向都**不能**区分类型。"
+        "API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试："
+        "泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+        actions=("wellbore_shutin_test", "wellbore_annulus_bleed_check", "wellbore_notify_integrity"),
+        caveat="本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，"
+        "也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— "
+        "这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/"
+        "温度测井等实测手段",
     ),
     # ── 运输 ──
     CauseRule(

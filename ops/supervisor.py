@@ -25,13 +25,16 @@ Supervisor 只做三件别处做不了的事：
 ``contradiction``         同一测点在同一时刻的两个数值不一致                阻断
 ``direction``             一个 Agent 说越限、另一个说未越限                  阻断
 ``orphan_attribution``    归因引用的测点现在已不是那个状态                    阻断
+``pressure_ceiling``      井底压力超过破裂压力的 90%（法规上限）             阻断
 ``coupling_deviation``    上下游变化方向与耦合表相反                        提示
 =======================  ==============================================  ============
 
-前三种是**错误**：同一事实被两个 Agent 描述成两样，必须查清是谁错了。
-第四种不是错误 —— 耦合表说的是"通常如何"，反向变化往往意味着存在另一个
-驱动源，那是有价值的信息。把第四种也阻断，会让系统在真实工况变化时
-拒绝出报告，而那正是最需要报告的时候。
+前四种里，前三种是**错误**：同一事实被两个 Agent 描述成两样，必须查清是谁错了。
+第四种 ``pressure_ceiling`` 不是两个 Agent 之间的矛盾，而是**单一事实违反法规**，
+所以它单独成一类：它的处置不是"查清谁错了"，是"降量并核实破裂压力来源"。
+最后一种 ``coupling_deviation`` 连错误都不是 —— 耦合表说的是"通常如何"，
+反向变化往往意味着存在另一个驱动源，那是有价值的信息。把最后一种也阻断，
+会让系统在真实工况变化时拒绝出报告，而那正是最需要报告的时候。
 
 所以 ``blocking`` 是 ``Conflict`` 的一个字段，不是靠类型名猜。
 """
@@ -43,6 +46,7 @@ from datetime import datetime, timedelta
 from typing import Sequence
 
 from ops import alarms as alarms_mod
+from ops import ceiling as ceiling_mod
 from ops import chain
 from ops import condition as condition_mod
 from ops import reports as reports_mod
@@ -61,12 +65,14 @@ CONFLICT_CONTRADICTION = "contradiction"
 CONFLICT_DIRECTION = "direction"
 CONFLICT_ORPHAN = "orphan_attribution"
 CONFLICT_COUPLING = "coupling_deviation"
+CONFLICT_CEILING = "pressure_ceiling"
 
 #: 阻断性冲突：出现即不允许把报告提交审批
 BLOCKING_KINDS: frozenset[str] = frozenset({
     CONFLICT_CONTRADICTION,
     CONFLICT_DIRECTION,
     CONFLICT_ORPHAN,
+    CONFLICT_CEILING,
 })
 
 #: 数值比对容差。同一份读数经两条路径处理后应当逐位相同，
@@ -144,6 +150,15 @@ class OpsRequest:
     want_report: bool = False
     report_kind: str = "daily"
     permit_id: str = ""
+    #: 周报用的分期区间。日报/监管材料只看 ``period``，不看这里。
+    #: 为什么单独一个字段而不是让 ``period`` 变复杂：周报的语义是"多期的分布"，
+    #: 而 ``period`` 的语义是"这次看哪一段时间"。把两种语义塞进一个字段，
+    #: 调用方永远搞不清该传哪个。
+    periods: Sequence[tuple[datetime, datetime]] = ()
+    #: 工况问答的"现在"。默认由 ``condition.answer`` 取数据最新时刻；
+    #: 离线复盘时必须显式给，否则"最近 1 小时"会以三天后的系统时钟为基准，
+    #: 取到一个空窗口并渲染成"没有异常"。
+    now: datetime | None = None
 
     def tasks(self) -> list[Task]:
         """拆分。顺序即依赖顺序：告警是其余两者的基础。"""
@@ -339,7 +354,8 @@ def detect_coupling_deviations(
                 ),
                 detail=[
                     f"耦合预期：{cp.rationale}",
-                    f"实测：{labels.get(cp.response, cp.response)} 处于 {resp}",
+                    f"实测：{labels.get(cp.response, cp.response)} "
+                    f"{chain.STATE_LABELS.get(resp, resp)}",
                     "可能的额外驱动源："
                     + ("、".join(cp.alternatives) if cp.alternatives else "（未列出）"),
                 ],
@@ -350,15 +366,63 @@ def detect_coupling_deviations(
     return out
 
 
+def detect_pressure_ceiling(
+    check: ceiling_mod.CeilingCheck | None,
+) -> list[Conflict]:
+    """把注入压力上限校核的结果转成冲突条目。
+
+    为什么 ``ok`` 时返回空、``indeterminate`` 时返回提示
+    ----------------------------------------------------
+    ``ok`` 是"查过了，没问题"，不需要占一行；``indeterminate`` 是"没查成"，
+    必须占一行 —— 否则一个从来没接井底压力计的场地，界面上会和
+    "校核通过"的场地长得一模一样。这类"缺席被渲染成合格"的失败不会报错，
+    只会让一份监管材料带着一个未被核实的合规声明发出去。
+    """
+    if check is None or check.state == ceiling_mod.STATE_OK:
+        return []
+    if check.state == ceiling_mod.STATE_EXCEEDED:
+        return [
+            Conflict(
+                kind=CONFLICT_CEILING,
+                summary=ceiling_mod.render(check),
+                detail=list(check.basis),
+                blocking=True,
+                next_step=check.next_step,
+            )
+        ]
+    if check.state == ceiling_mod.STATE_NEAR:
+        return [
+            Conflict(
+                kind=CONFLICT_CEILING,
+                summary=ceiling_mod.render(check),
+                detail=list(check.basis),
+                # 接近上限不是违规，不阻断；但必须让人看见余量只剩多少
+                blocking=False,
+                next_step=check.next_step,
+            )
+        ]
+    return [
+        Conflict(
+            kind=CONFLICT_CEILING,
+            summary=ceiling_mod.render(check),
+            detail=list(check.basis),
+            blocking=False,
+            next_step=check.next_step,
+        )
+    ]
+
+
 def detect_conflicts(
     alarm_report: alarms_mod.AlarmReport,
     cond: condition_mod.ConditionAnswer | None = None,
+    ceiling_check: ceiling_mod.CeilingCheck | None = None,
 ) -> list[Conflict]:
     out: list[Conflict] = []
     if cond is not None:
         out += detect_value_conflicts(alarm_report, cond)
         out += detect_direction_conflicts(alarm_report, cond)
     out += detect_orphan_attributions(alarm_report)
+    out += detect_pressure_ceiling(ceiling_check)
     out += detect_coupling_deviations(alarm_report)
     # 阻断性冲突排前面：报告读者最该先看到的是"这份材料目前不能发"
     out.sort(key=lambda c: (not c.blocking, c.kind, c.summary))
@@ -377,6 +441,9 @@ class OpsResult:
     report: reports_mod.ReportDraft | None = None
     conflicts: list[Conflict] = field(default_factory=list)
     runs: list[TaskRun] = field(default_factory=list)
+    #: 注入压力上限校核（见 ops/ceiling.py）。恒有值：``indeterminate`` 也是结论，
+    #: 它表示"这项没查成"，而不是"没这一项"。
+    ceiling: ceiling_mod.CeilingCheck | None = None
 
     @property
     def blocking(self) -> list[Conflict]:
@@ -384,17 +451,27 @@ class OpsResult:
 
     @property
     def can_submit(self) -> bool:
-        """能否把报告提交审批：无阻断冲突，且引用检查通过。"""
+        """现在能不能把报告提交审批。
+
+        三个条件缺一不可：没有阻断冲突、**确实有报告**、引用检查通过。
+
+        中间那条不是形式主义：报告 Agent 失败时 ``report is None``，如果这里
+        返回 ``True``，响应里就会出现 ``can_submit: true`` 与
+        ``draft_id: ""`` 并存 —— 前端据此渲染出一个"提交审批"按钮，
+        点下去 404。没有东西可提交，就是不能提交。
+        """
         if self.blocking:
             return False
         if self.report is None:
-            return True
+            return False
         return not self.report.problems
 
     def summary_line(self) -> str:
         parts: list[str] = []
         if self.alarms is not None:
             parts.append(self.alarms.summary_line())
+        if self.ceiling is not None:
+            parts.append(ceiling_mod.render(self.ceiling))
         if self.conflicts:
             n_block = len(self.blocking)
             parts.append(
@@ -415,6 +492,7 @@ class OpsResult:
             "can_submit": self.can_submit,
             "runs": [r.to_dict() for r in self.runs],
             "conflicts": [c.to_dict() for c in self.conflicts],
+            "ceiling": self.ceiling.to_dict() if self.ceiling else None,
             "alarms": self.alarms.to_dict() if self.alarms else None,
             "condition": self.condition.to_dict() if self.condition else None,
             "report": self.report.to_dict() if self.report else None,
@@ -452,6 +530,10 @@ def run(request: OpsRequest, registry: ThresholdRegistry) -> OpsResult:
     result = OpsResult(
         request_question=request.question, period=request.period
     )
+    # 上限校核先算：它不依赖任何子 Agent，而监管材料要用到它。
+    # 放在循环里会让"没勾选生成报告"时这一项凭空消失 —— 而"这次没查上限"
+    # 与"上限没问题"在界面上必须能区分。
+    result.ceiling = ceiling_mod.check(request.readings)
     tasks = request.tasks()
 
     for task in tasks:
@@ -468,7 +550,7 @@ def run(request: OpsRequest, registry: ThresholdRegistry) -> OpsResult:
                 "condition",
                 task.reason,
                 lambda: condition_mod.answer(
-                    request.question, request.readings, registry
+                    request.question, request.readings, registry, now=request.now
                 ),
             )
             result.runs.append(run_rec)
@@ -495,21 +577,42 @@ def run(request: OpsRequest, registry: ThresholdRegistry) -> OpsResult:
                         registry,
                         period=request.period,
                         permit_id=request.permit_id,
+                        ceiling=result.ceiling,
                     ),
                 )
             elif request.report_kind == "weekly":
-                # 周报需要多期；单次请求只有一期，这里明确报错而不是
-                # 用一期冒充一周 —— 那会让周报的"分布"字段只有一个样本
-                result.runs.append(
-                    TaskRun(
-                        agent="reports",
-                        reason=task.reason,
-                        ok=False,
-                        elapsed_s=0.0,
-                        error="周报需要多期数据，请用 build_weekly 单独聚合",
+                # 周报需要多期。这里**不**用一期冒充一周 —— 那会让"各期最高
+                # 等级分布"这个核心字段只有一个样本，读起来却像一周的结论。
+                periods = list(request.periods)
+                if len(periods) < 2:
+                    result.runs.append(
+                        TaskRun(
+                            agent="reports",
+                            reason=task.reason,
+                            ok=False,
+                            elapsed_s=0.0,
+                            error=(
+                                f"周报需要至少 2 期数据，本次收到 {len(periods)} 期。"
+                                "只给一期时报告里只有一条样本，"
+                                "分不清'这周一直 warn'与'这周某天 warn 一次'"
+                            ),
+                        )
                     )
-                )
-                continue
+                    continue
+
+                def _build_weekly() -> reports_mod.ReportDraft:
+                    per_period = [
+                        alarms_mod.evaluate(
+                            [r for r in request.readings if lo <= r.ts <= hi],
+                            registry,
+                        )
+                        for lo, hi in periods
+                    ]
+                    return reports_mod.build_weekly(
+                        per_period, registry, period=request.period
+                    )
+
+                run_rec, report = _run("reports", task.reason, _build_weekly)
             else:
                 run_rec, report = _run(
                     "reports",
@@ -524,7 +627,13 @@ def run(request: OpsRequest, registry: ThresholdRegistry) -> OpsResult:
             result.report = report  # type: ignore[assignment]
 
     if result.alarms is not None:
-        result.conflicts = detect_conflicts(result.alarms, result.condition)
+        result.conflicts = detect_conflicts(
+            result.alarms, result.condition, result.ceiling
+        )
+    else:
+        # 告警 Agent 挂了也要把上限校核的结论说出来：它不依赖告警，
+        # 而且"压力超没超破裂压力"是整份材料里最不能缺的一项
+        result.conflicts = detect_pressure_ceiling(result.ceiling)
     return result
 
 

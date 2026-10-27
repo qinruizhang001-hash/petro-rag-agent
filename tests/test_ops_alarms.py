@@ -62,10 +62,11 @@ def _series(sensor, values, minutes=5, quality="good"):
 
 class ThresholdLevelTests(unittest.TestCase):
     def test_high_direction_levels(self):
-        # warn=80，提示线 = 80 × 0.9 = 72。70 在提示带外，74 在带内
+        # warn=80、alert=100 → 提示带宽度 = (100 − 80) × 10% = 2，提示线 78。
+        # 77 在带外，79 在带内。
         reg = _reg()
         for value, expect in [
-            (70.0, "normal"), (74.0, "notice"), (85.0, "warn"),
+            (70.0, "normal"), (77.0, "normal"), (79.0, "notice"), (85.0, "warn"),
             (100.0, "alert"), (119.0, "alert"), (120.0, "critical"),
         ]:
             with self.subTest(value=value):
@@ -74,10 +75,10 @@ class ThresholdLevelTests(unittest.TestCase):
 
     def test_low_direction_levels(self):
         # 捕集率越低越坏。若按 "> threshold" 判定，这条规则永远不生效。
-        # warn=88，提示线 = 88 × 1.1 = 96.8：97 在带外，90 在带内
+        # warn=88、alert=82 → 间距 6，带 0.6，提示线 88.6。89 在带外，88.3 在带内。
         reg = _reg()
         for value, expect in [
-            (97.0, "normal"), (90.0, "notice"), (88.0, "warn"),
+            (97.0, "normal"), (89.0, "normal"), (88.3, "notice"), (88.0, "warn"),
             (82.0, "alert"), (75.0, "critical"),
         ]:
             with self.subTest(value=value):
@@ -88,7 +89,31 @@ class ThresholdLevelTests(unittest.TestCase):
         # 提示带是项目政策选择，但必须存在：否则读数从"完全正常"一步跳到 warn，
         # 中间的偏移没有任何人看到
         reg = _reg()
-        rep = alarms.evaluate(_series("wellhead_p", [74.0]), reg)   # 80 * 0.9 = 72
+        rep = alarms.evaluate(_series("wellhead_p", [79.0]), reg)   # 80 − 2 = 78
+        self.assertEqual(rep.alarms[0].severity, "notice")
+
+    def test_notice_band_does_not_swallow_a_bounded_sensor(self):
+        """提示带宽度必须相对 warn→alert 的间距，不能相对 warn 值本身。
+
+        ``co2_purity`` 的 warn = 95，而纯度不可能超过 100 %。按
+        ``warn × 1.1 = 104.5`` 算提示线，比量程上限还高 —— **每一个合法读数
+        都会是 notice**，这条测点在界面上永远黄着。
+
+        常年亮着的提示等于没有提示：它既不能提示任何东西，又会训练读者忽略
+        这一级，于是真正的 notice 也不再被看见。这个错误不会抛异常，也不会
+        让别的测试变红，只会让看板看起来"一直有点问题"。
+        """
+        reg = _reg(co2_purity={"warn": 95, "alert": 92, "critical": 88, "source": "管输气质"})
+        # 99.4 % 距 warn 还有 4.4 个点，而 warn→alert 间距只有 3 个点：
+        # 这是明确的安全区，不是"接近限值"。
+        rep = alarms.evaluate(_series("co2_purity", [99.4]), reg)
+        self.assertEqual(
+            rep.alarms[0].severity, "normal",
+            "99.4 % 相对 warn 95 有 4.4 点余量，不该被判成 notice；"
+            "提示带若按阈值百分比算，会把整个量程都算进带内",
+        )
+        # 提示带本身仍然存在：95 + 0.3 = 95.3 以内才是 notice。
+        rep = alarms.evaluate(_series("co2_purity", [95.2]), reg)
         self.assertEqual(rep.alarms[0].severity, "notice")
 
     def test_threshold_provenance_is_carried_into_alarm(self):

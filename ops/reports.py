@@ -519,6 +519,80 @@ def build_weekly(
     return draft
 
 
+# ─── 监管材料：注入压力上限校核 ───
+def _ceiling_section(draft: ReportDraft, ceiling) -> list[str]:
+    """把上限校核渲染成报告正文。
+
+    数字进严格区块（必须带引用），法规比例与处置动作留在区块外 ——
+    "90 %" 是法规给定的常数，不是本期的测量值，给它挂一条"引用"反而
+    会让读者以为它可以回代到某条记录。
+    """
+    if ceiling is None:
+        return [
+            "本期**未执行**注入压力上限校核。",
+            "",
+            "这不是「校核通过」，而是「本项缺失」：没有井底压力或破裂压力读数时，"
+            "校核无法进行。缺失原因须在本节补记，否则许可条件中的这一项"
+            "在档案里是无记录的。",
+        ]
+
+    out: list[str] = []
+    # 用 citation 而不是 source：后者含「换辖区时须同时替换本常量与出处」，
+    # 那是写给维护者的，出现在监管正文里等于把内部备忘抄进了合规文件
+    out.append(f"结论：**{ceiling.label}**（依据 {ceiling.citation}）")
+    out.append("")
+
+    if ceiling.bhp is not None and ceiling.bhp_ts is not None:
+        cite_bhp = draft.register(
+            Citation(
+                "reading",
+                f"bhp@{ceiling.bhp_ts.isoformat()}",
+                "井底注入压力读数（本报告期峰值）",
+            )
+        )
+        out += _strict([f"- 井底压力峰值：{_num(ceiling.bhp, 'bar', cite_bhp)}"])
+    if ceiling.frac_p is not None and ceiling.frac_ts is not None:
+        cite_frac = draft.register(
+            Citation(
+                "reading",
+                f"frac_p@{ceiling.frac_ts.isoformat()}",
+                "注入层破裂压力（峰值时刻生效的那次 LOT/XLOT 实测值，或标注为估算的推算值）",
+            )
+        )
+        out += _strict([f"- 破裂压力：{_num(ceiling.frac_p, 'bar', cite_frac)}"])
+    if ceiling.ratio is not None:
+        cite_ratio = draft.register(
+            Citation(
+                "summary",
+                "ceiling-ratio",
+                "井底压力峰值 / 破裂压力。按 ops/ceiling.py 的 check() 复算："
+                "取本报告期内 bhp 的最大值，除以**时间戳不晚于该峰值**的最后一次 frac_p。"
+                "不是时间上最新的 frac_p —— 峰值之后完成的复测不得用来改写峰值当时的结论",
+            )
+        )
+        out += _strict(
+            [f"- 占破裂压力比例：{_num(ceiling.ratio * 100, '%', cite_ratio, fmt='.4g')}"]
+        )
+
+    out.append("")
+    for line in ceiling.basis:
+        out.append(f"> {line}")
+    if ceiling.next_step:
+        out += ["", f"处置：{ceiling.next_step}"]
+
+    if ceiling.state == "indeterminate":
+        # 不在这里指定补正动作。不可判定的成因有五种（缺 bhp、缺 frac_p、
+        # 读数非正、峰值时刻没有生效的测定……），正确的补正动作各不相同，
+        # 而 `next_step` 已经给出了针对性的那一条。在这里写"补齐读数"
+        # 会把"需要补做 LOT"说成"补录一个数"，读者照着做只会填一个假数进来。
+        out += [
+            "",
+            "**本项未通过校核。** 本期不得声明注入压力处于许可上限以内；"
+            "须按缺失处理，按上述处置补正后重新校核。",
+        ]
+    return out
+
+
 def build_regulatory(
     report: AlarmReport,
     registry: ThresholdRegistry,
@@ -526,8 +600,18 @@ def build_regulatory(
     period: tuple[datetime, datetime],
     permit_id: str,
     title: str | None = None,
+    ceiling=None,
 ) -> ReportDraft:
-    """监管材料。比日报多三样东西：许可编号、MVA 专节、免责边界。"""
+    """监管材料。比日报多三样东西：许可编号、MVA 专节、免责边界。
+
+    ``ceiling`` 是注入压力上限校核（``ops.ceiling.CeilingCheck``）。它是
+    **唯一一项法规直接给定的判据**，所以单独成节并且排在 MVA 之前 ——
+    MVA 回答"有没有漏"，上限校核回答"注入本身合不合规"，后者是许可的
+    前提条件，不是运行优化项。
+
+    省略 ``ceiling`` 时本节会明确写"未执行"，而不是留空：一份监管材料里
+    缺一节，读者无法分辨是"不需要"还是"没做"。
+    """
     if not permit_id.strip():
         raise ValueError(
             "监管材料必须写明许可编号。没有编号的材料无法归入档案，"
@@ -567,7 +651,10 @@ def build_regulatory(
     else:
         lines.append("所有已声明监测项均配置阈值并取得有效读数。")
 
-    lines += ["", "## 二、MVA 监测结果", ""]
+    lines += ["", "## 二、注入压力上限校核", ""]
+    lines += _ceiling_section(draft, ceiling)
+
+    lines += ["", "## 三、MVA 监测结果", ""]
     if not mva_alarms:
         lines.append("本期未收到 MVA 层监测数据。**不能据此认为未发生泄漏**。")
     else:
@@ -591,7 +678,7 @@ def build_regulatory(
 
     lines += [
         "",
-        "## 三、异常与处置",
+        "## 四、异常与处置",
         "",
     ]
     actionable = report.actionable
@@ -611,7 +698,7 @@ def build_regulatory(
 
     lines += [
         "",
-        "## 四、结论边界",
+        "## 五、结论边界",
         "",
         "1. 本报告的判定基于在线监测数据与项目配置的判定阈值，"
         "阈值出处逐条列于各条目。",
@@ -619,8 +706,10 @@ def build_regulatory(
         "筛查级监测只能提示是否需要进一步核查，"
         "泄漏认定须依据许可条件规定的核查程序。",
         "3. 监测盲区已在第一节披露；盲区范围内的工况本报告无法评价。",
+        "4. 注入压力上限校核只覆盖「井底压力 / 破裂压力」这一条法规判据，"
+        "不覆盖套管抗内压、水泥环密封、盖层力学完整性等其他完整性要素。",
         "",
-        "## 五、审批",
+        "## 六、审批",
         "",
         f"状态：{STATUS_LABELS[draft.status]}",
         "",

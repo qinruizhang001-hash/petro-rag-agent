@@ -69,9 +69,13 @@ from ops.thresholds import SENSORS, ThresholdRegistry
 SEVERITY_RANK: dict[str, int] = {name: i for i, name in enumerate(SEVERITIES)}
 
 # ─── 政策参数（都有出处，且都可通过参数覆盖）───
-#: 早期提示线：距 warn 阈值还有多少比例余量时进入 notice。
+#: 早期提示线：距 warn 阈值不足 warn→alert 间距的多少比例时进入 notice。
 #: 出处：项目政策选择，**无标准依据**。选 10% 的理由是它只用于"下个班次
 #: 复核"这一级动作，误报成本接近零；若把它当作告警线，任何比例都缺乏依据。
+#:
+#: 宽度以 warn→alert 的**间距**为基准，而不是 warn 值的百分比。后者对
+#: 有物理上限的测点会失效：`co2_purity` warn=95、上限 100，按 10% 比例算
+#: 提示线是 104.5，比量程还高，于是每个合法读数都成了 notice。
 DEFAULT_NOTICE_MARGIN = 0.10
 
 #: 连续多少个采样点停在同级视为"稳态越限"。
@@ -85,7 +89,7 @@ DEFAULT_RAPID_INTERVALS_PER_HOUR = 1.0
 
 #: 政策说明（进报告，让读者知道这些线是怎么来的）
 POLICY_PROVENANCE = (
-    "分级政策（非标准规定）：notice = warn 阈值留 10% 余量；"
+    "分级政策（非标准规定）：notice = 距 warn 阈值不足 warn→alert 间距的 10%；"
     "稳态越限 = 连续 3 个采样点；速率升级 = 1 小时内跨过 1 个等级间隔。"
     "阈值本身另有出处，见每条告警的 provenance 字段"
 )
@@ -168,32 +172,53 @@ def classify(
     warn_pairs = [p for p in levels if p[0] == "warn"]
     if warn_pairs:
         warn_value = warn_pairs[0][1]
+        # 提示带宽度取 **warn → alert 的间距**，不是 warn 值的百分比。
+        #
+        # 为什么不能按阈值比例算：`co2_purity` 的 warn = 95，而它的物理上限
+        # 就是 100 %。按 10 % 比例算，提示线落在 104.5 —— 比量程上限还高，
+        # 于是**每一个合法读数都是 notice**。一条常年亮着的提示等于没有提示，
+        # 而且它会教人忽略这一级，之后真正的 notice 也不会被看见。
+        #
+        # warn → alert 的间距是这个数据里真实存在的一把尺子：它由配置决定、
+        # 随项目缩放、与量纲无关，而且三级必须互不相同（见 contracts 的校验），
+        # 所以间距恒大于 0。压力类测点也因此得到一个按设计余量缩放的提示带，
+        # 而不是一个按绝对值缩放的。
+        alert_pairs = [p for p in levels if p[0] == "alert"]
+        span = abs(warn_value - alert_pairs[0][1]) if alert_pairs else abs(warn_value)
+        if span <= 0:
+            # 理论上不可达（三级必须互不相同）。真到了这里就退化成"无提示带"，
+            # 因为一个宽度为零的提示带会把**所有**未越限读数都算成 notice。
+            span = abs(warn_value) or 1.0
+        band = span * notice_margin
+        distance = abs(value - warn_value)
         if spec.direction == DIRECTION_HIGH:
-            notice_line = warn_value * (1.0 - notice_margin)
+            notice_line = warn_value - band
             near = value >= notice_line
         else:
-            notice_line = warn_value * (1.0 + notice_margin)
+            notice_line = warn_value + band
             near = value <= notice_line
         if near:
             return Classification(
                 level="notice",
                 threshold_level="notice",
                 threshold_value=notice_line,
-                distance_ratio=notice_margin,
+                distance_ratio=distance / span,
                 rationale=[
                     f"R_THRESHOLD：{spec.label} = {value:g} {spec.unit} 未越 warn 阈值 "
-                    f"{warn_value:g}，但已进入 {notice_margin:.0%} 早期提示带"
-                    f"（提示线 {notice_line:g}）。提示线是项目政策选择，无标准依据"
+                    f"{warn_value:g}，但已进入早期提示带"
+                    f"（提示线 {notice_line:g}，宽度 = warn→alert 间距的 "
+                    f"{notice_margin:.0%}）。提示带宽度是项目政策选择，无标准依据"
                 ],
             )
         return Classification(
             level="normal",
             threshold_level="",
             threshold_value=None,
-            distance_ratio=1.0,
+            distance_ratio=distance / span,
             rationale=[
                 f"R_THRESHOLD：{spec.label} = {value:g} {spec.unit} 距 warn 阈值 "
-                f"{warn_value:g} 尚有 {notice_margin:.0%} 以上余量"
+                f"{warn_value:g} 尚有 {distance:g} {spec.unit}"
+                f"（超过提示带宽度 {band:g}）"
             ],
         )
 
@@ -446,12 +471,18 @@ def attribute(
             if got == chain.STATE_UNKNOWN:
                 missing.append(labels.get(sensor_key, sensor_key))
             elif got == want:
-                hits.append(f"{labels.get(sensor_key, sensor_key)} 处于 {want}")
+                hits.append(
+                    f"{labels.get(sensor_key, sensor_key)} "
+                    f"{chain.STATE_LABELS.get(want, want)}"
+                )
 
         excluded_by: str = ""
         for (sensor_key, want), reason in zip(rule.excludes, rule.exclude_reasons):
             if states.get(sensor_key) == want:
-                excluded_by = f"{labels.get(sensor_key, sensor_key)} 为 {want}：{reason}"
+                excluded_by = (
+                    f"{labels.get(sensor_key, sensor_key)} "
+                    f"{chain.STATE_LABELS.get(want, want)}：{reason}"
+                )
                 break
 
         if excluded_by:

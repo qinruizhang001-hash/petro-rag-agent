@@ -136,6 +136,33 @@ DEFAULT_SENSORS: tuple[SensorSpec, ...] = (
         basis="油套环空表压。持续上升是井筒完整性失效的早期信号，"
         "但需先排除热膨胀（关井后回落即为热效应）",
     ),
+    SensorSpec(
+        key="bhp",
+        label="井底注入压力",
+        unit="bar",
+        stage="injection",
+        direction=DIRECTION_HIGH,
+        basis="注入层中部井底压力。优先取井下压力计直测；由井口压力 + 液柱 − 摩阻"
+        "折算时必须标注为折算值 —— 折算误差在注入量波动时可达十几 bar，"
+        "而破裂压力校核的余量往往只有几十 bar。"
+        "**标注的方式是把该读数以 quality=suspect 录入**：这不是一条口头约定，"
+        "ops/ceiling.py 会据此在结论里写明「该比值只能作为参考」，"
+        "告警分级也会把它封顶在 warn —— 折算值不该直接触发 critical 处置。"
+        "本测点的合规判据不是某个固定值，而是与 frac_p 的比值（见 ops/ceiling.py）",
+    ),
+    SensorSpec(
+        key="frac_p",
+        label="注入层破裂压力",
+        unit="bar",
+        stage="injection",
+        # 越低越坏：破裂压力下降意味着地层承压能力下降，同一注入压力会更快逼近
+        # 上限。它与 bhp 的比值构成 UIC Class VI 的合规判据。
+        direction=DIRECTION_LOW,
+        basis="由漏失试验（LOT）/微型压裂（XLOT）实测，或由破裂压力梯度 × 深度估算。"
+        "这是地层属性而不是运行参数，属于周期性作业结果（不是逐时读数），"
+        "因此与 bhp 天然不同步 —— 比值必须连同两个时刻一起读。"
+        "估算值不得用于合规判定",
+    ),
     # ── MVA（四层监测，见文件头）──
     SensorSpec(
         key="reservoir_p",
