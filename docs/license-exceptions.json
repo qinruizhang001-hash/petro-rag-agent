@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "已接受的许可证风险。由 scripts/audit_python_licenses.py 读取，CI 会检查。",
+    "",
+    "规则：一条例外必须有 scope（它到底被用在哪）、reason（为什么暂时接受）、",
+    "review_by（什么时候必须重新看）。review_by 过期之后 CI 会失败 —— 这是故意的：",
+    "一张不会过期的例外表，等价于没有审查。",
+    "",
+    "条目一旦不再命中阻断协议（换了依赖、换了协议），也必须删掉，否则同样失败。",
+    "完整背景见 docs/licenses.md。"
+  ],
+  "exceptions": [
+    {
+      "package": "pymupdf",
+      "license": "AGPL-3.0-or-later OR Artifex Commercial",
+      "scope": "仅离线入库：PDF → 文本 → 图谱。不进入任何被分发的服务路径。",
+      "reason": "当前用 pypdf 兜底会在部分 PDF 上把整段文字抽成 'actiontostabilize...'（单词间空格丢失），而 PyMuPDF 能正确还原。抽取质量直接影响图谱质量，所以暂时保留。三个处置方案（换 pdfplumber / 买商业授权 / 划清离线边界）见 docs/licenses.md §3.2，尚未决策。",
+      "decided": "2026-10-27",
+      "review_by": "2027-01-31"
+    }
+  ]
+}
