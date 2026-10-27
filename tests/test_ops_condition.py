@@ -156,6 +156,53 @@ class StatsTests(unittest.TestCase):
         # 越低越坏 → 关注低分位
         self.assertEqual(a2.stats[0].focus_value(), a2.stats[0].p5)
 
+    def test_derived_stats_do_not_depend_on_summation_order(self):
+        """均值/斜率必须与解释器版本无关。
+
+        CPython 3.12 起 `sum()` 对浮点改用补偿求和：同一组读数在 3.11 上得到
+        ``12.565999999999999``，在 3.13 上得到 ``12.566``。相对差 1e-16，物理上
+        没有意义，但它会让前端 fixture 的逐字节比对在换解释器时变红 —— 而那种红
+        会被人当成噪声关掉，连带关掉真正的漂移检测。
+
+        所以派生量归一到 12 位有效数字。这条测试直接锁住"两种求和结果归一到
+        同一个值"，而不是锁某个具体数字。
+
+        用的是 pipeline_dp 的真实序列：它恰好是两种求和会分家的那一组
+        （3.11 → ``12.566``，3.13 → ``12.565999999999999``），也就是 CI 上
+        真的红过的那一次。用随便一组数据写这条测试会得到两个相同的结果，
+        于是它永远是绿的，什么也没锁住。
+        """
+        values = [
+            12.40, 12.41, 12.42, 12.44, 12.45, 12.46, 12.48, 12.50,
+            12.51, 12.52, 12.54, 12.55, 12.56, 12.58, 12.60, 12.61,
+            12.62, 12.64, 12.65, 12.66, 12.68, 12.70, 12.71, 12.72, 12.74,
+        ]
+        naive = 0.0
+        for v in values:                      # 模拟 3.11 的逐步累加
+            naive += v
+        compensated = sum(values)             # 3.12+ 的补偿求和
+
+        self.assertNotEqual(
+            naive / len(values),
+            compensated / len(values),
+            "这组数据必须能让两种求和分家，否则这条测试是空的",
+        )
+        self.assertEqual(
+            condition._stable(naive / len(values)),
+            condition._stable(compensated / len(values)),
+            "两种求和顺序必须归一到同一个值，否则 fixture 会在换 Python 版本时红",
+        )
+
+    def test_derived_stats_keep_twelve_significant_digits(self):
+        rs = _series("wellhead_p", [70.1, 70.2, 70.4])
+        s = condition.answer("最近 1 小时井口压力", rs, _reg()).stats[0]
+        for name, value in (("mean", s.mean), ("slope", s.slope_per_hour),
+                            ("coverage", s.coverage)):
+            digits = len(f"{value:.12g}".replace("-", "").replace(".", "").lstrip("0"))
+            self.assertLessEqual(
+                digits, 12, f"{name} 保留了超过 12 位有效数字：{value!r}"
+            )
+
 
 class AnswerBehaviourTests(unittest.TestCase):
     def test_now_defaults_to_latest_data_point(self):

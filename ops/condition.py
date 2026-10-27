@@ -278,6 +278,24 @@ def _percentile(sorted_vals: Sequence[float], p: float) -> float:
     return sorted_vals[min(rank, n) - 1]
 
 
+#: 派生统计量保留的有效数字。
+#:
+#: 均值、斜率、覆盖率是**算出来的**，末位取决于求和顺序与解释器版本：
+#: CPython 3.12 起 `sum()` 对浮点改用补偿求和，同一组读数在 3.11 与 3.13 上
+#: 分别得到 ``12.566`` 与 ``12.565999999999999``。相对差 1e-16，物理上毫无
+#: 意义 —— 但它会让"fixture 逐字节比对"在换解释器时变红，而那种红会被当成
+#: 噪声关掉，连带关掉真正的漂移检测。
+#:
+#: 取 12 位：双精度约 15.95 位，求和噪声在 1e-16 量级，留 3 位余量；同时
+#: 没有任何现场仪表给得到 12 位有效数字。截掉的是**无意义的精度**，不是数据。
+_SIG_DIGITS = 12
+
+
+def _stable(x: float) -> float:
+    """把浮点末位噪声归一到 12 位有效数字。量级与类型都不变。"""
+    return float(f"{x:.{_SIG_DIGITS}g}")
+
+
 def _median_gap(series: Sequence[Reading]) -> float | None:
     gaps = [
         (b.ts - a.ts).total_seconds()
@@ -343,11 +361,11 @@ def compute_stats(
         last=values[-1],
         min_v=ordered[0],
         max_v=ordered[-1],
-        mean=sum(values) / len(values),
+        mean=_stable(sum(values) / len(values)),
         p95=_percentile(ordered, 95),
         p5=_percentile(ordered, 5),
-        slope_per_hour=slope,
-        coverage=min(1.0, span_h / window.hours) if window.hours > 0 else 0.0,
+        slope_per_hour=_stable(slope),
+        coverage=_stable(min(1.0, span_h / window.hours) if window.hours > 0 else 0.0),
         gaps=gaps,
         over_threshold=over,
         threshold_source=threshold.source if threshold else "未配置",
