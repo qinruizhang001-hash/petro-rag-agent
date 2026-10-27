@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "CCUS 全链运维控制台 — 第 1 周骨架（左栏告警卡 / 指标卡接真实 /api/ops/alarms）",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

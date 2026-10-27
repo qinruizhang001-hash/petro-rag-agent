@@ -10,6 +10,11 @@
 
 ## 跑起来
 
+需要 **Node ≥ 22.18**（写在 `package.json` 的 `engines` 里）。这不是偏好：`npm test`
+用 `node --test` 直接执行 `src/lib/*.ts`，靠的是 Node 22.18 起默认开启的类型剥离。
+CI 曾经钉在 Node 20，于是 `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"`
+—— 一个和逻辑毫无关系的红。
+
 ```bash
 cd web
 npm install
