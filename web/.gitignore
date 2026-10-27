@@ -1,0 +1,14 @@
+# 依赖与构建产物不进仓库。
+# 前端这一层的"输入"只有 package.json + package-lock.json + src/，
+# node_modules 是 200 MB 级的可再生副本。
+node_modules/
+dist/
+.vite/
+
+# 本地环境变量（VITE_OPS_SOURCE=live 之类只对本机有意义）
+.env
+.env.local
+.env.*.local
+
+# TypeScript 增量构建信息
+*.tsbuildinfo

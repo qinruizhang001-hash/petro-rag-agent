@@ -1,0 +1,75 @@
+{
+  "corpus": {
+    "files": 24,
+    "bytes": 202888410,
+    "by_kind": {
+      "md": 1,
+      "pdf": 23
+    }
+  },
+  "graph": {
+    "documents": 22,
+    "chunks": 874,
+    "chars": 1092166,
+    "ingest_seconds": 12328.5,
+    "entities": 4826,
+    "relationships": 5008,
+    "graph_bytes": 5731624
+  },
+  "vector": {
+    "available": true,
+    "active_collection": "ccus_knowledge_v3",
+    "vectors": 1982,
+    "collections": [
+      {
+        "name": "ccus_knowledge",
+        "vectors": 670
+      },
+      {
+        "name": "ccus_knowledge_v2",
+        "vectors": 671
+      },
+      {
+        "name": "ccus_knowledge_v3",
+        "vectors": 1982
+      },
+      {
+        "name": "petro_knowledge",
+        "vectors": 3
+      },
+      {
+        "name": "petro_pdf_knowledge",
+        "vectors": 1
+      },
+      {
+        "name": "russian_knowledge",
+        "vectors": 81
+      }
+    ],
+    "lineage": false
+  },
+  "gaps": {
+    "not_ingested": [
+      "A1井_历史压力监测.md",
+      "ccus4.pdf"
+    ],
+    "unknown_source": [],
+    "orphaned": [],
+    "unfinished": []
+  },
+  "readiness": {
+    "graph": "ready",
+    "vector": "ready"
+  },
+  "titles": {
+    "covered": 18,
+    "missing": [
+      "A1井_历史压力监测.md",
+      "ccus1.pdf",
+      "ccus2.pdf",
+      "ccus3.pdf",
+      "ccus4.pdf",
+      "ccus5.pdf"
+    ]
+  }
+}

@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 令牌只有这一份。
+ *
+ * 色值写成 **RGB 三元组**（`7 15 22`）而不是 `#070f16`：Tailwind 的透明度
+ * 修饰符（`bg-sev-critical/10`）需要一个能被拆开注入 alpha 的通道，
+ * 而十六进制字符串给不了 —— 写了 `/10` 会静默失效，得到全不透明的色块。
+ * 三元组配 `rgb(var(--x) / <alpha-value>)` 才能让 `bg-…/10` 真的变淡。
+ *
+ * 带 alpha 的描边色保持 `rgba()` 字面量：它们本来就带透明度，
+ * 不需要再叠修饰符。
+ */
+:root {
+  /* 底色：深海蓝三层，最深的一层仍不是纯黑 */
+  --bg-0: 7 15 22;
+  --bg-1: 11 26 36;
+  --bg-2: 16 37 50;
+  --bg-3: 22 48 62;
+
+  /* 描边：带透明度的青，避免生硬的纯色线 */
+  --line: rgba(122, 178, 204, 0.14);
+  --line-2: rgba(122, 178, 204, 0.3);
+
+  /* 文字三级 */
+  --txt-0: 232 241 246;
+  --txt-1: 157 180 196;
+  --txt-2: 100 121 138;
+
+  /* 强调：低饱和青 + 钢蓝 */
+  --acc: 88 184 201;
+  --acc-2: 126 156 184;
+
+  /*
+   * 地质剖面的层带色。
+   *
+   * 五个色全在同一个蓝色族里，只有明度差 —— 剖面是**背景**，
+   * 六级语义色才是前景。给层带配上不同的色相（砂岩黄、泥岩棕），
+   * 图上就会出现第二个"有含义的颜色体系"，读者得先学会它才能看告警。
+   *
+   * 盖层（`--strata-3`）最亮，因为它是唯一一个失效了就没有第二次机会的部件。
+   */
+  --strata-1: 30 62 78;
+  --strata-2: 16 38 50;
+  --strata-3: 52 104 126;
+  --strata-4: 24 54 68;
+  --strata-5: 13 30 41;
+
+  /* 六级语义色 —— 与品牌色隔离 */
+  --sev-normal: 63 143 132;
+  --sev-notice: 185 154 62;
+  --sev-warn: 208 132 66;
+  --sev-alert: 194 90 69;
+  --sev-critical: 178 58 58;
+  --sev-unknown: 110 124 136;
+
+  --font-cjk: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-num: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "Consolas", "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  /* 工程师模式 ×1.15，现场强光 + 嘈杂，字号是第一位的 */
+  --type-scale: 1;
+}
+
+html[data-mode="engineer"] {
+  --type-scale: 1.15;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--bg-0));
+  color: rgb(var(--txt-0));
+  font-family: var(--font-cjk);
+  font-size: calc(13px * var(--type-scale));
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * 极淡网格底。设计规范 §2.4 只保留两处 HUD 装饰，这是其一。
+ * 工程师模式关掉：现场看的是数字，不是纹理。
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(88, 184, 201, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 184, 201, 0.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+  z-index: 0;
+}
+
+html[data-mode="engineer"] body::before {
+  display: none;
+}
+
+/* 数值一律等宽：同列小数点对齐是扫读一列压力值的刚需 */
+.tnum {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/*
+ * 不可判定的三重信号之一：虚线边框。
+ * 另两重是灰色与破折号（见 severity.ts 与 SeverityBadge）。
+ * 少任何一重，色觉障碍用户或在强光下的现场都会把它读成"正常"，
+ * 而"把不知道渲染成没事"是这套界面唯一不会报错的失败。
+ */
+.sev-unknown-ring {
+  border-style: dashed !important;
+}
+
+/*
+ * 动效克制：只用于"数据在更新"这一件事，且尊重 prefers-reduced-motion。
+ * 工程师模式全局关闭 —— 没有动画在看板上是优点。
+ */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+html[data-mode="engineer"] * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* 滚动条：暗底上的默认滚动条是一道亮白边 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 0;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

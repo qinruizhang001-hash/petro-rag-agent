@@ -1,0 +1,297 @@
+{
+  "origin": "config/ops_thresholds.example.json（派生：删去 3 个浅层 MVA 测点）",
+  "configured": [
+    "annulus_p",
+    "bhp",
+    "capture_rate",
+    "co2_purity",
+    "frac_p",
+    "gw_ph",
+    "h2o_dewpoint",
+    "injection_rate",
+    "injectivity_index",
+    "pipeline_dp",
+    "pipeline_outlet_p",
+    "regenerator_duty",
+    "reservoir_p",
+    "solvent_loss",
+    "wellhead_p"
+  ],
+  "missing": [
+    "gw_conductivity",
+    "soil_co2_flux",
+    "surface_heave"
+  ],
+  "sensors": [
+    {
+      "key": "capture_rate",
+      "label": "捕集率",
+      "unit": "%",
+      "stage": "capture",
+      "stage_label": "捕集",
+      "direction": "low",
+      "basis": "捕集单元进出口 CO₂ 流量差 / 入口 CO₂ 流量，按小时均值",
+      "threshold": {
+        "warn": 88.0,
+        "alert": 82.0,
+        "critical": 75.0,
+        "source": "【替换】项目可研报告 · 捕集单元性能保证值",
+        "note": "示例按设计捕集率 95% / 90% / 85% 折算。性能保证值通常在 EPC 合同里，不在标准里"
+      }
+    },
+    {
+      "key": "regenerator_duty",
+      "label": "再生能耗",
+      "unit": "GJ/tCO₂",
+      "stage": "capture",
+      "stage_label": "捕集",
+      "direction": "high",
+      "basis": "再沸器蒸汽热量 / 捕集 CO₂ 质量，含公用工程分摊",
+      "threshold": {
+        "warn": 3.0,
+        "alert": 3.6,
+        "critical": 4.2,
+        "source": "【替换】项目可研报告 · 再生能耗设计值",
+        "note": "示例按设计值 120% / 130% / 150% 折算。不同溶剂体系差异很大（先进胺法 2.5–3.0 GJ/t 是常见区间，但这不是限值）"
+      }
+    },
+    {
+      "key": "solvent_loss",
+      "label": "溶剂损耗",
+      "unit": "kg/tCO₂",
+      "stage": "capture",
+      "stage_label": "捕集",
+      "direction": "high",
+      "basis": "补充溶剂量 / 捕集 CO₂ 质量，按周累计折算",
+      "threshold": {
+        "warn": 1.5,
+        "alert": 2.5,
+        "critical": 4.0,
+        "source": "【替换】溶剂供应商保证值 / 项目运行手册",
+        "note": ""
+      }
+    },
+    {
+      "key": "pipeline_dp",
+      "label": "管段压差",
+      "unit": "bar",
+      "stage": "transport",
+      "stage_label": "运输",
+      "direction": "high",
+      "basis": "同一直管段进出口表压差，扣除高程差静水项",
+      "threshold": {
+        "warn": 15.0,
+        "alert": 25.0,
+        "critical": 35.0,
+        "source": "【替换】管道设计文件 · 设计工况压降的 120%/140%/160%",
+        "note": "必须按具体管段给：同一项目不同管段的设计压降差好几倍，共用一个阈值等于只对其中一段有效"
+      }
+    },
+    {
+      "key": "pipeline_outlet_p",
+      "label": "管道出口压力",
+      "unit": "bar",
+      "stage": "transport",
+      "stage_label": "运输",
+      "direction": "high",
+      "basis": "进注入站前的表压。低于致密相下限会导致两相流，但下限是设计参数不是通用常数，因此不在此内置",
+      "threshold": {
+        "warn": 90.0,
+        "alert": 110.0,
+        "critical": 130.0,
+        "source": "【替换】管道设计文件 · 出口压力上限",
+        "note": "下限同样重要（低于致密相压力会两相流），但下限属于'运行窗口'而非'告警'，本模板不内置——需要时请显式加一条 low 方向的测点"
+      }
+    },
+    {
+      "key": "co2_purity",
+      "label": "CO₂ 纯度",
+      "unit": "%",
+      "stage": "transport",
+      "stage_label": "运输",
+      "direction": "low",
+      "basis": "在线气相色谱，体积分数，扣除 N₂/Ar 后的 CO₂ 占比",
+      "threshold": {
+        "warn": 95.0,
+        "alert": 92.0,
+        "critical": 88.0,
+        "source": "【替换】管道输送合同气质规格",
+        "note": "气质规格由下游要求与管材腐蚀评估共同决定，常见讨论区间 95–99%（体积），但具体值必须来自合同"
+      }
+    },
+    {
+      "key": "h2o_dewpoint",
+      "label": "水露点",
+      "unit": "°C",
+      "stage": "transport",
+      "stage_label": "运输",
+      "direction": "high",
+      "basis": "露点仪实测。与水合物生成、碳酸腐蚀直接相关，但多高算高取决于运行压力与杂质组成，须按项目给",
+      "threshold": {
+        "warn": 5.0,
+        "alert": 10.0,
+        "critical": 15.0,
+        "source": "【替换】管道设计文件 · 水露点控制值",
+        "note": "单位 °C。判据必须与运行压力一起看：同一水含量在不同压力下的露点不同"
+      }
+    },
+    {
+      "key": "wellhead_p",
+      "label": "井口压力",
+      "unit": "bar",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "high",
+      "basis": "注入井口表压，井口装置下游、油管头上游",
+      "threshold": {
+        "warn": 80.0,
+        "alert": 100.0,
+        "critical": 120.0,
+        "source": "【替换】注入井设计文件 · 井口最大允许工作压力",
+        "note": "上限须低于套管/油管额定值的许用比例，且须与地层破裂压力校核——两者取小"
+      }
+    },
+    {
+      "key": "injection_rate",
+      "label": "注入速率",
+      "unit": "t/d",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "low",
+      "basis": "单井日注入质量，由井口质量流量计累计差得出",
+      "threshold": {
+        "warn": 200.0,
+        "alert": 150.0,
+        "critical": 100.0,
+        "source": "【替换】配产方案 · 单井日配注量",
+        "note": "单位 t/d。降量告警的意义是'注入能力下降'，因此阈值应相对配产而非绝对量"
+      }
+    },
+    {
+      "key": "injectivity_index",
+      "label": "注入指数",
+      "unit": "t/(d·bar)",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "low",
+      "basis": "注入速率 /（井底压力 − 储层静压）。比单看压力更能区分「推不动」与「不想推」：前者指数下降，后者指数不变",
+      "threshold": {
+        "warn": 5.0,
+        "alert": 4.0,
+        "critical": 3.0,
+        "source": "【替换】试注/压降试井解释结果 · 初始注入指数的 90%/80%/70%",
+        "note": "单位 t/(d·bar)。这是最能区分'推不动'与'不想推'的指标，建议必配"
+      }
+    },
+    {
+      "key": "annulus_p",
+      "label": "环空压力",
+      "unit": "bar",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "high",
+      "basis": "油套环空表压。持续上升是井筒完整性失效的早期信号，但需先排除热膨胀（关井后回落即为热效应）",
+      "threshold": {
+        "warn": 20.0,
+        "alert": 30.0,
+        "critical": 40.0,
+        "source": "【替换】井完整性管理程序 · 环空最大允许压力（MAASP）",
+        "note": "MAASP 必须按套管抗内压强度与地层破裂压力分别计算后取小值，且随井龄复核"
+      }
+    },
+    {
+      "key": "bhp",
+      "label": "井底注入压力",
+      "unit": "bar",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "high",
+      "basis": "注入层中部井底压力。优先取井下压力计直测；由井口压力 + 液柱 − 摩阻折算时必须标注为折算值 —— 折算误差在注入量波动时可达十几 bar，而破裂压力校核的余量往往只有几十 bar。**标注的方式是把该读数以 quality=suspect 录入**：这不是一条口头约定，ops/ceiling.py 会据此在结论里写明「该比值只能作为参考」，告警分级也会把它封顶在 warn —— 折算值不该直接触发 critical 处置。本测点的合规判据不是某个固定值，而是与 frac_p 的比值（见 ops/ceiling.py）",
+      "threshold": {
+        "warn": 365.0,
+        "alert": 385.0,
+        "critical": 400.0,
+        "source": "【替换】注入井设计文件 · 井底压力上限；三级分别对应示例破裂压力 452 bar 的 81%/85%/88.5%",
+        "note": "critical 刻意**低于**法规上限（452 × 90% = 406.8 bar）：报警线若等于或高于上限，它响的时候已经违规了，那是一条只能用于事后追溯的线。留 6.8 bar 的余量是为了在越限前还来得及降量 —— 按示例注入指数 5.9 t/(d·bar) 算，降 40 t/d 即可回落。真正的合规判据始终是两者的比值（ops/ceiling.py），本阈值只用于分级显示，不能代替比值校核"
+      }
+    },
+    {
+      "key": "frac_p",
+      "label": "注入层破裂压力",
+      "unit": "bar",
+      "stage": "injection",
+      "stage_label": "注入",
+      "direction": "low",
+      "basis": "由漏失试验（LOT）/微型压裂（XLOT）实测，或由破裂压力梯度 × 深度估算。这是地层属性而不是运行参数，属于周期性作业结果（不是逐时读数），因此与 bhp 天然不同步 —— 比值必须连同两个时刻一起读。估算值不得用于合规判定",
+      "threshold": {
+        "warn": 400.0,
+        "alert": 370.0,
+        "critical": 340.0,
+        "source": "【替换】LOT/XLOT 实测破裂压力 · 较基线下降 11%/18%/25% 即为告警",
+        "note": "这是周期性作业结果，不是逐时读数；阈值按'相对首次实测值的下降幅度'给，比按绝对值给更能反映地层承压能力的真实变化"
+      }
+    },
+    {
+      "key": "reservoir_p",
+      "label": "储层监测压力",
+      "unit": "bar",
+      "stage": "mva",
+      "stage_label": "监测核查与核算（MVA）",
+      "direction": "high",
+      "basis": "观测井井底压力。深部层，反映羽流扩展与压力前缘，不能证明浅部没有泄漏",
+      "threshold": {
+        "warn": 300.0,
+        "alert": 340.0,
+        "critical": 380.0,
+        "source": "【替换】储层数值模拟 · 许可注入上限对应的压力",
+        "note": "许可条件通常给出储层压力上限（不得高于原始地层压力的某个比例），须以许可文件为准"
+      }
+    },
+    {
+      "key": "soil_co2_flux",
+      "label": "土壤 CO₂ 通量",
+      "unit": "g/(m²·d)",
+      "stage": "mva",
+      "stage_label": "监测核查与核算（MVA）",
+      "direction": "high",
+      "basis": "累积通量箱法，单点 30 min 积分。受土壤呼吸与气象强烈影响，必须与同点位基线对比，绝对阈值几乎不可迁移",
+      "threshold": null
+    },
+    {
+      "key": "gw_ph",
+      "label": "浅层地下水 pH",
+      "unit": "-",
+      "stage": "mva",
+      "stage_label": "监测核查与核算（MVA）",
+      "direction": "low",
+      "basis": "监测井取样实验室测定（现场探头漂移大，不单独用于判定）",
+      "threshold": {
+        "warn": 6.5,
+        "alert": 6.0,
+        "critical": 5.5,
+        "source": "【替换】浅层地下水基线监测 · 基线值下浮 0.5/1.0/1.5",
+        "note": "pH 无量纲。必须与电导率同向变化才构成证据，单看 pH 极易被探头漂移误导"
+      }
+    },
+    {
+      "key": "gw_conductivity",
+      "label": "浅层地下水电导率",
+      "unit": "uS/cm",
+      "stage": "mva",
+      "stage_label": "监测核查与核算（MVA）",
+      "direction": "high",
+      "basis": "同上。CO₂ 溶解生成碳酸会同时压低 pH、抬高电导率，两者同向变化才构成证据，单看一个容易误判",
+      "threshold": null
+    },
+    {
+      "key": "surface_heave",
+      "label": "地表形变速率",
+      "unit": "mm/yr",
+      "stage": "mva",
+      "stage_label": "监测核查与核算（MVA）",
+      "direction": "high",
+      "basis": "InSAR 或水准测量。取绝对值：抬升（注入）与沉降（压力衰竭）都是异常，方向信息在原始时序里保留",
+      "threshold": null
+    }
+  ]
+}

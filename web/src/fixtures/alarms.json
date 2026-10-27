@@ -1,0 +1,1114 @@
+{
+  "summary": "最高等级：严重｜已知盲区 3 个测点无阈值｜正常 10、关注 1、警告 1、告警 2、严重 1、不可判定 3",
+  "top_severity": "critical",
+  "counts": {
+    "normal": 10,
+    "notice": 1,
+    "warn": 1,
+    "alert": 2,
+    "critical": 1,
+    "indeterminate": 3
+  },
+  "policy": "分级政策（非标准规定）：notice = 距 warn 阈值不足 warn→alert 间距的 10%；稳态越限 = 连续 3 个采样点；速率升级 = 1 小时内跨过 1 个等级间隔。阈值本身另有出处，见每条告警的 provenance 字段",
+  "threshold_origin": "config/ops_thresholds.example.json（派生：删去 3 个浅层 MVA 测点）",
+  "unconfigured": [
+    "gw_conductivity",
+    "soil_co2_flux",
+    "surface_heave"
+  ],
+  "no_data": [],
+  "alarms": [
+    {
+      "alarm_id": "A-20261027T1000-capture_rate",
+      "sensor": "capture_rate",
+      "label": "捕集率",
+      "stage": "capture",
+      "severity": "alert",
+      "severity_label": "告警",
+      "direction": "low",
+      "value": 86.8,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：捕集率 = 86.8 %，≤ warn 阈值 88（出处：【替换】项目可研报告 · 捕集单元性能保证值）",
+        "R_PERSIST：连续 5 个采样点达到 warn 及以上（门槛 3 点）→ 由 warn 升为 alert。稳态越限比单点越限危险：前者说明工况已经改变，不是毛刺"
+      ],
+      "attribution": [
+        {
+          "cause": "入口烟气条件变化或分析仪漂移（捕集率下降但能耗正常）",
+          "stage": "capture",
+          "confidence": "strong",
+          "evidence": [
+            "捕集率 偏离基线",
+            "再生能耗 未见偏离",
+            "判据：捕集率是进出口浓度/流量的比值。比值下降而单位能耗不变，说明系统本身效率没变，变的是入口条件或测量基准",
+            "不可据此排除：分析仪漂移与真实入口变化从数据上无法区分，必须用标气复测"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "capture_rate",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "regenerator_duty",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "key": "severity:alert",
+          "action": "立即响应：按原因对应的处置执行，必要时阶梯降量",
+          "owner": "值班工程师"
+        },
+        {
+          "key": "capture_solvent_analysis",
+          "action": "取贫/富液样做胺浓度、热稳定盐与降解产物分析",
+          "owner": "工艺工程师"
+        }
+      ],
+      "threshold_level": "warn",
+      "threshold_value": 88.0,
+      "provenance": "【替换】项目可研报告 · 捕集单元性能保证值",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-regenerator_duty",
+      "sensor": "regenerator_duty",
+      "label": "再生能耗",
+      "stage": "capture",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "high",
+      "value": 2.641,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：再生能耗 = 2.641 GJ/tCO₂ 距 warn 阈值 3 尚有 0.359 GJ/tCO₂（超过提示带宽度 0.06）"
+      ],
+      "attribution": [
+        {
+          "cause": "入口烟气条件变化或分析仪漂移（捕集率下降但能耗正常）",
+          "stage": "capture",
+          "confidence": "strong",
+          "evidence": [
+            "捕集率 偏离基线",
+            "再生能耗 未见偏离",
+            "判据：捕集率是进出口浓度/流量的比值。比值下降而单位能耗不变，说明系统本身效率没变，变的是入口条件或测量基准",
+            "不可据此排除：分析仪漂移与真实入口变化从数据上无法区分，必须用标气复测"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "capture_rate",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "regenerator_duty",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】项目可研报告 · 再生能耗设计值",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-solvent_loss",
+      "sensor": "solvent_loss",
+      "label": "溶剂损耗",
+      "stage": "capture",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "high",
+      "value": 0.9475,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：溶剂损耗 = 0.9475 kg/tCO₂ 距 warn 阈值 1.5 尚有 0.5525 kg/tCO₂（超过提示带宽度 0.1）"
+      ],
+      "attribution": [
+        {
+          "cause": "入口烟气条件变化或分析仪漂移（捕集率下降但能耗正常）",
+          "stage": "capture",
+          "confidence": "strong",
+          "evidence": [
+            "捕集率 偏离基线",
+            "再生能耗 未见偏离",
+            "判据：捕集率是进出口浓度/流量的比值。比值下降而单位能耗不变，说明系统本身效率没变，变的是入口条件或测量基准",
+            "不可据此排除：分析仪漂移与真实入口变化从数据上无法区分，必须用标气复测"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "capture_rate",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "regenerator_duty",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】溶剂供应商保证值 / 项目运行手册",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-pipeline_dp",
+      "sensor": "pipeline_dp",
+      "label": "管段压差",
+      "stage": "transport",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "high",
+      "value": 12.74,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：管段压差 = 12.74 bar 距 warn 阈值 15 尚有 2.26 bar（超过提示带宽度 1）"
+      ],
+      "attribution": [
+        {
+          "cause": "上游来量超过下游注入能力（压力沿链正向传导）",
+          "stage": "transport",
+          "confidence": "partial",
+          "evidence": [
+            "管道出口压力 偏离基线",
+            "管段压差 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：出口压力与井口压力同时升高而压差正常，说明管道本身没有额外阻力，压力是「推」过来的。此时应在上游降量或在下游增注能力"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "pipeline_outlet_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "pipeline_dp",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】管道设计文件 · 设计工况压降的 120%/140%/160%",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-pipeline_outlet_p",
+      "sensor": "pipeline_outlet_p",
+      "label": "管道出口压力",
+      "stage": "transport",
+      "severity": "alert",
+      "severity_label": "告警",
+      "direction": "high",
+      "value": 115.4,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：管道出口压力 = 115.4 bar，≥ alert 阈值 110（出处：【替换】管道设计文件 · 出口压力上限）"
+      ],
+      "attribution": [
+        {
+          "cause": "上游来量超过下游注入能力（压力沿链正向传导）",
+          "stage": "transport",
+          "confidence": "partial",
+          "evidence": [
+            "管道出口压力 偏离基线",
+            "管段压差 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：出口压力与井口压力同时升高而压差正常，说明管道本身没有额外阻力，压力是「推」过来的。此时应在上游降量或在下游增注能力"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "pipeline_outlet_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "pipeline_dp",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "key": "severity:alert",
+          "action": "立即响应：按原因对应的处置执行，必要时阶梯降量",
+          "owner": "值班工程师"
+        },
+        {
+          "key": "transport_pigging",
+          "action": "安排清管作业，作业前后对比同流量下的压差",
+          "owner": "管道运维"
+        }
+      ],
+      "threshold_level": "alert",
+      "threshold_value": 110.0,
+      "provenance": "【替换】管道设计文件 · 出口压力上限",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-co2_purity",
+      "sensor": "co2_purity",
+      "label": "CO₂ 纯度",
+      "stage": "transport",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "low",
+      "value": 99.3888,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：CO₂ 纯度 = 99.3888 % 距 warn 阈值 95 尚有 4.3888 %（超过提示带宽度 0.3）"
+      ],
+      "attribution": [
+        {
+          "cause": "上游来量超过下游注入能力（压力沿链正向传导）",
+          "stage": "transport",
+          "confidence": "partial",
+          "evidence": [
+            "管道出口压力 偏离基线",
+            "管段压差 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：出口压力与井口压力同时升高而压差正常，说明管道本身没有额外阻力，压力是「推」过来的。此时应在上游降量或在下游增注能力"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "pipeline_outlet_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "pipeline_dp",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】管道输送合同气质规格",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-h2o_dewpoint",
+      "sensor": "h2o_dewpoint",
+      "label": "水露点",
+      "stage": "transport",
+      "severity": "warn",
+      "severity_label": "警告",
+      "direction": "high",
+      "value": 5.4,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：水露点 = 5.4 °C，≥ warn 阈值 5（出处：【替换】管道设计文件 · 水露点控制值）"
+      ],
+      "attribution": [
+        {
+          "cause": "上游来量超过下游注入能力（压力沿链正向传导）",
+          "stage": "transport",
+          "confidence": "partial",
+          "evidence": [
+            "管道出口压力 偏离基线",
+            "管段压差 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：出口压力与井口压力同时升高而压差正常，说明管道本身没有额外阻力，压力是「推」过来的。此时应在上游降量或在下游增注能力"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "pipeline_outlet_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "pipeline_dp",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "key": "severity:warn",
+          "action": "通知值班工程师，2 小时内确认读数真实性（含仪表自检）",
+          "owner": "值班工程师"
+        },
+        {
+          "key": "transport_pigging",
+          "action": "安排清管作业，作业前后对比同流量下的压差",
+          "owner": "管道运维"
+        }
+      ],
+      "threshold_level": "warn",
+      "threshold_value": 5.0,
+      "provenance": "【替换】管道设计文件 · 水露点控制值",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-wellhead_p",
+      "sensor": "wellhead_p",
+      "label": "井口压力",
+      "stage": "injection",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "high",
+      "value": 74.7936,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：井口压力 = 74.7936 bar 距 warn 阈值 80 尚有 5.2064 bar（超过提示带宽度 2）"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】注入井设计文件 · 井口最大允许工作压力",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-injection_rate",
+      "sensor": "injection_rate",
+      "label": "注入速率",
+      "stage": "injection",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "low",
+      "value": 237.888,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：注入速率 = 237.888 t/d 距 warn 阈值 200 尚有 37.888 t/d（超过提示带宽度 5）"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】配产方案 · 单井日配注量",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-injectivity_index",
+      "sensor": "injectivity_index",
+      "label": "注入指数",
+      "stage": "injection",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "low",
+      "value": 5.9472,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：注入指数 = 5.9472 t/(d·bar) 距 warn 阈值 5 尚有 0.9472 t/(d·bar)（超过提示带宽度 0.1）"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】试注/压降试井解释结果 · 初始注入指数的 90%/80%/70%",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-annulus_p",
+      "sensor": "annulus_p",
+      "label": "环空压力",
+      "stage": "injection",
+      "severity": "critical",
+      "severity_label": "严重",
+      "direction": "high",
+      "value": 41.6,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：环空压力 = 41.6 bar，≥ critical 阈值 40（出处：【替换】井完整性管理程序 · 环空最大允许压力（MAASP））",
+        "R_PERSIST：连续 4 个采样点达到 critical 及以上，但 critical 已是最高等级，不再升级"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "key": "severity:critical",
+          "action": "立即停输/停注并启动应急预案，同时通知 HSE 与生产调度",
+          "owner": "中控操作"
+        },
+        {
+          "key": "injection_check_skin",
+          "action": "调取该井最近一次压降试井/注入剖面，计算表皮系数变化",
+          "owner": "油藏工程师"
+        }
+      ],
+      "threshold_level": "critical",
+      "threshold_value": 40.0,
+      "provenance": "【替换】井完整性管理程序 · 环空最大允许压力（MAASP）",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-bhp",
+      "sensor": "bhp",
+      "label": "井底注入压力",
+      "stage": "injection",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "high",
+      "value": 336.32,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：井底注入压力 = 336.32 bar 距 warn 阈值 365 尚有 28.68 bar（超过提示带宽度 2）"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】注入井设计文件 · 井底压力上限；三级分别对应示例破裂压力 452 bar 的 81%/85%/88.5%",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T0600-frac_p",
+      "sensor": "frac_p",
+      "label": "注入层破裂压力",
+      "stage": "injection",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "low",
+      "value": 452.0,
+      "ts": "2026-10-27T06:00:00",
+      "rationale": [
+        "R_THRESHOLD：注入层破裂压力 = 452 bar 距 warn 阈值 400 尚有 52 bar（超过提示带宽度 3）"
+      ],
+      "attribution": [
+        {
+          "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+          "stage": "injection",
+          "confidence": "strong",
+          "evidence": [
+            "环空压力 偏离基线",
+            "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+            "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "annulus_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            }
+          ]
+        },
+        {
+          "cause": "储层整体超压（注入总量超过储层容纳能力）",
+          "stage": "injection",
+          "confidence": "partial",
+          "evidence": [
+            "储层监测压力 偏离基线",
+            "注入速率 未见偏离",
+            "仅 2/3 条判据命中，结论强度相应降低",
+            "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+            "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+          ],
+          "ruled_out": false,
+          "ruled_out_reason": "",
+          "basis": [
+            {
+              "sensor": "wellhead_p",
+              "expected": "deviated",
+              "observed": "ok"
+            },
+            {
+              "sensor": "reservoir_p",
+              "expected": "deviated",
+              "observed": "deviated"
+            },
+            {
+              "sensor": "injection_rate",
+              "expected": "ok",
+              "observed": "ok"
+            }
+          ]
+        }
+      ],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】LOT/XLOT 实测破裂压力 · 较基线下降 11%/18%/25% 即为告警",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-reservoir_p",
+      "sensor": "reservoir_p",
+      "label": "储层监测压力",
+      "stage": "mva",
+      "severity": "notice",
+      "severity_label": "关注",
+      "direction": "high",
+      "value": 296.32,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：储层监测压力 = 296.32 bar 未越 warn 阈值 300，但已进入早期提示带（提示线 296，宽度 = warn→alert 间距的 10%）。提示带宽度是项目政策选择，无标准依据"
+      ],
+      "attribution": [],
+      "actions": [
+        {
+          "key": "severity:notice",
+          "action": "下个班次复核该测点趋势，确认是否继续偏离",
+          "owner": "中控操作"
+        }
+      ],
+      "threshold_level": "notice",
+      "threshold_value": 296.0,
+      "provenance": "【替换】储层数值模拟 · 许可注入上限对应的压力",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-soil_co2_flux",
+      "sensor": "soil_co2_flux",
+      "label": "土壤 CO₂ 通量",
+      "stage": "mva",
+      "severity": "indeterminate",
+      "severity_label": "不可判定",
+      "direction": "high",
+      "value": 1.3608,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_NO_THRESHOLD：土壤 CO₂ 通量 没有配置阈值。没有出处的阈值不参与判定，因此本条不可判定，不得计为正常"
+      ],
+      "attribution": [],
+      "actions": [
+        {
+          "key": "configure_threshold",
+          "action": "补齐该测点阈值并写明出处（标准条款 / 设计文件 / 政策选择）",
+          "owner": "工艺工程师"
+        }
+      ],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "未配置",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-gw_ph",
+      "sensor": "gw_ph",
+      "label": "浅层地下水 pH",
+      "stage": "mva",
+      "severity": "normal",
+      "severity_label": "正常",
+      "direction": "low",
+      "value": 7.177,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_THRESHOLD：浅层地下水 pH = 7.177 - 距 warn 阈值 6.5 尚有 0.677 -（超过提示带宽度 0.05）"
+      ],
+      "attribution": [],
+      "actions": [],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "【替换】浅层地下水基线监测 · 基线值下浮 0.5/1.0/1.5",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-gw_conductivity",
+      "sensor": "gw_conductivity",
+      "label": "浅层地下水电导率",
+      "stage": "mva",
+      "severity": "indeterminate",
+      "severity_label": "不可判定",
+      "direction": "high",
+      "value": 415.296,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_NO_THRESHOLD：浅层地下水电导率 没有配置阈值。没有出处的阈值不参与判定，因此本条不可判定，不得计为正常"
+      ],
+      "attribution": [],
+      "actions": [
+        {
+          "key": "configure_threshold",
+          "action": "补齐该测点阈值并写明出处（标准条款 / 设计文件 / 政策选择）",
+          "owner": "工艺工程师"
+        }
+      ],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "未配置",
+      "quality": "good"
+    },
+    {
+      "alarm_id": "A-20261027T1000-surface_heave",
+      "sensor": "surface_heave",
+      "label": "地表形变速率",
+      "stage": "mva",
+      "severity": "indeterminate",
+      "severity_label": "不可判定",
+      "direction": "high",
+      "value": 1.8144,
+      "ts": "2026-10-27T10:00:00",
+      "rationale": [
+        "R_NO_THRESHOLD：地表形变速率 没有配置阈值。没有出处的阈值不参与判定，因此本条不可判定，不得计为正常"
+      ],
+      "attribution": [],
+      "actions": [
+        {
+          "key": "configure_threshold",
+          "action": "补齐该测点阈值并写明出处（标准条款 / 设计文件 / 政策选择）",
+          "owner": "工艺工程师"
+        }
+      ],
+      "threshold_level": "",
+      "threshold_value": null,
+      "provenance": "未配置",
+      "quality": "good"
+    }
+  ],
+  "attribution": [
+    {
+      "cause": "入口烟气条件变化或分析仪漂移（捕集率下降但能耗正常）",
+      "stage": "capture",
+      "confidence": "strong",
+      "evidence": [
+        "捕集率 偏离基线",
+        "再生能耗 未见偏离",
+        "判据：捕集率是进出口浓度/流量的比值。比值下降而单位能耗不变，说明系统本身效率没变，变的是入口条件或测量基准",
+        "不可据此排除：分析仪漂移与真实入口变化从数据上无法区分，必须用标气复测"
+      ],
+      "ruled_out": false,
+      "ruled_out_reason": "",
+      "basis": [
+        {
+          "sensor": "capture_rate",
+          "expected": "deviated",
+          "observed": "deviated"
+        },
+        {
+          "sensor": "regenerator_duty",
+          "expected": "ok",
+          "observed": "ok"
+        }
+      ]
+    },
+    {
+      "cause": "环空带压（井筒完整性失效嫌疑，来源尚未区分）",
+      "stage": "injection",
+      "confidence": "strong",
+      "evidence": [
+        "环空压力 偏离基线",
+        "判据：环空压力越限只说明「环空里有压力」，不说明压力从哪来。热膨胀（注入热流体加热环空流体，温度平衡后压力趋稳）与窜流（油管/封隔器/水泥环失效，有持续压力源，关井后仍继续重建）都会让它上升，且油管压力的高低对两者都可能成立 —— 所以压力数值和方向都**不能**区分类型。API RP 90 / NORSOK D-010 规定的判别手段是泄压-恢复测试：泄至稳定低压后关井，压力重建为持续性带压指向窜流，不重建指向热效应",
+        "不可据此排除：本判定只能提出「需要做泄压-恢复测试」，不能给出完整性结论，也不能在测试完成前把类型写成「窜流」或「热膨胀」中的任一种 —— 这两种说法在现有数据上都无法证伪。完整性结论需要 MIT/噪声测井/温度测井等实测手段"
+      ],
+      "ruled_out": false,
+      "ruled_out_reason": "",
+      "basis": [
+        {
+          "sensor": "annulus_p",
+          "expected": "deviated",
+          "observed": "deviated"
+        }
+      ]
+    },
+    {
+      "cause": "上游来量超过下游注入能力（压力沿链正向传导）",
+      "stage": "transport",
+      "confidence": "partial",
+      "evidence": [
+        "管道出口压力 偏离基线",
+        "管段压差 未见偏离",
+        "仅 2/3 条判据命中，结论强度相应降低",
+        "判据：出口压力与井口压力同时升高而压差正常，说明管道本身没有额外阻力，压力是「推」过来的。此时应在上游降量或在下游增注能力"
+      ],
+      "ruled_out": false,
+      "ruled_out_reason": "",
+      "basis": [
+        {
+          "sensor": "pipeline_outlet_p",
+          "expected": "deviated",
+          "observed": "deviated"
+        },
+        {
+          "sensor": "wellhead_p",
+          "expected": "deviated",
+          "observed": "ok"
+        },
+        {
+          "sensor": "pipeline_dp",
+          "expected": "ok",
+          "observed": "ok"
+        }
+      ]
+    },
+    {
+      "cause": "储层整体超压（注入总量超过储层容纳能力）",
+      "stage": "injection",
+      "confidence": "partial",
+      "evidence": [
+        "储层监测压力 偏离基线",
+        "注入速率 未见偏离",
+        "仅 2/3 条判据命中，结论强度相应降低",
+        "判据：井口压力与储层压力同步上升、而注入量并未下降，说明压差仍能推动同样的流量，阻力不是集中在近井，而是整个储层压力水平抬升",
+        "不可据此排除：储层压力测点若在观测井而非注入井附近，滞后可达数天，此时两者的「同步」可能只是巧合"
+      ],
+      "ruled_out": false,
+      "ruled_out_reason": "",
+      "basis": [
+        {
+          "sensor": "wellhead_p",
+          "expected": "deviated",
+          "observed": "ok"
+        },
+        {
+          "sensor": "reservoir_p",
+          "expected": "deviated",
+          "observed": "deviated"
+        },
+        {
+          "sensor": "injection_rate",
+          "expected": "ok",
+          "observed": "ok"
+        }
+      ]
+    },
+    {
+      "cause": "管道阻力上升（水合物 / 杂质沉积 / 阀门节流）",
+      "stage": "transport",
+      "confidence": "weak",
+      "evidence": [
+        "管道出口压力 偏离基线"
+      ],
+      "ruled_out": true,
+      "ruled_out_reason": "管段压差 未见偏离：压差未越限时，出口压力高只能由入口压力高解释，指向的是上游供气而不是管道本身",
+      "basis": [
+        {
+          "sensor": "pipeline_dp",
+          "expected": "deviated",
+          "observed": "ok"
+        },
+        {
+          "sensor": "pipeline_outlet_p",
+          "expected": "deviated",
+          "observed": "deviated"
+        }
+      ]
+    }
+  ],
+  "period": [
+    "2026-10-27T06:00:00",
+    "2026-10-27T10:00:00"
+  ],
+  "ceiling": {
+    "state": "ok",
+    "label": "未超上限",
+    "blocks": false,
+    "bhp": 336.32,
+    "bhp_ts": "2026-10-27T10:00:00",
+    "frac_p": 452.0,
+    "frac_ts": "2026-10-27T06:00:00",
+    "ratio": 0.7440707964601769,
+    "headroom_bar": 70.48000000000002,
+    "skew_days": 0.16666666666666666,
+    "ceiling_ratio": 0.9,
+    "source": "40 CFR §146.68(b)（美国 UIC Class VI）：注入层内井底注入压力不得超过该层破裂压力的 90%。换辖区时须同时替换本常量与出处",
+    "citation": "40 CFR §146.68(b)（美国 UIC Class VI）",
+    "basis": [
+      "井底压力峰值 336.32 bar（2026-10-27 10:00），破裂压力 452 bar（2026-10-27 06:00），比值 74.4%",
+      "上限 90% 对应 406.8 bar，余量 70.48 bar",
+      "依据：40 CFR §146.68(b)（美国 UIC Class VI）；本次按破裂压力的 90% 判定"
+    ],
+    "next_step": "无需处置；下个报告期重新校核"
+  }
+}

@@ -1,0 +1,1648 @@
+{
+  "status": "ok",
+  "query": "盖层完整性对 CO2 泄漏风险的影响",
+  "mode": "hybrid",
+  "reason": "",
+  "evidence": {
+    "chunks": [
+      {
+        "kind": "chunk",
+        "reference_id": "1",
+        "chunk_id": "doc-ebf0a4dee81adfa8e419319401b32347-chunk-010",
+        "source": "ccus_auto_02.pdf",
+        "content": "�𝑡𝑡+1 = 𝐶𝐶(𝑥𝑥𝑡𝑡)𝑥𝑥𝑡𝑡+1 + 𝐷𝐷(𝑥𝑥𝑡𝑡)𝑢𝑢𝑡𝑡 \n( 4 ) \nWhere 𝐴𝐴(𝑥𝑥𝑡𝑡) =\n𝜕𝜕𝜕𝜕\n𝜕𝜕𝑥𝑥𝑡𝑡, 𝐵𝐵(𝑥𝑥𝑡𝑡) =\n𝜕𝜕𝜕𝜕\n𝜕𝜕𝑢𝑢𝑡𝑡, 𝐶𝐶(𝑥𝑥𝑡𝑡) =\n𝜕𝜕𝜕𝜕\n𝜕𝜕𝑥𝑥𝑡𝑡+1 and 𝐷𝐷(𝑥𝑥𝑡𝑡) =\n𝜕𝜕𝜕𝜕\n𝜕𝜕𝑢𝑢𝑡𝑡. \nIn CO2 storage operations, specifically for CO2-water system, state variables 𝑥𝑥𝑡𝑡 entails pressure and \noverall mole fraction of CO2 component, represented as 𝑥𝑥𝑡𝑡= ቂ\n𝑝𝑝𝑡𝑡\n𝑧𝑧𝐶𝐶𝐶𝐶2,𝑡𝑡ቃ∈𝑅𝑅2�",
+        "chars": 343,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.4653,
+          "math_ratio": 0.375,
+          "low": true
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "3",
+        "chunk_id": "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043",
+        "source": "ccus3.pdf",
+        "content": "as pressure maintenance, elevation effects, velocity limits, and\nphase behavior—that are not represented in high-level system models but are\nessential for realistic cost and feasibility assessments. This integrated approach\nallows more reliable statements about the design and dimensioning of future\nCO2 transport systems and can inform both strategic planning and early-stage\nproject development. The method developed is similarly applicable to other\ncountries and regions.\n\nWhile the defined scenario and case study for Germany validates the method,\nthe single topology and scenario calculated is not a sufficient basis for infrastructure planning. The case study should be extended in three main directions.\nFirst, a European perspective should be added, explicitly modeling cross-border\npipeline links, ship-based connections, and offshore storage hubs. This would\nallow a consistent assessment of transit flows through Germany and the role of\nshared storage capacities in countries around the North Sea. Second, the static\n2045 view should be complemented by a time-resolved analysis of the ramp-up\nphase. This includes the gradual deployment of the backbone, evolving spatial\npatterns of CO2 sources and sinks, and the temporary role of smaller-scale or\nvehicle-based transport (ship and rail) before a fully developed pipeline network\nis in place. Third, more uncertainties should be tested with additional scenarios\nand topologies. This includes the potential role of onshore storage in Germany,\nthe possible reuse or partial conversion of existing pipelines and corridors, and\nhigher shares of negative emissions and CO2 utilization as well as other CO2\ncapture in other industries like steel or chemicals.\n\nAcknowledgments\nWe gratefully acknowledge the partly support of the German Federal Ministry of Research, Technology, and Space in the project TransHyDE-Sys, grant\n03HY201M. as well as from the Fraunhofer Cluster CINES, and from the EU\nHORIZON project Eastern Lights.\n\nDeclarations\nEt…",
+        "chars": 2129,
+        "truncated": true,
+        "text_quality": {
+          "readable_ratio": 0.9687,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "1",
+        "chunk_id": "doc-ebf0a4dee81adfa8e419319401b32347-chunk-006",
+        "source": "ccus_auto_02.pdf",
+        "content": "�𝑔𝑔൯= ෍(𝑐𝑐𝑖𝑖,𝑤𝑤𝜌𝜌𝑤𝑤𝑞𝑞𝑤𝑤\n𝑗𝑗+ 𝑐𝑐𝑖𝑖,𝑔𝑔𝜌𝜌𝑔𝑔𝑞𝑞𝑔𝑔\n𝑗𝑗)\n𝑛𝑛\n𝑗𝑗=1\n \n( 1 ) \nWhere \n𝜕𝜕\n𝜕𝜕𝜕𝜕 is the time differentiation, 𝜙𝜙 stands for porosity, 𝜌𝜌𝛼𝛼 and S𝛼𝛼 represents phase density and \nsaturation of phase 𝛼𝛼= 𝑤𝑤, 𝑔𝑔 respectively, 𝑐𝑐𝑖𝑖,𝛼𝛼 denotes mole fraction of component 𝑖𝑖 in phase 𝛼𝛼. Within \nthe context of a CO2-water system, we focus on CO2 and water as the primary components. 𝒗𝒗𝛼𝛼 is the \nvolumetric velocity of phase 𝛼𝛼 and 𝑞𝑞𝛼𝛼\n𝑗𝑗 denotes the source/sink term for phase 𝛼𝛼 and well 𝑗𝑗. 𝒗𝒗𝛼𝛼 is given \nby Darcy’s law, which reads \n𝒗𝒗𝛼𝛼",
+        "chars": 536,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.7202,
+          "math_ratio": 0.211,
+          "low": true
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "1",
+        "chunk_id": "doc-ebf0a4dee81adfa8e419319401b32347-chunk-001",
+        "source": "ccus_auto_02.pdf",
+        "content": "employs an encodertransition-decoder structure to learn dynamics in a latent or reduced space. Leveraging this proxy model, \nreinforcement learning is utilized to find an optimal strategy that maximizes economic benefits while \nsatisfying various control constraints. The reinforcement learning agent receives the latent state \nrepresentation and immediate reward tailored for CO2 sequestration and choose real-time controls which \nare subject to predefined engineering constraints in order to maximize the long-term cumulative rewards. \nTo demonstrate its effectiveness, this framework is applied to a compositional simulation model where \nCO2 is injected into saline aquifer. The results reveal that our surrogate model-based reinforcement \nlearning approach significantly optimizes CO2 sequestration strategies, leading to notable economic gains \ncompared to baseline scenarios. \nKeywords: CO2 sequestration, Optimization, Reduced-order models, Reinforcement learning, Machine \nlearning. \n \n\nIntroduction \nThe challenge of mitigating climate change has led to the exploration of various carbon capture and \nstorage (CCS) techniques, among which geological CO2 sequestration presents a feasible, reliable and \nscalable solution. This process involves the injection of greenhouse gases, primarily carbon dioxide (CO2), \ninto deep geological formations for long-term storage. Despite its potential, one of the primary concerns \nin geological CO2 sequestration is the risk of inducing mechanical instabilities, such as fault reactivation \nand caprock fracturing [1, 2]. These events can occur when the stress induced by CO2 injection surpasses \ncritical thresholds, potentially leading to unintended greenhouse gas leakage. Therefore, managing the \npressure to avoid surpassing these critical stress thresholds is crucial [3, 4]. Traditionally, pressure \nmanagement strategies have involved the extraction of pre-existing fluids during various stages of the \nCO2 injection process. While this approach…",
+        "chars": 2250,
+        "truncated": true,
+        "text_quality": {
+          "readable_ratio": 0.9679,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "3",
+        "chunk_id": "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-017",
+        "source": "ccus3.pdf",
+        "content": "transport of CO2\nin dense phase?\n• What are the technical characteristics of the CO2 infrastructure network\nfor cost-effective investment?\nThere are several studies simulating the transport of CO2 through pipelines\nand its pumping to underground storage, taking into account the potential phase\ntransition, specifically the conversion from dense to gas phase due to the presence of impurities in the network [6, 16, 34, 43]. Most of these studies focus on\ntransport within a single pipeline rather than addressing larger networks, such\nas a national CO2 infrastructure network.\nTo tackle the aforementioned questions and simulate the German national\nCO2 network, we have developed the software MYNTS (Multiphysical Network\nSimulator) [7, 10, 20, 19], which is designed to plan, simulate, and optimize energy networks across various sectors, including gas, electricity, heat, and water.\nIn the following subsections, we will explain the software MYNTS and discuss\nthe chosen and required parameters for simulating the CO2 network as well as\ndemonstrating its feasibility.\n1.5.1\nNetwork simulation software: MYNTS\nFor the simulation and analysis of the German CO2 infrastructure network, the\nmulti-physics software MYNTS has been enhanced to model CO2 transport in\ndense phase, as well as phase transitions due to impurities or the mixing of CO2\nwith other components in pipelines.\nFor stationary fluid transportation problems involving both liquids and gasses,\nwe implement the following standard pipe transport equations.\ndP\ndx = −λ\n2D ρv2 −ρv dv\ndx −ρg dh\ndx\n(1)\nfor pressure P, where x is the dimension of space in the direction of the pipe, ρ\nand v are the density and velocity of the fluid, D is the inner diameter of the pipe,\n\ng is the gravitational acceleration, and h is the height. On the right-hand",
+        "chars": 1808,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.9421,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "2",
+        "chunk_id": "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-001",
+        "source": "ccus_auto_04.pdf",
+        "content": "hydrodynamical simulations are carried out at a certain time interval, after\nwhich pressure, temperature, and density distributions are passed to FLAC3D, which calculates the\nequilibrium mechanical state. Computed deformat\nions and stresses are utilized to update the porosity\nand permeability fields for the subsequent hydrodynamic modeling. In particular, we focus on the\ntectonic fault and its behavior during CO2 injection. We distinguish the damage zone and core inside\nthe fault and derive the closure relations for their permeability alteration analytically. The coupled\napproach developed here is applied to simulate CO2 injection into synthetic and realistic reservoir\nmodels. For the former one, we study the effect of formation depth and presence of the tectonic stresses\nat the initial mechanical state, while for the latter, we consider different injection modes (bottomhole\npressure). In each numerical experiment, we describe the evolution of the fault permeability due to\nthe slip along its plane and the development of plastic deformations leading to the loss of reservoir\nintegrity and CO2 leakage. Sensitivity analysis of the coupled model to realistic values of input\nparameters to assess the fault stability is carried out.\n1. Introduction\nCarbon dioxide (CO2) is a greenhouse gas contained in\nthe atmosphere. The disbalance of CO2 in the atmosphere\nforms predominantly due to burning of fossil fuels as a\nresult of human activities. Continuous growth in CO2 concentration in the atmosphere leads to the greenhouse effect.\nConsequently, the mean temperature grows contributing to\nan increase in the frequency and severity of catastrophic\nclimate events (Pörtner et al., 2022). Emission of carbon\ndioxide can be reduced by using low-carbon fuels and improving energy efficiency. However, application of these\ntechniques is insufficient to reduce the concentration of CO2\nsignificantly and prevent mean temperature growth (IEA,\n2020). Resolving this issue requires the development…",
+        "chars": 2022,
+        "truncated": true,
+        "text_quality": {
+          "readable_ratio": 0.9669,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "5",
+        "chunk_id": "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-005",
+        "source": "ccus_auto_06.pdf",
+        "content": "Physics in GCS \nAs CO2 is injected into a saline aquifer during the GCS process, the mobile fluid phases consist of a waterrich phase and a CO2-rich phase, with water and CO2 as the primary components in the water-rich and CO2-\nrich phases, respectively. The flow and transport of each fluid component is governed by their \ncorresponding mass balance equation, \n𝜕\n𝜕𝑡(𝜙∑𝑆𝛼𝜌𝛼𝑥𝛼,𝑖\n𝛼\n) −𝛻∙{𝐾∑\n𝑘𝑟𝛼\n𝜇𝛼𝜌𝛼𝑥𝛼,𝑖(𝛻𝑝𝛼+ 𝜌𝛼𝑔𝛻𝑍)\n𝛼\n} + ∑(∑𝜌𝛼𝑥𝛼,𝑖𝑞𝛼\n𝛼\n)\n𝑙= 0, \n𝑙\n (1) \nwhere the first term is the fluid accumulation, the second is the advective flux based on Darcy’s law, and \nthe third is the source or sink term. Subscript 𝑖 denotes the primary fluid components, including water and \n\nCO2; 𝛼 denotes the fluid phase, including water-rich phase 𝑤 and CO2-rich phase 𝑔; 𝑡 is time; 𝜙 is the rock \nporosity; 𝑆𝛼 is the phase saturation; 𝜌𝛼 is the fluid phase density; 𝑥𝛼,𝑖 is the mole fraction of component 𝑖 \nin fluid phase",
+        "chars": 903,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.8488,
+          "math_ratio": 0.0777,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "4",
+        "chunk_id": "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-031",
+        "source": "ccus_auto_03.pdf",
+        "content": "and vertex centered finite \nvolume space discretization of transport equations were \nexecuted. An implicit backward finite difference time stepping \nof the transport equation was applied to produce the results. \nThe effective diffusion coefficient needs to be assumed in \norder of 10-11 m2/s by Bentz DP, et al. [70]. The thickness \nof the calcite layer is also proportional to the square root \nof time. The difference between experimental data and the \nmodel occurred due to the diffusion coefficient estimated. \nThe growth of calcite carbonate concentration over time \nas presented in Figure 16 would provide insight into the \ntransport of CO2 to cement. The carbonate concentration \nincreases very rapidly while its radius decreases with \ntime elapsed. There are two distinct regions with different \ntransport mechanisms. In the first region with time exposure \nless than 60 days, carbonate species (CO2, HCO3-) disperse \ninto the sample through the calcite and the silica gel layer. \nThe second region is where the calcite layer dissolves.\n \nFigure 16: Carbonate concentration profile over time [69].\nAlso, well integrity has been investigated extensively in \nHawkes C, et al. [71]; Hawkes CD, et al. [72]; Scherer GW, et \nal. [73]; Neuville N, et al. [74] to evaluate for long-term CO2 \nstorage. The downhole testing programs, such as cement \nsheath pressure transient testing, mini-frac testing, cement \n\nPetroleum & Petrochemical Engineering Journal \n\nNguyen V, et al. Well Cement Degradation and Wellbore Integrity in Geological CO2 Storages: A \nLiterature Review. Pet Petro Chem Eng J 2021, 5(3): 000269.\nCopyright© Nguyen V, et al.\nsampling, and fluid sampling, were performed.\nOutlook\nThe traditional Portland cement carries many advantages \nsuch as low",
+        "chars": 1764,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.9272,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "2",
+        "chunk_id": "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-002",
+        "source": "ccus_auto_04.pdf",
+        "content": "Consequently, the mean temperature grows contributing to\nan increase in the frequency and severity of catastrophic\nclimate events (Pörtner et al., 2022). Emission of carbon\ndioxide can be reduced by using low-carbon fuels and improving energy efficiency. However, application of these\ntechniques is insufficient to reduce the concentration of CO2\nsignificantly and prevent mean temperature growth (IEA,\n2020). Resolving this issue requires the development and\napplication of CO2 sequestration technologies (Kazemifar,\n2022). They include carbon dioxide capture at emission\nsources, its liquefaction, and transportation to fields, where\nCO2 is injected into deep saline aquifers or depleted oil/gas\nformations in the supercritical state (Bickle, 2009). During\nthe injection stage, CO2 displaces pore fluid (e.g., natural gas\nor water) and forms a plume propagating due to the pressure\ndifference between the injector and far-field pore pressure.\nIn addition, the buoyancy force affects the plume dynamics\n∗Corresponding author\nevgenii.kanin@skoltech.ru (E. Kanin)\nsince carbon dioxide is usually lighter as compared to pore\nfluids (Bryant et al., 2008); therefore, the target reservoir for\nsecure CO2 storage has to be covered by a low-permeable\ncaprock. Flow of CO2 in the reservoir rock is accompanied\nby various phase transitions and chemical reactions including dissolution of carbon dioxide in brine as well as water\nvapor in CO2 (Huppert and Neufeld, 2014), precipitation of\ninsoluble salts due to interactions of carbonated water with\nminerals composing the rock (de Coninck and Benson, 2014;\nDe Silva et al., 2015; Cai et al., 2021).\nDevelopment of an efficient technology of CO2 storage\nin underground formations",
+        "chars": 1720,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.9264,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "6",
+        "chunk_id": "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-001",
+        "source": "ccus_auto_17.pdf",
+        "content": "inferences presented are\npreliminary in the context of an early CO2 leakage detection system, the results\n\ndo indicate that inferences with conditional normalizing flows can produce highfidelity estimates for CO2 plumes with or without leakage. We are also confident\nthat the inferred uncertainty is reasonable because it correlates well with the observed errors. This uncertainty stems from noise in the seismic data and from the\nlack of precise knowledge of the reservoir’s fluid flow properties.\n\nIntroduction\nAccording to the International Panel on Climate Change 2018 report [8], achieving a 50% reduction\nin greenhouse gas emissions by the year 2050 to avert a 1.5-degree Celsius increase in the Earth’s\naverage temperature is critical. It entails large-scale deployment of carbon reduction technologies,\nmost notably carbon capture and storage (CCS). CCS involves the collection, transportation, and\ninjection of carbon dioxide (CO2) into suitable underground geological storage sites. This long-term\nstorage process, known as Geological Carbon Storage (GCS), ranks amongst the scalable net-negative\nCO2 emission technologies. However, the viability of GCS is contingent on mitigating risks of\npotential CO2 leakage from underground reservoirs, which can result from pre-existing fractures\nin reservoir seals, as underscored in the study by [19]. For this reason, there is a pressing need\nAccepted in Tackling Climate Change with Machine Learning: workshop at NeurIPS 2023.\n \n\nFigure 1: Creation of training and testing data for the conditional normalizing flow. Training pairs are simulated\nby running fluid flow simulations (M) for random samples of the permeability (K(i) ∼p(K), i = 1 · · · N).\nThese reservoir simulations produce samples for the CO2 saturation, x(i), i = 1 · · · N, and pressure. The\nsimulated plumes are observed, via the observation operator H, directly at the well, producing localized\nmeasure",
+        "chars": 1924,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.9399,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "4",
+        "chunk_id": "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-036",
+        "source": "ccus_auto_03.pdf",
+        "content": "rate during geological CO2 storage is very crucial.\n• \nA further investigation should identify the debonding \ninterface between casing/cement or cement/formation \nissue and predict how the micro-annuli of case/cement \nor cement/formation behaves with the variation of \ntemperature, stress, and chemical reactions during \ngeological CO2 storage.\n• \nThe diffusion coefficient is one of the most crucial \nparameters in the corrosion process. However, it has not \nbeen studied sufficiently in petroleum corrosion. Hence, \nit should be an interesting topic for future studies.\n• \nImproving the cementing property is one of the means \nto curb the corrosion rate. Future studies should \ninvestigate more how to reduce reactive species and add \nmore inhibitors to advance Portland cement quality.\nIf these tasks are done properly, it will clear up a \nconsiderable concern to make the operation more predictable \nand administered.\nAuthor Contribution \nWriting- original draft preparation, Nguyen V; writing- \nreview and editing, Nguyen V, Olatunji O, Guo B and Ning Liu. \nAll authors have read and agreed to the published version of \nthe manuscript.\nFunding\nThis research received no external funding\nConflicts of Interest\nThe authors declare no conflict of interest.",
+        "chars": 1258,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.9687,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      },
+      {
+        "kind": "chunk",
+        "reference_id": "2",
+        "chunk_id": "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-008",
+        "source": "ccus_auto_04.pdf",
+        "content": "in a review paper (Rutqvist, 2017) and references\ntherein. Rutqvist (2011) provided an overview of reservoir\nand mechanical simulators applied for modeling of coupled\nthermal–hydraulic–mechanical processes in geological formations. We would like to mention that certain software\npackages, namely, CMG (module GEM, CMG (2018)) and\nCODE-BRIGHT (Olivella et al., 1994, 1996) allow simulating CO2 storage accounting for a non-isothermal multiphase\nflow of carbon dioxide and pore fluids accompanied by geomechanical effects within the frame of the single simulator\n(Vilarrasa et al., 2010; Jahandideh et al., 2021; Zheng et al.,\n2021).\nIn the current study, we develop a coupled hydrogeomechanical model of CO2 storage in a saline aquifer intersected by a single tectonic fault. The model is based on the\nMUFITS academic reservoir simulator (Afanasyev, 2020),\nthe FLAC3D commercial mechanical simulator (Itasca,\n1997), and our in-house API, i.e., an algorithm for data\ntransfer between simulators. Furthermore, we propose an\nanalytical model describing permeability evolution in the\ntectonic fault zone of rock formation and embed it into\nthe coupled modeling workflow. The closure relations include several parameters, which can be evaluated in lab\nexperiments and via solving the inverse problem. The latter\none is tuning of input parameters to approximate field\nobservations by the results of simulations using the coupled\nhydro-geomechanical model. Our main goal is to study the\nfault behavior during CO2 injection at different bottomhole\npressure values, formation configurations, stress conditions,\nPage 2 of 27\n\nand reservoir properties to evaluate the associated geomechanical risks including fault activation and CO2 leakage\nout of the target aquifer.",
+        "chars": 1756,
+        "truncated": false,
+        "text_quality": {
+          "readable_ratio": 0.928,
+          "math_ratio": 0.0,
+          "low": false
+        }
+      }
+    ],
+    "entities": [
+      {
+        "kind": "entity",
+        "name": "CO2 Leakage",
+        "entity_type": "risk",
+        "description": "CO2 Leakage refers to the escape of Carbon Dioxide (CO2) from storage reservoirs, particularly in the context of CO2 sequestration. This multifaceted risk involves various pathways, including mechanical instabilities such as fault reactivation and caprock fracturing, as well as material degradation due to carbonic acid formation from water impurities in CO2 streams. CO2 leakage can also occur through cement-casing interfaces and cement cracking, and is associated with the reaction with cement, the escape of CO2 from the storage area into the surrounding environment, and the leakage of carbon dioxide out of the target aquifer to the upper layers. The risk of CO2 escaping from the wellbore or storage site is a concern, as is the fluid flow and transport during the geologic CO2 sequestration (GCS) process. CO2 leakage can lead to unintended greenhouse gas leakage and potential environmental hazards, including groundwater contamination. Misinterpretations of artifacts caused by noise as actual leakage are also a concern, highlighting the need for accurate monitoring and interpretation of data during CO2 storage simulations.\n\nCO2 Leakage is a significant risk in geologic CO2 sequestrati…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_02.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_08.pdf",
+          "ccus_auto_09.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_14.pdf",
+          "ccus_auto_17.pdf",
+          "ccus_auto_18.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-005",
+          "doc-169d932608481f108df60dc91e97548d-chunk-006",
+          "doc-169d932608481f108df60dc91e97548d-chunk-007",
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-169d932608481f108df60dc91e97548d-chunk-056",
+          "doc-169d932608481f108df60dc91e97548d-chunk-063",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-001",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-002",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-013",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-053",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-054",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-002",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-020",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-028",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-029",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-031",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-000",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-001",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-004",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-008",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-009",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-053",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-059",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-065",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-069",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-071",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-021",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-023",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-001",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-003",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-004",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-032",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-000",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-002",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-003",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-007",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-014",
+          "doc-4aac0d79b674c41734c6687ee9d06b59-chunk-033",
+          "doc-33c78618ea0dfd8232dac84021219413-chunk-001",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-032",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-003",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-005",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-014",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-011",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-017",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-044",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-000",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-001",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-006",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-008",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-000",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-005",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-002",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-008",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "Carbon Storage",
+        "entity_type": "process",
+        "description": "The process of storing carbon dioxide in geological formations to mitigate climate change.",
+        "sources": [
+          "ccus_auto_12.pdf",
+          "ccus_auto_14.pdf"
+        ],
+        "chunk_ids": [
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-017",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-002"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Cement Sheath",
+        "entity_type": "wellborecomponent",
+        "description": "The cement sheath is a critical component of the wellbore, serving to create a barrier between the wellbore and the surrounding formation. It is a layer of cement surrounding the casing, designed to seal the wellbore and prevent fluid flow or leakage. This component is often made of a mixture of cement and other materials, providing enhanced sealing and protection. The cement sheath is crucial for maintaining the integrity of the wellbore and ensuring that fluids are contained within the well.",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_03.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-001",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-006",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-007",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-008",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-009",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-021",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-022",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-031",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-036"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "CO2",
+        "entity_type": "material",
+        "description": "Carbon Dioxide (CO2) is a chemical species that plays a crucial role in various processes related to its storage and capture, particularly in the context of geological storage from industrial sources. Recognized as a primary greenhouse gas, CO2 contributes to climate change and is extensively used in CO2 storage operations, specifically in CO2-water systems. It is involved in the injection process, affecting rock stability, and is used in the geological storage process, particularly in CO2 injection processes. CO2 is also used in experimental systems and simulations, as well as in the study of CO2 storage and geological storage, focusing on layer development and CO2-rich brine flow. Overall, Carbon Dioxide (CO2) is a key chemical species in CO2 storage and geological storage processes, with significant implications for climate change and environmental management.\n\nCarbon Dioxide, a chemical species used in CO2 capture, utilization, and storage (CCUS) processes, is the primary component of the carbon capture and sequestration process and is stored in deep subsurface formations. Supercritical CO2 is used in studies for injection into saline aquifers, contributing to increased permeab…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_02.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_08.pdf",
+          "ccus_auto_09.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_13.pdf",
+          "ccus_auto_14.pdf",
+          "ccus_auto_15.pdf",
+          "ccus_auto_16.pdf",
+          "ccus_auto_17.pdf",
+          "ccus_auto_18.pdf",
+          "ccus1.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-002",
+          "doc-169d932608481f108df60dc91e97548d-chunk-004",
+          "doc-169d932608481f108df60dc91e97548d-chunk-007",
+          "doc-169d932608481f108df60dc91e97548d-chunk-016",
+          "doc-169d932608481f108df60dc91e97548d-chunk-017",
+          "doc-169d932608481f108df60dc91e97548d-chunk-018",
+          "doc-169d932608481f108df60dc91e97548d-chunk-019",
+          "doc-169d932608481f108df60dc91e97548d-chunk-050",
+          "doc-169d932608481f108df60dc91e97548d-chunk-058",
+          "doc-169d932608481f108df60dc91e97548d-chunk-060",
+          "doc-169d932608481f108df60dc91e97548d-chunk-077",
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-006",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-007",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-008",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-010",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-013",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-037",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-049",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-052",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-055",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-001",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-007",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-009",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-010",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-011",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-012",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-013",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-015",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-018",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-021",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-025",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-027",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-029",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-030",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-031",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-035",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-005",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-007",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-009",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-010",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-013",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-014",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-016",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-024",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-057",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-064",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-067",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-070",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-072",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-088",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-089",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-068",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-083",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-005",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-008",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-013",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-019",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-021",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-023",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-027",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-028",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-000",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-001",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-004",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-005",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-006",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-015",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-022",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-027",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-028",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-030",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-031",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-008",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-009",
+          "doc-4aac0d79b674c41734c6687ee9d06b59-chunk-015",
+          "doc-33c78618ea0dfd8232dac84021219413-chunk-000",
+          "doc-33c78618ea0dfd8232dac84021219413-chunk-006",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-000",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-003",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-004",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-005",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-008",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-013",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-014",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-015",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-016",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-017",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-018",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-019",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-024",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-025",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-026",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-028",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-029",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-042",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-044",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-045",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-001",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-002",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-003",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-020",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-023",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-024",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-025",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-033",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-006",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-001",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-002",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-008",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-011",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-000",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-002",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-005",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-000",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-003",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-009",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-010",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-011",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-025",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-039",
+          "doc-28a2c4d9daa21edb44afec3b2d26c886-chunk-000",
+          "doc-28a2c4d9daa21edb44afec3b2d26c886-chunk-036",
+          "doc-28a2c4d9daa21edb44afec3b2d26c886-chunk-041",
+          "doc-28a2c4d9daa21edb44afec3b2d26c886-chunk-058",
+          "doc-4af19cb49f5e891eae82a8f6117f1ddb-chunk-005",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-004",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-005",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-002",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-004",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-006",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-007",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-010",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-022",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-000",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-001",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-003",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-005",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-006",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-016",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-018",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-025",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-026",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-006",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-007",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-029",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-030",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-032",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-034",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-037",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-005",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-008",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-012",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-016",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-017",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-022",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-023",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-028",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-029",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-030",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-031",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-035",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-037",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-038",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-039",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-040",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-041",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-044"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "Wellbore Integrity",
+        "entity_type": "risk",
+        "description": "Wellbore integrity refers to the structural soundness and safety of the wellbore during geological CO2 storage. It encompasses the condition of the wellbore to maintain its structural integrity, highlighting the risk of failure modes and hazards such as leakage and contamination. The overall structural soundness and safety of the wellbore are crucial for preventing fluid leakage and ensuring proper geological CO2 storage. Wellbore integrity also involves the risk of well leakage, which can lead to groundwater contamination. The state of being free from failure modes and hazards in the wellbore is another key aspect, alongside the risk of well leakage and the potential for CO2 leakage, which could affect the overall stability of the storage site. The structural soundness and operational condition of the wellbore components are essential for maintaining wellbore integrity.<SEP>The structural soundness of wells used in CO2 transport and storage.",
+        "sources": [
+          "ccus_auto_03.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_13.pdf",
+          "ccus_auto_18.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-000",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-007",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-008",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-015",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-005",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-022",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-029",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "CO2 Transport Systems",
+        "entity_type": "process",
+        "description": "Future systems for transporting CO2, influenced by various factors like pressure maintenance and phase behavior.",
+        "sources": [
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Wells",
+        "entity_type": "wellborecomponent",
+        "description": "The wells involved in CO2 injection and production.<SEP>A component of the wellbore used for fluid injection and production.<SEP>Local measurements from wells, such as well logging data and rock core samples, used as conditioning data.<SEP>Individual wells controlled by each operator in a decentralized manner.",
+        "sources": [
+          "ccus_auto_02.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_08.pdf",
+          "ccus_auto_12.pdf"
+        ],
+        "chunk_ids": [
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-053",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-020",
+          "doc-4aac0d79b674c41734c6687ee9d06b59-chunk-038",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-031"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Caprock Integrity Failure",
+        "entity_type": "risk",
+        "description": "The potential failure of caprock integrity, which is a risk for gas breakthrough in wells 2 and 4.<SEP>The potential for the caprock to fail and allow CO2 to escape.<SEP>A potential failure mode where the caprock fails to contain the injected CO2, leading to environmental risks.<SEP>A potential failure mode that may occur during UGS or CGI, driven by the renewed criticality of the fault system due to stress redistribution inherited from PP slip.<SEP>A failure mode related to the integrity of the caprock.",
+        "sources": [
+          "ccus_auto_02.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_09.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_18.pdf"
+        ],
+        "chunk_ids": [
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-053",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-069",
+          "doc-33c78618ea0dfd8232dac84021219413-chunk-001",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-033",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-000"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "CO2 Storage",
+        "entity_type": "process",
+        "description": "CO2 Storage involves the process of storing carbon dioxide (CO2) in geological formations, particularly deep saline aquifers, as part of CO2 sequestration projects. Advanced geological characterization techniques, simulation models, and risk assessment methodologies are utilized to evaluate various storage candidates. This process is highlighted as a key solution for CO2 storage in Poland, both in a legal and regulatory context and as part of broader sequestration initiatives. The storage of CO2 in aquifers or rock formations is a critical component of these projects, ensuring the safe and effective long-term containment of CO2 emissions.<SEP>The process of storing CO2 in saline aquifers, which can lead to the formation of secondary porous networks through halite precipitation.<SEP>The process of storing CO2 in geological formations to reduce atmospheric emissions.<SEP>The process of storing CO2 in the basin, simulated over a defined time horizon.<SEP>Operations involving the injection, storage, and monitoring of CO2 in geological formations.<SEP>The process of storing CO2 in geological formations for long-term sequestration.",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_02.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_16.pdf",
+          "ccus_auto_17.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-005",
+          "doc-169d932608481f108df60dc91e97548d-chunk-055",
+          "doc-169d932608481f108df60dc91e97548d-chunk-064",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-054",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-000",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-008",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-087",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-000",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-003",
+          "doc-4aac0d79b674c41734c6687ee9d06b59-chunk-002",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-035",
+          "doc-4af19cb49f5e891eae82a8f6117f1ddb-chunk-001",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-000"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Reservoir",
+        "entity_type": "geologicalbody",
+        "description": "A reservoir is a rock unit that contains and/or can produce fluids, serving as a storage space for various types of fluids such as oil, gas, water, or CO2. Reservoirs are geological structures characterized by high porosity and permeability, making them suitable for CO2 storage and carbon sequestration efforts. Some reservoirs, particularly in the Rotliegend Group, can serve as storage areas for fluids and can be partially-depleted gas fields converted into underground gas storage (UGS) after a primary production period. These rock units can be described as 200-m thick blocks located at a depth of 2,000-m, consisting of two adjacent blocks measuring 2×2 km each, and can be intersected by tectonic faults. Reservoirs can be used in the context of CO2 storage and extraction, with some studies focusing on tight sandstone reservoirs (Tr1) and limestone seals (Tr2), and are often mentioned in the context of CO2 geological storage. In simulation models, specific reservoirs, such as those with a porosity of 1.95% and a permeability of 1.357 mD, are used to model CO2 storage operations.\n\nReservoirs are also described as the rock unit where CO2 is stored and where pressure management is crit…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_14.pdf",
+          "ccus_auto_16.pdf",
+          "ccus_auto_17.pdf",
+          "ccus1.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf",
+          "ccus5.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-004",
+          "doc-169d932608481f108df60dc91e97548d-chunk-017",
+          "doc-169d932608481f108df60dc91e97548d-chunk-019",
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-169d932608481f108df60dc91e97548d-chunk-054",
+          "doc-169d932608481f108df60dc91e97548d-chunk-077",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-015",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-022",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-004",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-005",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-009",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-014",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-047",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-050",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-055",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-056",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-057",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-058",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-059",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-062",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-064",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-067",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-068",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-071",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-072",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-076",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-079",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-088",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-094",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-020",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-022",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-024",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-028",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-003",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-008",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-009",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-005",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-006",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-007",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-008",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-010",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-012",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-013",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-015",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-017",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-021",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-022",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-024",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-025",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-028",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-031",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-032",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-034",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-036",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-037",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-038",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-048",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-053",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-056",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-057",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-058",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-001",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-007",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-014",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-016",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-018",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-019",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-020",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-025",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-026",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-028",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-031",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-033",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-021",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-017",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-003",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-031",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-032",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-000",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-002",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-010",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-011",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-015",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-018",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-023",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-025",
+          "doc-4af19cb49f5e891eae82a8f6117f1ddb-chunk-002",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-001",
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-002",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-001",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-007",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-029",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-031",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043",
+          "doc-60d0421897b32f0f22da5cba9046337a-chunk-019"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "Saline Aquifers",
+        "entity_type": "geologicalbody",
+        "description": "Onshore saline aquifers are geological bodies containing saline water that can be used for CO2 storage. These aquifers provide significant storage capacity for CO2, both on a national and regional level, with Poland's storage portfolio including such aquifers. The saline aquifers in Poland have an estimated capacity of 3.8 gigatons and are located in the Baltic Basin. Onshore saline aquifers are rock units that can store CO2 and serve as reservoirs filled with saline water, making them integral components of CO2 storage solutions.<SEP>The storage reservoir where supercritical CO2 is injected.<SEP>A subsurface system not addressed by the study, differing in terms of knowledge of geomechanical setting.<SEP>Geological formations that contain saline water.",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_14.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-000",
+          "doc-169d932608481f108df60dc91e97548d-chunk-001",
+          "doc-169d932608481f108df60dc91e97548d-chunk-026",
+          "doc-169d932608481f108df60dc91e97548d-chunk-055",
+          "doc-169d932608481f108df60dc91e97548d-chunk-056",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-002",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-000",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-021",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-007",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-009",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-002"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Subsurface Flow",
+        "entity_type": "process",
+        "description": "The process of CO2 movement in the subsurface during sequestration.",
+        "sources": [
+          "ccus_auto_02.pdf"
+        ],
+        "chunk_ids": [
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-002"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Reservoir Integrity",
+        "entity_type": "risk",
+        "description": "The risk of losing the structural and functional integrity of the reservoir during CO2 injection.<SEP>The stability and safety of the reservoir.<SEP>The potential failure of the reservoir to contain stored CO2, leading to issues such as leakage and damage to the storage environment.",
+        "sources": [
+          "ccus_auto_04.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf"
+        ],
+        "chunk_ids": [
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-001",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-057",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-003"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Calcite Layer",
+        "entity_type": "geologicalbody",
+        "description": "A rock unit with a thickness proportional to the square root of time.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "chunk_ids": [
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-031"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Fractured Cap Rock",
+        "entity_type": "risk",
+        "description": "The condition where the cap rock is fractured, leading to potential CO2 leakage in CCUS projects.",
+        "sources": [
+          "ccus_auto_18.pdf"
+        ],
+        "chunk_ids": [
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-002"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Caprock",
+        "entity_type": "geologicalbody",
+        "description": "Caprock is a type of rock unit that serves as a critical component in CO2 geological storage and other applications. Specifically, caprock acts as an impermeable layer to prevent the upward migration of stored CO2 and seals the hydrocarbon reservoir, ensuring that CO2 remains contained within the reservoir. Caprock is often characterized by mudstone or shale, or anhydrite layers, which effectively seal deep saline aquifers. Each caprock layer is typically 150 meters high and can be intersected by a tectonic fault. Caprock has a porosity of 0.01 and an elastic modulus of 17.1 GPa, further enhancing its effectiveness as a seal. Caprock is versatile, being utilized not only for CO2 storage but also as a storage structure for CO2 and a geological body used as a seal for CO2 storage.\n\nCaprock serves as a barrier to the upward migration of stored fluids, such as CO2, and acts as a seal to prevent the escape of fluids. It is particularly crucial during the geological CO2 storage process, preventing the upward migration of hydrocarbons and stored fluids. Caprock is the layer of rock that seals the reservoir, preventing the escape of fluids and serving as a critical seal that prevents the u…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_02.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_09.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_13.pdf",
+          "ccus_auto_14.pdf",
+          "ccus_auto_16.pdf",
+          "ccus_auto_18.pdf",
+          "ccus1.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-004",
+          "doc-169d932608481f108df60dc91e97548d-chunk-007",
+          "doc-169d932608481f108df60dc91e97548d-chunk-018",
+          "doc-169d932608481f108df60dc91e97548d-chunk-019",
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-169d932608481f108df60dc91e97548d-chunk-054",
+          "doc-169d932608481f108df60dc91e97548d-chunk-056",
+          "doc-169d932608481f108df60dc91e97548d-chunk-058",
+          "doc-169d932608481f108df60dc91e97548d-chunk-077",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-002",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-012",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-015",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-022",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-029",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-002",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-005",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-007",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-053",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-054",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-055",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-056",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-060",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-063",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-064",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-065",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-068",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-070",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-071",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-073",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-077",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-082",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-083",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-084",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-088",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-009",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-015",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-019",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-023",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-003",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-024",
+          "doc-33c78618ea0dfd8232dac84021219413-chunk-000",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-006",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-007",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-008",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-009",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-023",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-024",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-025",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-028",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-037",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-046",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-048",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-053",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-057",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-058",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-001",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-003",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-005",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-007",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-025",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-033",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-011",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-005",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-009",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-025",
+          "doc-4af19cb49f5e891eae82a8f6117f1ddb-chunk-002",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-007",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-022",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-001",
+          "doc-f3e0fc4900e62cdfe73cce1cb94c2eb7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-007",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-029",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-002",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-008",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-031",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-041",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "CO2 Plume Migration",
+        "entity_type": "process",
+        "description": "The movement of CO2 plume in the reservoir.<SEP>The process by which a CO2 plume moves through a heterogeneous reservoir.<SEP>The movement of the CO2 plume through the reservoir, influenced by variations in permeability and porosity.<SEP>The movement of the CO2 plume in both vertical and horizontal directions, influenced by geomechanics and reservoir heterogeneity.<SEP>The movement of CO2 through deep saline aquifers, monitored and predicted using seismic data.",
+        "sources": [
+          "ccus_auto_11.pdf",
+          "ccus_auto_14.pdf"
+        ],
+        "chunk_ids": [
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-004",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-005",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-019",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-032",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-004",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-044"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Reactivation of Faults",
+        "entity_type": "risk",
+        "description": "The condition where faults are reactivated, leading to potential CO2 leakage in CCUS projects.",
+        "sources": [
+          "ccus_auto_18.pdf"
+        ],
+        "chunk_ids": [
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-002"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Seismic Plume",
+        "entity_type": "geologicalbody",
+        "description": "A geological body representing the spread of CO2 in the reservoir.",
+        "sources": [
+          "ccus_auto_17.pdf"
+        ],
+        "chunk_ids": [
+          "doc-ea6a60be881abaebc4f63340fbbf97b5-chunk-008"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Fault",
+        "entity_type": "geologicalbody",
+        "description": "A fault is a fracture or zone of fractures between two blocks of rock where some displacement has taken place. Faults are structural features in the Earth's crust that can affect the stability of injection wells, the integrity of wellbores, and CO2 storage. These fractures can act as barriers or pathways for fluids, facilitating the movement of CO2 and serving as pathways for CO2 flow from the target aquifer to the upper aquifer. Faults can be geological bodies with a fault core and natural asperities, crucial in the context of geological CO2 storage, where permeability calculations are performed. They can impact the flow and storage of CO2, posing risks of induced seismicity and CO2 leakage. Faults can also be geological structures that pose a risk of CO2 leakage if pre-existing or pressure-induced, and they can be subject to stress and displacement, potentially causing instability and reactivation during operations. Faults are essential considerations in geological CO2 storage and fluid flow analysis, where they can be evaluated for geomechanical risks, such as fault activation. A fault can affect the trapping mechanisms in the reservoir, as it can be a fracture in the rock that…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_13.pdf",
+          "ccus_auto_18.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-004",
+          "doc-169d932608481f108df60dc91e97548d-chunk-018",
+          "doc-169d932608481f108df60dc91e97548d-chunk-058",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-004",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-005",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-015",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-022",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-005",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-007",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-009",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-027",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-035",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-037",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-038",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-043",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-046",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-053",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-055",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-056",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-057",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-064",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-065",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-070",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-071",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-073",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-078",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-079",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-081",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-084",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-086",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-088",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-091",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-093",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-023",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-005",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-006",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-007",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-011",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-013",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-015",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-018",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-019",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-022",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-027",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-028",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-030",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-032",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-034",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-037",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-042",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-048",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-053",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-054",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-056",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-057",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-058",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-007",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-033",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-005",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-003",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-007",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-029",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-031",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "Environmental Issues",
+        "entity_type": "UNKNOWN",
+        "description": "CO2 leakage from the reservoir could cause environmental issues.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-027"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Caprock Fracturing",
+        "entity_type": "process",
+        "description": "Caprock Fracturing is a process involving the fracturing of caprock, which is the impermeable rock layer that seals overlying underground reservoirs. This process can be induced by tectonic stresses and CO2 injection, and it poses a risk of mechanical instability and potential failure mode related to the integrity of the caprock. Pre-existing or pressure-induced faults can lead to CO2 leakage from underground reservoirs, making caprock fracturing a critical consideration in carbon storage techniques. Caprock fracturing is also used to enhance the permeability of caprock, but it involves the potential compromise of caprock integrity, which can lead to CO2 leakage and pose a risk to the overall containment of CO2.<SEP>A process involving fracturing caprock, although not explicitly mentioned in the input text.",
+        "sources": [
+          "ccus_auto_02.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_18.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-001",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-059",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-065",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-017",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-022",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-012",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-000",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Cement Corrosion",
+        "entity_type": "process",
+        "description": "The process of cement degradation, which is crucial for understanding CO2 geological storage.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "chunk_ids": [
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-020"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Saline Aquifer",
+        "entity_type": "geologicalbody",
+        "description": "A saline aquifer is a rock unit that stores saline water and is often used as a storage reservoir for CO2. These aquifers are characterized by their salinity, porosity, and permeability, making them suitable for long-term CO2 storage and essential for assessing CO2 solubility, plume migration, and injectivity. Saline aquifers are typically found in deeper geological formations with the potential to store approximately 10 GtCO2 for CO2 sequestration, and they can also serve as reservoirs at depths ensuring supercritical CO2 conditions. A deep geological formation with abundant storage potential for CO2, a saline aquifer is a type of geological body where saline water is stored, relevant for CO2 geological storage. Saline aquifers are generally greater than 10,000 mg/L total dissolved solids and deeper than 800 m, making them a type of CO2 storage option for enhanced water recovery and a large long-term geological storage resource in China used for CO2 storage. These aquifers are considered potential storage options for CO2, often compared to depleted hydrocarbon reservoirs and rock units containing brine that are suitable for CO2 storage. The permeability and CO2 leakage of these aq…",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_02.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf",
+          "ccus_auto_06.pdf",
+          "ccus_auto_07.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_12.pdf",
+          "ccus_auto_13.pdf",
+          "ccus_auto_14.pdf",
+          "ccus_auto_18.pdf",
+          "ccus2.pdf",
+          "ccus3.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-007",
+          "doc-169d932608481f108df60dc91e97548d-chunk-017",
+          "doc-169d932608481f108df60dc91e97548d-chunk-018",
+          "doc-169d932608481f108df60dc91e97548d-chunk-019",
+          "doc-169d932608481f108df60dc91e97548d-chunk-027",
+          "doc-169d932608481f108df60dc91e97548d-chunk-042",
+          "doc-169d932608481f108df60dc91e97548d-chunk-043",
+          "doc-169d932608481f108df60dc91e97548d-chunk-054",
+          "doc-169d932608481f108df60dc91e97548d-chunk-055",
+          "doc-169d932608481f108df60dc91e97548d-chunk-056",
+          "doc-169d932608481f108df60dc91e97548d-chunk-058",
+          "doc-169d932608481f108df60dc91e97548d-chunk-059",
+          "doc-169d932608481f108df60dc91e97548d-chunk-076",
+          "doc-169d932608481f108df60dc91e97548d-chunk-077",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-001",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-004",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-005",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-036",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-037",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-052",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-054",
+          "doc-ebf0a4dee81adfa8e419319401b32347-chunk-055",
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-022",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-008",
+          "doc-8f5f2818c36cbd1e5107b1f45cddc8ee-chunk-088",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-013",
+          "doc-9877aaee6e7c22badb9e399de650e3fb-chunk-023",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-000",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-003",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-004",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-005",
+          "doc-c9ed64f2dca6c7635edcfa3c30d75b7d-chunk-031",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-001",
+          "doc-f9eb27b33c98d58a9fc4e9baea4161f4-chunk-008",
+          "doc-71a54e81a786a6db8242a1304f60420b-chunk-002",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-002",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-005",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-016",
+          "doc-5cebf02d53ad0867188a3f2e1295cfe2-chunk-024",
+          "doc-f88429bb55303682ec382cf58f0d19c8-chunk-007",
+          "doc-1fdd5c76f994edfbb0b403b46fd27d43-chunk-005",
+          "doc-c9e274140cc2d49a3c0b10c96343fd21-chunk-009",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-002",
+          "doc-5864756c828041955cf6bfb7f6225748-chunk-022",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-010",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-026",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-030",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-034",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-036",
+          "doc-121f03ae09008c05de69cbcb76d8b8b7-chunk-037",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-031",
+          "doc-0530e6bcde0755be527d2aab42da0ca6-chunk-043"
+        ],
+        "truncated": true
+      },
+      {
+        "kind": "entity",
+        "name": "Baltic Sea",
+        "entity_type": "geologicalbody",
+        "description": "A body of water within the Polish sector where potential CO2 storage sites are being assessed.<SEP>A body of water where restrictions exist for CO2 storage.<SEP>A body of water where offshore reservoirs are located in Poland.<SEP>A body of water in the northern part of the Atlantic Ocean, used for CO2 storage.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "chunk_ids": [
+          "doc-169d932608481f108df60dc91e97548d-chunk-006",
+          "doc-169d932608481f108df60dc91e97548d-chunk-019",
+          "doc-169d932608481f108df60dc91e97548d-chunk-057",
+          "doc-169d932608481f108df60dc91e97548d-chunk-060"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Casing/Cement",
+        "entity_type": "UNKNOWN",
+        "description": "The debonding interface between casing/cement or cement/formation is the primary cause for leakage of CO2.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "chunk_ids": [
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-035"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "entity",
+        "name": "Cement/Formation",
+        "entity_type": "UNKNOWN",
+        "description": "The debonding interface between casing/cement or cement/formation is the primary cause for leakage of CO2.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "chunk_ids": [
+          "doc-c067936ff5157772ea6933c0d27ce9a0-chunk-035"
+        ],
+        "truncated": false
+      }
+    ],
+    "relationships": [
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Carbon Storage",
+        "keywords": [
+          "mitigate",
+          "risk"
+        ],
+        "description": "CO2 Leakage is a risk that must be mitigated in carbon storage operations to prevent carbon dioxide from escaping into the atmosphere.",
+        "sources": [
+          "ccus_auto_12.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Cement Sheath",
+        "keywords": [
+          "Risk"
+        ],
+        "description": "Cement sheath integrity affects the risk of CO2 leakage.<SEP>Uncertain cement integrity poses a risk of CO2 leakage.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2",
+        "tgt": "Wellbore Integrity",
+        "keywords": [
+          "integrity"
+        ],
+        "description": "Wellbore Integrity is at risk due to CO2 leakage and fracturing through faults and caprock.",
+        "sources": [
+          "ccus_auto_13.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "CO2 Transport Systems",
+        "keywords": [
+          "risk"
+        ],
+        "description": "CO2 leakage is a risk associated with CO2 transport systems.",
+        "sources": [
+          "ccus3.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Wells",
+        "keywords": [
+          "Risk"
+        ],
+        "description": "Wells 2 and 4 are at high risk of CO2 leakage before optimization.",
+        "sources": [
+          "ccus_auto_02.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Caprock Integrity Failure",
+        "keywords": [
+          "failure",
+          "leakage"
+        ],
+        "description": "CO2 leakage can result from caprock integrity failure.",
+        "sources": [
+          "ccus_auto_04.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2",
+        "tgt": "CO2 Leakage",
+        "keywords": [
+          "CO2",
+          "Leakage",
+          "flux",
+          "leakage",
+          "risk"
+        ],
+        "description": "CO2 Flux is related to CO2 Leakage, as the leakage rate of CO2 depends on the injection pressure and leakage depth.<SEP>CO2 leakage poses a risk.<SEP>CO2 can leak from storage reservoirs, leading to environmental concerns.",
+        "sources": [
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_05.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "CO2 Storage",
+        "keywords": [
+          "Failure",
+          "Failure Mode",
+          "Risk",
+          "Storage"
+        ],
+        "description": "CO2 storage involves the risk of CO2 leakage.<SEP>CO2 leakage can cause failure in the CO2 storage process.",
+        "sources": [
+          "ccus_auto_01.pdf",
+          "ccus_auto_17.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Reservoir",
+        "keywords": [
+          "Leakage",
+          "Reservoir",
+          "Risk",
+          "co2 leakage",
+          "reservoir"
+        ],
+        "description": "CO2 leakage is a risk associated with the failure of the reservoir containment system.<SEP>Risk of CO2 leakage was monitored during the CO2 storage simulation.<SEP>CO2 leakage can occur from pre-existing fractures in the reservoir seals.",
+        "sources": [
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus_auto_17.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Saline Aquifers",
+        "keywords": [
+          "Leakage"
+        ],
+        "description": "CO2 leakage is a risk associated with caprock integrity in saline aquifers.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Subsurface Flow",
+        "keywords": [
+          "flow",
+          "leakage"
+        ],
+        "description": "Subsurface flow can lead to CO2 leakage if not managed properly.",
+        "sources": [
+          "ccus_auto_02.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Reservoir Integrity",
+        "keywords": [
+          "CO2 Leakage",
+          "Reservoir Integrity Failure"
+        ],
+        "description": "Reservoir integrity failure leads to CO2 leakage during the injection process.",
+        "sources": [
+          "ccus_auto_04.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Calcite Layer",
+        "keywords": [
+          "CO2 Leakage",
+          "Calcite Layer"
+        ],
+        "description": "Calcite layer failure can lead to CO2 leakage.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2",
+        "tgt": "Fractured Cap Rock",
+        "keywords": [
+          "risk",
+          "storage"
+        ],
+        "description": "Fractured cap rocks can lead to CO2 leakage, posing safety concerns in CCUS projects.",
+        "sources": [
+          "ccus_auto_18.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Caprock",
+        "keywords": [
+          "CO2 Leakage",
+          "Caprock",
+          "Seal Failure",
+          "caprock",
+          "leakage",
+          "storage containment"
+        ],
+        "description": "Caprock is a barrier that prevents CO2 from leaking into the subsurface.<SEP>Caprock's integrity is related to CO2 Leakage, as caprock failure can cause CO2 to escape.<SEP>CO2 Leakage is a failure mode and hazard related to the unintended release of carbon dioxide along the caprock.<SEP>Caprock failure can lead to CO2 leakage from storage.<SEP>Caprock is a critical layer in preventing CO2 from escaping from the storage site, ensuring containment and integrity.<SEP>Caprock, as a geological body, can fail to seal properly, leading to CO2 leakage.",
+        "sources": [
+          "ccus_auto_02.pdf",
+          "ccus_auto_03.pdf",
+          "ccus_auto_04.pdf",
+          "ccus_auto_10.pdf",
+          "ccus_auto_11.pdf",
+          "ccus3.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "CO2 Plume Migration",
+        "keywords": [
+          "Prevent Leakage"
+        ],
+        "description": "CO2 plume migration can lead to CO2 leakage if not properly managed.",
+        "sources": [
+          "ccus_auto_14.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2",
+        "tgt": "Reactivation of Faults",
+        "keywords": [
+          "risk",
+          "storage"
+        ],
+        "description": "Reactivation of faults can lead to CO2 leakage, posing safety concerns in CCUS projects.",
+        "sources": [
+          "ccus_auto_18.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Seismic Plume",
+        "keywords": [
+          "Containment",
+          "Risk"
+        ],
+        "description": "The seismic plume may lead to CO2 leakage, which is a risk to the reservoir's integrity.",
+        "sources": [
+          "ccus_auto_17.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Fault",
+        "keywords": [
+          "CO2 Leakage",
+          "Fault",
+          "Faults",
+          "Leakage"
+        ],
+        "description": "CO2 Leakage is a failure mode and hazard related to the unintended release of carbon dioxide along the fault.<SEP>CO2 leaks out of the disposal zone through faults.",
+        "sources": [
+          "ccus_auto_04.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Environmental Issues",
+        "keywords": [
+          "Escapes"
+        ],
+        "description": "CO2 leakage from the reservoir could cause environmental issues.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Caprock Fracturing",
+        "keywords": [
+          "Mechanical Instability",
+          "faults",
+          "leakage",
+          "risk"
+        ],
+        "description": "Caprock fracturing can lead to CO2 leakage.<SEP>Caprock fracturing poses a risk of CO2 leakage from underground reservoirs due to pre-existing or pressure-induced faults.",
+        "sources": [
+          "ccus_auto_02.pdf",
+          "ccus_auto_07.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Cement Corrosion",
+        "keywords": [
+          "corrosion",
+          "leakage"
+        ],
+        "description": "Cement corrosion can lead to CO2 leakage through various pathways.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "CO2 Leakage",
+        "tgt": "Saline Aquifer",
+        "keywords": [
+          "Geomechanical Risk"
+        ],
+        "description": "CO2 Leakage is a risk to the Saline Aquifer.",
+        "sources": [
+          "ccus_auto_04.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "Baltic Sea",
+        "tgt": "CO2 Leakage",
+        "keywords": [
+          "environmental risk"
+        ],
+        "description": "Concerns about the potential for CO2 to escape from storage sites in the Baltic Sea, posing ecological risks.",
+        "sources": [
+          "ccus_auto_01.pdf"
+        ],
+        "truncated": false
+      },
+      {
+        "kind": "relationship",
+        "src": "Casing/Cement",
+        "tgt": "Cement/Formation",
+        "keywords": [
+          "Leakage"
+        ],
+        "description": "The debonding interface between casing/cement or cement/formation is the primary cause for leakage of CO2.",
+        "sources": [
+          "ccus_auto_03.pdf"
+        ],
+        "truncated": false
+      }
+    ],
+    "references": [
+      {
+        "reference_id": "1",
+        "source": "ccus_auto_02.pdf"
+      },
+      {
+        "reference_id": "3",
+        "source": "ccus3.pdf"
+      },
+      {
+        "reference_id": "2",
+        "source": "ccus_auto_04.pdf"
+      },
+      {
+        "reference_id": "5",
+        "source": "ccus_auto_06.pdf"
+      },
+      {
+        "reference_id": "4",
+        "source": "ccus_auto_03.pdf"
+      },
+      {
+        "reference_id": "6",
+        "source": "ccus_auto_17.pdf"
+      }
+    ],
+    "stats": {
+      "chunks": 12,
+      "entities": 27,
+      "relationships": 25,
+      "sources": 6,
+      "unsourced": 0,
+      "traceable": 12,
+      "low_quality_chunks": 2
+    }
+  },
+  "elapsed_ms": 0
+}
