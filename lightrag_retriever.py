@@ -27,6 +27,10 @@ from lightrag.utils import EmbeddingFunc
 # 片段构建逻辑抽到纯函数模块，便于离线单元测试（CI 无需 Ollama）
 from fragment_builder import build_fragments, extract_data
 
+# 证据卡构建（保留出处）。与 build_fragments 的不变量相反，理由见该模块文档：
+# 那边合并成字符串喂 rerank，这边一条证据一张卡、绝不合并。
+from kb_evidence import build_evidence
+
 # 实体抽取的领域约束（只抽地质/工艺实体）。同样抽成独立模块：
 # 它是 prompt 的一部分，值得被单测覆盖，也不该埋在构造参数里。
 from utils.kg_prompt import addon_params as kg_addon_params
@@ -244,6 +248,31 @@ def retrieve_documents(query: str, mode: str = "hybrid") -> list[str]:
         return []
 
     return build_fragments(extract_data(result))
+
+
+def query_evidence(
+    query: str, mode: str = "hybrid", *, with_graph: bool = True
+) -> dict:
+    """检索并返回**带出处**的证据包（切片 / 实体 / 关系 / 来源表）。
+
+    与 ``retrieve_documents`` 的区别不是返回值形状，而是**失败时怎么办**：
+
+    ``retrieve_documents`` 把异常吞成空列表。那是对的 —— 它服务于 Agent 的
+    地质分支，检索挂了还有井筒分支与联网证据兜底，整条链路不该因为图谱
+    没起来就崩掉。
+
+    这里**故意不吞**，让异常抛给调用方。因为本函数的唯一消费方是控制台的
+    知识库面板，而面板上"检索返回 0 条"是一句**关于语料的事实陈述**：
+    "知识库里没有这个内容"。如果检索根本没跑起来也返回空列表，界面就会
+    把这句假话原样显示出来，操作员据此认为"我们的文献没覆盖这个问题"，
+    然后去补文献 —— 而真实原因是 Ollama 没启动。
+
+    把"没有"与"不知道"分开，是本项目贯穿全栈的一条约束（阈值未配置返回
+    indeterminate 而不是 normal，是同一件事）。
+    """
+    bridge = _get_bridge()
+    result = bridge.query_data(query, mode=mode)
+    return build_evidence(extract_data(result), with_graph=with_graph)
 
 
 def query_graph_answer(query: str, mode: str = "hybrid") -> str:
