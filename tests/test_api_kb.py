@@ -438,5 +438,97 @@ class TestSearchStates(KBApiTestBase):
         self.assertEqual(r.status_code, 422)
 
 
+def _load_capture_script():
+    """按路径加载 ``scripts/capture_kb_fixtures.py``。
+
+    ``scripts/`` 不是包（没有 ``__init__.py``），但它里面的判定逻辑值得被测 ——
+    尤其是"语料不全时该怎么办"，那是一个会静默偏向某一侧的判断。
+    """
+    import importlib.util
+    import pathlib
+
+    path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "scripts"
+        / "capture_kb_fixtures.py"
+    )
+    spec = importlib.util.spec_from_file_location("capture_kb_fixtures", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class FixtureCorpusGateTests(unittest.TestCase):
+    """语料不全时，fixture 校验必须说"没查"，不能说"不一致"。
+
+    CI 的第一版把 ``documents.json`` 当无条件逐字节比对，而它比的是
+    ``ccus_docs/`` 的目录列表 —— 那些 PDF 按设计不入仓库，于是这个 job
+    在 CI 里永远红。永远红的检查比没有检查更糟：它会训练所有人忽略整个
+    job，连同里面那些真的能跑的检查。
+
+    所以三种情形必须分开，而且分开的方式要能被测试锁住：
+
+    * 本机**多出**文件 → 真的漂移，必须红（fixture 里没有它，前端就不显示它）
+    * 本机**缺少**文件 → 环境不同，跳过并说明原因
+    * 完全一致 → 逐字节比对
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import pathlib
+
+        cls.mod = _load_capture_script()
+        path = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "web"
+            / "src"
+            / "fixtures"
+            / "documents.json"
+        )
+        cls.fixture = json.loads(path.read_text(encoding="utf-8"))
+        cls.names = [str(r["name"]) for r in cls.fixture["documents"]]
+
+    def _payload(self, names, *, drop=None, add=None):
+        template = dict(self.fixture["documents"][0])
+        rows = []
+        for n in names:
+            row = dict(template, name=n)
+            if drop:
+                row.pop(drop, None)
+            if add:
+                row[add] = "x"
+            rows.append(row)
+        return {"total": len(rows), "documents": rows}
+
+    def test_missing_files_are_skipped_with_a_reason(self):
+        ok, note = self.mod._corpus_gate(self._payload(self.names[:1]))
+        self.assertFalse(ok, "本机语料比 fixture 少时必须跳过逐字节比对")
+        self.assertIn("少", note, "跳过时必须说明少了多少 —— 否则读起来像「没查」")
+
+    def test_extra_file_is_a_real_drift_and_fails(self):
+        payload = self._payload(self.names + ["ccus_new.pdf"])
+        with self.assertRaises(SystemExit) as ctx:
+            self.mod._corpus_gate(payload)
+        self.assertIn("ccus_new.pdf", str(ctx.exception))
+
+    def test_same_corpus_allows_byte_comparison(self):
+        ok, note = self.mod._corpus_gate(self._payload(self.names))
+        self.assertTrue(ok, "语料一致时必须走逐字节比对，不能一律跳过")
+        self.assertEqual(note, "")
+
+    def test_renamed_field_is_caught_even_when_corpus_differs(self):
+        drift = self.mod._shape_drift(self._payload(self.names[:1], drop="chunks"))
+        self.assertTrue(
+            any("chunks" in d for d in drift),
+            "字段改名与语料无关，跳过逐字节不等于这个文件没人管",
+        )
+
+    def test_added_field_is_caught(self):
+        drift = self.mod._shape_drift(self._payload(self.names[:1], add="chunk_count"))
+        self.assertTrue(any("chunk_count" in d for d in drift))
+
+
 if __name__ == "__main__":
     unittest.main()

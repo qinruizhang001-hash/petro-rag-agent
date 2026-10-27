@@ -14,19 +14,32 @@
 **三个端点的可校验性不一样，脚本必须如实区分**
 ----------------------------------------------
 * `overview` / `documents`：纯文件读（`ccus_docs/`、`lightrag_storage/`、
-  `chroma.sqlite3`），不碰模型、不碰网络 → 结果确定，**CI 每次都能校验**。
+  `chroma.sqlite3`），不碰模型、不碰网络。但"确定"要分两种：
+  **与输入无关的确定**（后端怎么序列化）和**与语料相关的确定**（语料里有
+  什么）。前者在 CI 里成立，后者不成立 —— `ccus_docs/*.pdf` 与
+  `lightrag_storage/` 按设计不入仓库（论文有版权，图谱是 GB 级产物），
+  所以 CI 里的语料只有 1 篇。逐字节比对只在有完整语料的开发机上有意义；
+  字段集合比对与语料无关，**任何时候都跑**。
 * `search`：要跑 LightRAG + Ollama 嵌入 + 图检索，本机约 21 秒，CI 里没有
   Ollama → 只在开发机上抓，**CI 不校验**。
 
 这个差别必须打印出来。一个"fixture 一致"的绿灯如果连 search 也包含了，
 而 search 其实从没被比对过，那这个绿灯就是在替没做的检查背书。
 
+**第一版 CI 在这里红过。** 它把 `documents.json` 当无条件逐字节比对，
+于是在语料只有 1 篇的 runner 上永远失败 —— 一个永远红的检查比没有检查更糟：
+它会训练所有人忽略这个 job，连同里面那些真的能跑的检查。三种情形必须分开
+（本机多出文件 = 真漂移，要红；本机缺少文件 = 环境不同，跳过并说明；
+完全一致 = 逐字节比对），`tests/test_api_kb.py::FixtureCorpusGateTests` 锁住
+这个分法。
+
 用法::
 
     python scripts/capture_kb_fixtures.py            # 写入 web/src/fixtures/
     python scripts/capture_kb_fixtures.py --check    # 只比对（CI 用，不跑检索）
 
-`--check` 只比对可确定的两个文件，并在最后明确写出"search.json 未校验"。
+`--check` 会逐文件打印它走到了哪一层（逐字节 / 字段集合 / 未比对），
+不打印一个笼统的"一致"。
 """
 from __future__ import annotations
 
@@ -51,6 +64,19 @@ DETERMINISTIC = ("overview.json", "documents.json")
 
 #: 需要 Ollama 的文件（CI 不校验）。
 MODEL_BOUND = "search.json"
+
+#: 内容来自**本机语料**的文件。
+#:
+#: 这一组比 ``MODEL_BOUND`` 更麻烦，而 CI 第一版正是在这里红的：脚本把
+#: ``documents.json`` 当成"确定可比对"，可它的内容是 ``ccus_docs/`` 的目录
+#: 列表，而 ``ccus_docs/*.pdf`` 与 ``lightrag_storage/`` 按设计**不入仓库**
+#: （论文 PDF 有版权，图谱是 GB 级产物）。于是 CI 里的语料只有 1 篇，
+#: 逐字节比对注定失败 —— 一个永远红的检查比没有检查更糟：它会训练所有人
+#: 忽略这个 job，连同里面那些真的能跑的检查一起。
+#:
+#: 所以"确定"要拆成两种：与输入无关的确定（后端怎么序列化），和与语料
+#: 相关的确定（语料里有什么）。前者在 CI 里仍然成立，后者不行。
+CORPUS_BOUND = ("overview.json", "documents.json")
 
 
 def _client():
@@ -124,6 +150,91 @@ def _dump(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _fixture_corpus() -> set[str] | None:
+    """从已提交的 ``documents.json`` 读出"这份 fixture 是拿哪些文件抓的"。
+
+    语料清单写在 fixture 里，所以"本机语料与 fixture 是否同一批"这个问题
+    不需要任何额外记录就能回答 —— 也不需要把文档数写死在脚本里（写死的话，
+    真的入库了一篇新论文时它反而不会红）。
+    """
+    target = OUT / "documents.json"
+    if not target.exists():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    rows = data.get("documents") or []
+    if not rows:
+        return None
+    return {str(r.get("name")) for r in rows}
+
+
+def _corpus_gate(payload: dict) -> tuple[bool, str]:
+    """判断本机语料能否与 fixture 逐字节比对。
+
+    三种情形，处置必须不同：
+
+    * **本机多出文件** → 真的漂移（入库了新论文、改了文件名）。这是要红的
+      那一类，而且必须红：fixture 里没有它，前端就不会显示它。
+    * **本机缺少文件** → 这是"环境不同"，不是漂移。CI 只有 1 篇是因为 PDF
+      不入仓库。跳过逐字节比对，但必须把原因说出来。
+    * **完全一致** → 逐字节比对。
+
+    把前两种合并成一种"跳过"，等于让新增论文这件事也变成静默的。
+    """
+    recorded = _fixture_corpus()
+    if recorded is None:
+        return False, "documents.json 不存在或读不出语料清单，无法判断本机语料是否与它一致"
+    live = {str(r.get("name")) for r in payload.get("documents") or []}
+    extra = live - recorded
+    missing = recorded - live
+    if extra:
+        raise SystemExit(
+            "::error::语料里出现了 fixture 尚未记录的文件：\n  - "
+            + "\n  - ".join(sorted(extra))
+            + "\n这是真的漂移（新入库 / 改过文件名），请重抓 fixture：\n"
+            "  python scripts/capture_kb_fixtures.py\n"
+            "重抓后看 git diff —— 如果只是新增一行文档，那是预期内的。"
+        )
+    if missing:
+        head = "、".join(sorted(missing)[:3])
+        tail = "…" if len(missing) > 3 else ""
+        return False, f"本机语料比 fixture 少 {len(missing)} 篇（{head}{tail}）"
+    return True, ""
+
+
+def _row_shape(payload: dict) -> set[str]:
+    """一行文档的字段集合 + 顶层字段集合。
+
+    语料不同时仍能查的东西：字段名。``chunks`` 改名成 ``chunk_count``、
+    ``gaps`` 从列表变字典 —— 这些与语料无关，本机只有 1 篇时也查得出来。
+    所以"跳过逐字节"不等于"这个文件没人管"。
+    """
+    keys = set(payload.keys())
+    rows = payload.get("documents") or []
+    if rows:
+        keys |= set(rows[0].keys())
+    return keys
+
+
+def _shape_drift(payload: dict) -> list[str]:
+    """对比 fixture 与实况的字段集合，返回差异描述（空列表 = 一致）。"""
+    target = OUT / "documents.json"
+    try:
+        recorded = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    want = _row_shape(recorded)
+    got = _row_shape(payload)
+    problems: list[str] = []
+    if want - got:
+        problems.append("缺少字段：" + "、".join(sorted(want - got)))
+    if got - want:
+        problems.append("多出字段：" + "、".join(sorted(got - want)))
+    return problems
+
+
 def main(argv: list[str]) -> int:
     check_only = "--check" in argv[1:]
     payloads, note = capture()
@@ -133,10 +244,20 @@ def main(argv: list[str]) -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     stale: list[str] = []
     compared: list[str] = []
+    skipped: list[str] = []
+    corpus_note = ""
+    gated = False
     for name, payload in payloads.items():
         text = _dump(payload)
         target = OUT / name
         if check_only:
+            if name in CORPUS_BOUND and not gated:
+                gated = True
+                ok, corpus_note = _corpus_gate(payloads["documents.json"])
+                if not ok:
+                    skipped.extend(n for n in CORPUS_BOUND if n in payloads)
+            if name in skipped:
+                continue
             compared.append(name)
             if not target.exists():
                 stale.append(f"{name}：文件不存在")
@@ -156,7 +277,35 @@ def main(argv: list[str]) -> int:
                 "\n（如果只是又入库了一篇论文，diff 里应该只有数字变化。）"
             )
         # 报"比对了哪些"，不报"抓到了哪些" —— 后者会让人以为全都校验过。
-        print(f"已比对：{', '.join(sorted(compared))}")
+        if compared:
+            print(f"已比对（逐字节）：{', '.join(sorted(compared))}")
+        if skipped:
+            print(
+                f"未比对 {', '.join(sorted(skipped))}：{corpus_note}。\n"
+                "  这两个文件的内容来自本机语料（ccus_docs/ 与 lightrag_storage/），"
+                "而它们按设计不入仓库 ——\n"
+                "  论文 PDF 有版权、图谱是 GB 级产物。逐字节比对只在有完整语料的"
+                "开发机上有意义。\n"
+                "  接口契约另由 tests.test_api_kb 覆盖，那个 job 不需要语料。"
+            )
+            # 跳过逐字节 ≠ 这个文件没人管：字段名与语料无关，仍然要查。
+            drift = _shape_drift(payloads["documents.json"])
+            if drift:
+                raise SystemExit(
+                    "::error::documents.json 的字段集合变了（这与语料无关，是真漂移）：\n  - "
+                    + "\n  - ".join(drift)
+                    + "\n修法：python scripts/capture_kb_fixtures.py，然后看 git diff。"
+                )
+            print("已比对（字段集合）：documents.json —— 语料不同，字段名仍须一致")
+            if "overview.json" in skipped:
+                # 单独说明：overview 的 graph 段是 `**graph` 展开的，图谱不可用时
+                # 字段本来就少几个。硬查字段集合会造出一条假失败，而假失败和
+                # 永远红是同一件事 —— 所以这里明说"没查"，不假装查了。
+                print(
+                    "未比对（字段集合）overview.json：它的 graph 段随图谱是否可用而变，"
+                    "字段集合本身不固定；\n"
+                    "  该端点的契约由 tests.test_api_kb.TestOverview 逐字段断言。"
+                )
         if MODEL_BOUND not in compared:
             # 必须说出来，而且不能只是"未校验"三个字：要给出**为什么**。
             # 一个笼统的绿灯如果让人以为检索也校验了，它就是在替没做的检查背书。
