@@ -74,8 +74,8 @@ jobs:
           # utils.logging_setup。命令行工具（check_gateway 等）的输出本身就是
           # 产品，保留 print，故不在此列。
           hits=$(grep -rn 'print(' --include='*.py' \
-                   nodes/ core/ utils/ tools/ memory/ \
-                   api_server.py workflow.py file_memory.py lightrag_retriever.py \
+                   nodes/ core/ utils/ tools/ memory/ ops/ \
+                   api_server.py api_ops.py workflow.py file_memory.py lightrag_retriever.py \
                  | grep -v 'utils/logging_setup.py' || true)
           if [ -n "$hits" ]; then
             echo "::error::print() found in the runtime path; use log.info/warning instead"
@@ -299,6 +299,16 @@ jobs:
           done
           echo "Package boundary OK."
 
+      # 中文注释：Python 侧的许可证审查。用 --from-pypi 读 PyPI 元数据而不是
+      # 已安装包：requirements.txt 里有 sentence-transformers（拖 torch），
+      # 装一遍要几个 GB，而这个 job 的契约是"秒级、不装任何依赖"。
+      #
+      # 判定的重点不是"有没有 GPL 这几个字母"，而是 docs/license-exceptions.json
+      # 里登记的例外是否仍然成立、是否已经过期。一个不会过期的例外表
+      # 等价于没有审查。
+      - name: Dependency licences are commercially usable (Python)
+        run: python scripts/audit_python_licenses.py --from-pypi
+
   unit-core:
     name: Unit tests · core (stdlib only)
     runs-on: ubuntu-latest
@@ -324,7 +334,8 @@ jobs:
       # 孔隙弹性应力路径（与保守口径的单调性对比）/
       # 消融对照（含"补丁是否真的到达调用点"与"三组结果是否互相覆盖"）/
       # checkpoint 库的写者约束（WAL / busy_timeout 是否真的设上、worker 数是否
-      # 被强制降为 1、compose 是否与代码一致）），
+      # 被强制降为 1、compose 是否与代码一致）/
+      # 全链编排（任务拆分、子 Agent 失败不拖垮整链、周报期数不足、耦合偏离不阻断）），
       # 故意**不装** requirements.txt，保证核心逻辑不受三方包版本漂移影响。
       # 逐个点名而不是 discover：tests/ 下还有图表测试，那个需要 matplotlib。
       #
@@ -335,6 +346,7 @@ jobs:
         run: |
           python -m unittest -v \
             tests.test_fragment_builder \
+            tests.test_kb_evidence \
             tests.test_file_memory \
             tests.test_state \
             tests.test_context_pruner \
@@ -358,8 +370,10 @@ jobs:
             tests.test_normalize_graph \
             tests.test_ops_contracts \
             tests.test_ops_alarms \
+            tests.test_ops_ceiling \
             tests.test_ops_condition \
             tests.test_ops_reports \
+            tests.test_ops_supervisor \
             tests.test_graph_analysis \
             tests.test_domain_ontology \
             tests.test_ablation \
@@ -377,6 +391,49 @@ jobs:
             tests.test_optimize \
             tests.test_poroelastic \
             tests.test_graph_stubs
+
+  unit-api:
+    name: Unit tests · ops API (fastapi, no torch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：这一组测的是运维接口（api_ops）本身，只装 fastapi + httpx。
+      #
+      # 为什么**不**放进 unit-core：那个 job 的契约是"零三方包"，混进来会破坏它。
+      # 为什么**不**放进 unit-deps：那边装的是 openai/ragas 那条评估链，
+      # 与接口无关；而接口测试要的是"起一个只挂 ops 路由的裸 FastAPI"，
+      # 装得越少越能证明 api_ops 没有被重模型拖累。
+      #
+      # 这也正是 api_ops 从 api_server 里拆出来的原因：api_server 顶部
+      # `from workflow import ...` 会加载 LangGraph 全图与 2.2 GB 重排模型，
+      # 接口测试在 CI 里根本跑不起来。测试只 import api_ops，不 import api_server。
+      - name: Install API dependencies
+        run: python -m pip install --quiet "fastapi>=0.110.0" httpx
+
+      - name: Confirm this environment has no torch (the point of this job)
+        run: |
+          python - <<'PY'
+          import importlib.util as u
+          for mod in ("torch", "sentence_transformers", "chromadb", "langgraph"):
+              print(f"{mod:24} {'present' if u.find_spec(mod) else 'absent (expected)'}")
+          PY
+
+      - name: Run ops API tests
+        run: python -m unittest -v tests.test_api_ops
+
+      # 中文注释：知识库接口（api_kb）与它依赖的纯函数层（kb_evidence）放在
+      # 同一个 job 里，因为它们共享同一条依赖边界：只用 fastapi + stdlib。
+      #
+      # 这里能跑起来本身就是一个断言 —— 如果 api_kb 哪天在模块顶层
+      # import 了 lightrag 或 chromadb（首屏为了一个 COUNT(*) 付 1.2 秒），
+      # 这个 job 会在 import 阶段就炸，而不是等到线上才发现首屏变慢。
+      - name: Run knowledge base API tests
+        run: python -m unittest -v tests.test_api_kb tests.test_kb_evidence
 
   unit-deps:
     name: Unit tests · eval & config (real deps, no torch)
@@ -483,6 +540,119 @@ jobs:
 
       - name: Run chart unit tests
         run: python -m unittest -v tests.test_chart_tools tests.test_ui_components
+
+  web:
+    name: Web console · typecheck, build, fixture drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 中文注释：fixture 是**真实接口响应的快照**，由
+      # scripts/capture_ops_fixtures.py 用 TestClient 抓取。手写 fixture 会和契约
+      # 悄悄分家 —— 后端字段改名、枚举多一个值，前端继续渲染那份"看起来还对"的
+      # 旧数据，而没有任何东西会红。这一步把它变成硬失败。
+      - name: Frontend fixtures still match the live API
+        run: |
+          python -m pip install --quiet "fastapi>=0.110.0" httpx
+          python scripts/capture_ops_fixtures.py --check
+          # 中文注释：知识库 fixture 只比对可确定的两份（overview / documents）。
+          # search.json 需要 Ollama，CI 里没有 —— 脚本会明确打印"未比对"，
+          # 不让这个绿灯替没做的检查背书。
+          python scripts/capture_kb_fixtures.py --check
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      # 中文注释：`text-sev-${token}` 这种拼接在运行时是对的，但 Tailwind 是
+      # **编译期扫描源码文本**生成 CSS 的，扫不到模板字符串。症状是六级语义色
+      # 全部失效、文字继承父级，而且没有任何报错。所以这里逐个断言它们在产物里。
+      - name: Every severity class reached the stylesheet
+        working-directory: web
+        run: |
+          set -e
+          for cls in \
+            text-sev-normal text-sev-notice text-sev-warn text-sev-alert \
+            text-sev-critical text-sev-unknown \
+            border-sev-normal border-sev-critical border-sev-unknown \
+            bg-sev-unknown
+          do
+            if ! grep -q -- "$cls" dist/assets/*.css; then
+              echo "::error::$cls missing from the built stylesheet — a Tailwind class is being built by concatenation somewhere"
+              exit 1
+            fi
+          done
+          echo "All six severity classes are in the stylesheet."
+
+      # 中文注释：three 压缩后约 130 KB gzip。它被**动态 import** 时是一个独立
+      # chunk，首屏先出左栏的告警卡，剖面随后补上；一旦有人把它改成静态 import，
+      # 首屏 chunk 会从 71 KB 涨到 200 KB，而"左栏先亮"这个性质会静默消失 ——
+      # 没有报错，只是工控机上要多等一秒，而这正好是这块屏最不该慢的地方。
+      - name: 3D scene is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/geoscene-*.js >/dev/null 2>&1; then
+            echo "::error::no separate geoscene chunk — three is being imported statically again"
+            exit 1
+          fi
+          main=$(ls dist/assets/index-*.js | head -1)
+          size=$(stat -c%s "$main")
+          echo "first-paint chunk: $main ($size bytes)"
+          if [ "$size" -gt 320000 ]; then
+            echo "::error::first-paint chunk is $size bytes — three has leaked into the main bundle"
+            exit 1
+          fi
+
+      # 中文注释：知识库的检索 fixture 有 97 KB（12 个切片 + 27 个实体的原文），
+      # 它是**动态 import** 的，点"检索"时才拉。改成静态 import 不会报错，
+      # 只会让首屏 chunk 涨 78 KB —— 而这个面板在首屏是看不见的
+      # （默认停在概览页），用户等于为一个还没打开的页付了下载时间。
+      - name: KB search fixture is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/search-*.js >/dev/null 2>&1; then
+            echo "::error::no separate search chunk — the KB fixture is imported statically again"
+            exit 1
+          fi
+          echo "search chunk: $(ls dist/assets/search-*.js | head -1)"
+
+      # 中文注释：许可证审查。这不是"文档里写一句 MIT"能解决的事 ——
+      # GPL 的传染性判断看的是整个依赖树，而这个项目有 143 个包（直接依赖只有 13 个）。
+      # 先跑 --self-test：一张写错的正则表会让所有包都判为放行，然后这个绿灯
+      # 就替一次没做的检查背书了。先证明判定规则本身有效，再拿它去判。
+      - name: Dependency licences are commercially usable
+        working-directory: web
+        run: |
+          set -e
+          node scripts/audit-licenses.mjs --self-test
+          node scripts/audit-licenses.mjs
+
+      # 中文注释：渲染质量的降档判定。它写错了不会报错、不会崩、界面上也看不出
+      # 区别 —— 只会在某台集显机器上一直掉帧，而那个本该发生的降级从来没发生。
+      # 纯函数 + node:test，不需要浏览器。
+      - name: Render quality controller
+        working-directory: web
+        run: npm test
 
   frontend-contract:
     name: Frontend/backend contract

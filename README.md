@@ -21,7 +21,7 @@
 <p>
   <a href="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qinruizhang001-hash/petro-rag-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1352%20unit-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1492%20unit-brightgreen">
 </p>
 
 ---
@@ -88,7 +88,7 @@ Per-stage routing means one request touches both sides of the diagram: retrieval
 |---|---|---|
 | 1 | **SSE through a reverse proxy, without losing the stream** | 1 port · 2 upstreams · 0 CORS config |
 | 2 | **Dynamic model routing** | **¥0.00287** per assessment vs **≈¥0.041** at list price — a stated counterfactual, not a customer bill |
-| 3 | **1352 unit tests, 1281 of them on every push** | 1130 stdlib-only · 78 dependency-backed without torch · 17 gate/graph · 56 chart/UI; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
+| 3 | **1492 unit tests, 1421 of them on every push** | 1212 stdlib-only · 58 ops-API · 78 dependency-backed without torch · 17 gate/graph · 56 chart/UI; the other 71 need torch/chromadb/plotly and run locally. The E2E suite is self-hosted and prints its own count |
 | 4 | **Temporal conflict detection + Monte Carlo UQ + closed-loop plan** | latest-timestamp wins · mean + 90 % CI over 100 runs · 5 priors · Gaussian-copula correlation · Sobol first-order/total · probability → ok/warn/alert with a Wilson interval · then a constrained solve for well count / pressure cap / rate that meets the budget |
 
 ### 1. SSE that actually streams — the three nginx lines that are correctness, not tuning
@@ -133,7 +133,7 @@ Parallelism is the other half of the latency story: the geology branch (139.94 s
 
 The suite drives the running system: SSE frames are parsed off the wire, the human-approval gate is exercised over HTTP (`hitl` → `review` → reject → rewrite → approve), and every cost row is re-derived from the price table rather than trusted.
 
-**1352 unit tests, of which 1281 run on every push** (1130 that import nothing outside the standard library · 78 that need `ragas`/`openai`/`tiktoken` but still no torch · 56 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The four groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
+**1492 unit tests, of which 1421 run on every push** (1212 that import nothing outside the standard library · 58 that drive the ops and knowledge-base APIs against a bare `FastAPI()` with only `fastapi`/`httpx` installed · 78 that need `ragas`/`openai`/`tiktoken` but still no torch · 56 that need matplotlib/plotly to actually build the figures · 17 that drive the real graph with a mocked LLM). The remaining 71 need torch, chromadb or plotly and run locally — they are not counted as CI coverage, because they are not. The five groups are separate jobs on purpose: when a dependency-backed test is dropped into the stdlib-only job, all three Python versions go red for a reason that has nothing to do with the logic under test — which is exactly what happened on this branch before the split. The ops-API group is its own job for a related reason: `api_ops` deliberately does not import `api_server`, because that module loads the whole LangGraph and a 2.2 GB reranker at import time, and an interface test that needs a reranker is not an interface test. The end-to-end suite needs Ollama and a built graph index, so it runs on a self-hosted runner and prints its own PASS/FAIL count — CI cannot produce that number, and this README does not invent one.
 
 The assertions that earn their place are the ones written against a *specific* way things go silently wrong:
 
@@ -519,7 +519,7 @@ Those 33 extra candidates were never going to be selected. Two honest caveats, b
 - **Physics instead of vibes** — numerical claims are produced by Function Calling against deterministic tools (PVT, fracture gradient, caprock integrity), not by asking the model to recall a number. A rule engine then re-checks the report's conclusions against hard physics before any model is allowed to grade it.
 - **Tools as a protocol, not an import** — the three numeric tools (CO₂ density, PINN pressure, graph retrieval) are served over MCP. The main system discovers them at runtime instead of carrying a hard-coded schema list, and the same server drops into Cursor or Claude Desktop unchanged. The tool layer is verified by a real stdio round-trip, not by stubs.
 - **Learns, but does not trust itself** — every 20 assessments the system reflects on its own history and distils priors. Reflection is followed by a verifier that argues against each pattern, because the measured failure mode was spurious patterns arriving at exactly the same 0.80 confidence as real ones. In the simulation, 4 patterns were distilled and 3 were rejected.
-- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1352 unit tests** (1281 in CI: 1130 stdlib-only · 78 dependency-backed without torch · 17 gate/graph · 56 chart/UI), plus a self-hosted end-to-end suite that exercises the real HTTP path.
+- **Decoupled by construction** — FastAPI backend and Streamlit frontend speak over SSE, so the pipeline is testable without a browser. **1492 unit tests** (1421 in CI: 1212 stdlib-only · 58 ops/KB-API · 78 dependency-backed without torch · 17 gate/graph · 56 chart/UI), plus a self-hosted end-to-end suite that exercises the real HTTP path.
 - **An instrument panel, not a chat window** — the frontend is a two-column console: parameters and live pipeline state on the left, a real formation-pressure-vs-depth curve on the right, with the report and the run's cost/timing dashboard on separate tabs. The chart is drawn by the browser from the *same* physics module the back-end PNG uses, so the two cannot disagree.
 
 ---
@@ -1790,6 +1790,12 @@ what has to be written down"* — online, continuously. Four agents, one shared 
 | `ops/condition.py` | question + series | answer with per-number provenance | optional (template by default) |
 | `ops/reports.py` | alarms + template | draft + citation check + HITL state | no |
 | `ops/supervisor.py` | the three above | task split + conflict list + brief | no |
+| `ops/ceiling.py` | `bhp` + `frac_p` series | pass / near / exceed / not-checked against the 90 % regulatory limit | no |
+
+`ops/ceiling.py` is not an agent and does not grade anything. It computes one ratio that a
+regulator set rather than the project, and it runs independently of the alarm layer — a
+site can have every sensor inside its configured window and still be injecting above 90 %
+of fracture pressure, because the window itself may have been set too high.
 
 **Three constraints hold across the package**, and each one exists because the opposite
 behaviour is silent rather than wrong-looking:
@@ -1824,19 +1830,82 @@ behaviour is silent rather than wrong-looking:
 Each hit is appended to `Alarm.rationale`, so "why is this an alert" is answered with
 sentences rather than a score.
 
-### Conflict detection: four kinds, and only three of them block
+**The `notice` band is measured against the warn→alert gap, not against the threshold value.**
+The first version used `warn × 1.1` for "lower is worse" sensors, which is fine for an
+unbounded quantity and wrong for a bounded one: `co2_purity` warns at 95 % and cannot exceed
+100 %, so the notice line landed at 104.5 — above the top of the scale. Every legal reading
+was a `notice`. A permanently lit hint is not a hint: it says nothing, and it teaches readers
+to skip that level, so the real ones stop being seen. Using the distance between `warn` and
+`alert` gives a band that scales with the project's own design margin instead of with the
+absolute value, and the three levels are required to be distinct (see `contracts.py`), so the
+gap is always positive.
+
+### Conflict detection: five kinds, and only four of them block
 
 | Kind | Meaning | Blocks? |
 |---|---|---|
 | `contradiction` | two values for the same sensor at the same instant | yes |
 | `direction` | one agent says over-limit, another says not | yes |
 | `orphan_attribution` | a cause cites a sensor state that no longer holds | yes |
+| `pressure_ceiling` | bottomhole pressure above 90 % of fracture pressure | yes |
 | `coupling_deviation` | upstream/downstream moved opposite to the coupling table | **no** |
 
-The last one must not block. The coupling table says what *usually* happens; a reversal
-usually means a second driver, which is information, not a data error. Blocking it would
-make the system refuse to report exactly when the process is changing — the moment a
-report matters most.
+`pressure_ceiling` is not two agents disagreeing — it is one fact violating a regulation,
+so its remedy is "cut the rate and verify the fracture pressure source", not "find out who
+is wrong". `coupling_deviation` must not block. The coupling table says what *usually*
+happens; a reversal usually means a second driver, which is information, not a data error.
+Blocking it would make the system refuse to report exactly when the process is changing —
+the moment a report matters most.
+
+### The one limit a regulator sets, not the project
+
+Every threshold in this package is a project choice, and the code refuses to ship a default
+for exactly that reason. There is one exception, and it is the most important limit in CO₂
+storage: **bottomhole injection pressure must not exceed 90 % of the injection zone's
+fracture pressure** (40 CFR §146.68(b), UIC Class VI). That number is a regulation, not a
+policy, so `ops/ceiling.py` carries it as a named constant together with its citation —
+and refuses to be used without one.
+
+It is a separate module rather than a sensor threshold because the judgement is a **ratio
+between two readings**, and because surface pressure cannot stand in for it. 120 bar at the
+wellhead is close to the limit in an 800 m well and under half of it at 2,500 m: the same
+number is a missed alarm at one depth and a false one at another, and neither case raises
+anything. So `bhp` and `frac_p` are their own sensors, and the check takes the **peak**
+bottomhole pressure over the period rather than the last value — the compliance question is
+"was it ever above", and a spike at the start of a shift is precisely the event that has to
+be reported.
+
+Missing either reading yields `indeterminate`, never `ok`: "we did not check" and "we checked
+and it was fine" are different statements, and only one of them belongs in a regulatory
+submission. The regulatory report carries the result as its own section, and writes
+"not performed" when the inputs are absent instead of leaving a blank — a missing section
+cannot be distinguished from a section that was not needed.
+
+Two smaller things that decide whether the ratio means anything. A bottomhole pressure
+**calculated** from the wellhead (plus hydrostatic, minus friction) must be ingested as
+`quality=suspect`, and that label is not decorative: the check then states in its own basis
+that the ratio is for reference only, and the alarm layer caps such a reading at `warn`
+instead of firing a `critical` response off a number that is itself uncertain. And when the
+window contains more than one LOT, the one **in force at the peak** is used, not the latest
+one — a retest taken after a spike would otherwise rewrite the verdict for a moment it did
+not cover.
+
+### Annulus pressure: the type cannot be inferred from the numbers
+
+`annulus_p` rising is the earliest wellbore-integrity signal, and the tempting next step is
+to split it into "thermal expansion" and "communication" by comparing it with tubing
+pressure. That split does not work: both mechanisms raise annulus pressure, and tubing
+pressure is set by the injection schedule regardless of where the annulus pressure came
+from. API RP 90 and NORSOK D-010 both prescribe a **bleed-down / rebuild test** instead —
+vent the annulus, shut in, and watch whether pressure rebuilds.
+
+The rule table therefore reports one candidate, `环空带压（井筒完整性失效嫌疑，来源尚未区分）`,
+with the bleed-down test as its first action, and states in the caveat that the report may
+not name a type before that test has run. The coupling table marks the `annulus_p` /
+`wellhead_p` pair `discriminates=False`, and a structural test walks every cause rule to
+assert that no rule requires both endpoints of such a pair — because two rules in an earlier
+revision used that pair as a discriminator in **opposite** directions, each self-consistent,
+and nothing failed.
 
 ### MVA is a system, not a sensor
 
@@ -1868,9 +1937,220 @@ result = supervisor.run(request, registry)
 print(supervisor.render_brief(result))         # conflicts first, conclusions second
 ```
 
+### The HTTP surface, and why it lives in its own module
+
+Ten routes under `/api/ops/`. They are in `api_ops.py` rather than `api_server.py` for one
+concrete reason: `api_server.py` opens with `from workflow import ...`, which builds the
+whole LangGraph and loads a 2.2 GB CrossEncoder at import time. Any test that wanted to
+exercise these routes would need a reranker — and an interface test that needs a reranker
+is not an interface test. `api_ops` imports only `ops/`, FastAPI and Pydantic, so its 58
+tests (31 ops + 27 knowledge-base) run in under a second in a CI job that installs nothing but
+`fastapi` and `httpx`.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET` | `/api/ops/thresholds` | — | registry `origin`, `configured`, `missing`, plus the 18-sensor catalogue with each threshold or `null` |
+| `POST` | `/api/ops/alarms` | `readings[]`, optional `period`, grading knobs (`notice_margin` / `persist_points` / `rapid_intervals`) | graded alarms, ranked attributions, actions |
+| `POST` | `/api/ops/condition` | `question`, `readings[]`, optional `now` | an answer where every number carries its source |
+| `POST` | `/api/ops/run` | the above + `want_alarms` / `want_condition` / `want_report`, `report_kind`, `permit_id`, `periods[]` | task split, per-agent runs, conflicts, brief, `can_submit`, `draft_id` |
+| `GET` | `/api/ops/reports` | — | recent drafts, newest first |
+| `GET` | `/api/ops/reports/{draft_id}` | — | one draft |
+| `POST` | `/api/ops/reports/{draft_id}/submit` | `actor` | **409** + `problems[]` when a number has no citation |
+| `POST` | `/api/ops/reports/{draft_id}/approve` | `reviewer` (required), `note` | approved draft |
+| `POST` | `/api/ops/reports/{draft_id}/reject` | `reviewer` **and** `note` (both required) | rejected draft |
+| `POST` | `/api/ops/reports/{draft_id}/reopen` | `actor` | draft reopened, approval trail kept |
+
+The knowledge base has its own four routes in `api_kb.py`, split for the same reason and
+mounted the same way (`include_router(kb_router, dependencies=[Depends(require_token)])`,
+also pinned by a source-reading test):
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET` | `/api/kb/overview` | — | corpus / graph / vector-store status **plus the gaps**: `not_ingested`, `orphaned`, `unfinished`, `unknown_source` |
+| `GET` | `/api/kb/documents` | — | one row per file **on disk**, with `ingested: false` for the ones the graph never took |
+| `GET` | `/api/kb/documents/{name}` | `?focus=<chunk_id>&limit=` | ordered chunks, centred on `focus` when given. Reads `kv_store_text_chunks.json` directly, so citation jumps work with the model down |
+| `POST` | `/api/kb/search` | `query`, `mode`, `with_graph` | `status: ok \| empty \| unavailable` + evidence cards with `reference_id`, `file_path`, `content` |
+
+`GET /api/kb/overview` reads the Chroma store with the standard library's `sqlite3` rather
+than importing `chromadb`, which costs ~1.2 s and pulls `onnxruntime`/`numpy` into a panel
+that renders on first paint. The cost of that shortcut is a dependency on Chroma's internal
+schema (`collections` / `segments` / `embeddings`), so the whole probe is wrapped: an
+unreadable database reports `available: false`, never a guessed count.
+
+Four of those choices are deliberate:
+
+- **Auth is not in `api_ops`.** `require_token` is defined in `api_server.py`, so importing
+  it from `api_ops` would be a circular import. It is applied at the mount point instead —
+  `include_router(ops_router, dependencies=[Depends(require_token)])` — which protects every
+  current *and future* route on that router by construction. A static test reads
+  `api_server.py` and fails if that `Depends` disappears, because the failure mode is silent:
+  the routes keep answering, just without a token.
+- **Unknown fields are rejected** (`extra="forbid"`). Pydantic's default is to ignore them,
+  which turns `{"readngs": [...]}` into a `200` with zero readings followed by "no data" —
+  pointing the reader at the data instead of the typo.
+- **`can_submit` requires that a report actually exists.** Not a formality: when the report
+  agent fails, `report is None`, and a `true` there ships `can_submit: true` alongside
+  `draft_id: ""`. The frontend renders a submit button, the operator clicks it, and gets a
+  404 for a report that was never written.
+- **Drafts are on disk, not in memory.** Approval crosses shifts; an in-memory draft is gone
+  after a restart, and the approver is then looking at a 404 for a document they were just
+  asked to sign. `ops/store.py` writes to SQLite with `synchronous=FULL` — the opposite of
+  the checkpoint DB's setting, because this table is a ledger, not a cache.
+
 **What this does not do:** leak determination, site-scale verification, stored-quantity
 accounting, or execution of any countermeasure. It flags, explains and drafts; a human
 approves. Every regulatory draft states this boundary in its own conclusion section.
+
+### The console these agents talk to (`web/`)
+
+The Streamlit page below is an *assessment* console — one question, one report. The
+operations agents need something else: a board that is up for eight hours, reads 16 sensors
+continuously, and never renders "we don't know" as "fine". That is `web/`, a React + Tailwind
+app. The left rail (alarm cards, metric cards with threshold margin, blind-spot banner) is
+wired to the real `/api/ops/alarms` response; the centre is a **geological cross-section**
+built in three.js, not a rotating orb.
+
+The centre pane is the one place where "make it look like Jarvis" and "make it useful on a
+well pad" actually collide, and the answer was to make the centre pane *be* the spatial index:
+
+- **Strata, wells and the CO₂ plume are drawn at their real depths** — 0/180/260/420/820/1300 m.
+  The five MVA sensors sit where they are actually sampled, so "shallow groundwater pH is out
+  of range" has a place on the screen to point at instead of being one more row in a table.
+- **An orthographic camera, not perspective.** A depth scale has to be linear; under
+  perspective, 0–300 m occupies more pixels than 900–1200 m and two equal depths render at
+  different lengths.
+- **The plume is a parametric surface, not a sphere.** CO₂ is buoyant: it rises to the seal and
+  spreads laterally, so the profile is a feeder column under a flat-topped pancake. It took
+  three attempts — the first two were shaped like a wine glass, which implies a horizontal
+  conduit at mid-reservoir that the drawing does not otherwise show.
+- **Particles are not allowed to leave the envelope.** Displacement is capped at ±4.5 m. Free
+  drift looks more fluid, but then the extent drawn on screen becomes the bounding box of a
+  random walk rather than the modelled range — unacceptable on a panel whose job is to say
+  whether CO₂ has reached the monitoring well.
+- **The plume's geometry is labelled `示意（未接储层模拟）`.** It comes from reservoir
+  simulation, not from the pressure readings. Deriving a radius from `reservoir_p` would
+  produce a plausible-looking number that nobody can reproduce, and it would end up in a
+  screenshot in a slide deck.
+- **Engineer mode freezes the scene.** Particles and the 3D envelope are dropped; the plume's
+  outline, its hatch fill and the isobar rings stay, because they are data. The render loop
+  stops entirely — one frame, then nothing.
+
+```bash
+cd web && npm install && npm run dev     # http://localhost:5180, no backend needed
+```
+
+It runs off `web/src/fixtures/*.json`, which are **captured from the live endpoints** by
+`scripts/capture_ops_fixtures.py` rather than hand-written — and CI runs
+`capture_ops_fixtures.py --check`, so the day a field is renamed the build says so instead of
+the UI quietly rendering stale data. `VITE_OPS_SOURCE=live npm run dev` points it at a running
+backend.
+
+#### The knowledge base: a panel that reports its own gaps
+
+The corpus (24 documents), the graph (874 chunks, 4,826 entities, 5,008 relations) and the
+vector store (1,982 vectors) were already in the repository, and `lightrag_retriever.py` could
+already retrieve from them. What was missing was any interface that let an operator see **what
+the system actually knows** — so `/api/kb/*` lives in its own module, for the same reason
+`api_ops` does: `api_server.py` imports `workflow`, which builds the whole LangGraph and loads a
+2.2 GB reranker. A panel that renders on first paint must not wait for that.
+
+The panel's job is not "how many papers" but **"how far can I trust this knowledge base"**, so
+three things are on the first screen:
+
+- **Gaps, by name.** 24 files on disk, 22 in the graph. The two that never made it
+  (`A1井_历史压力监测.md`, `ccus4.pdf`) are listed with the consequence: *these have no chunks,
+  retrieval cannot reach them*. A "22 documents" headline reads as complete while quietly
+  missing two, and nothing else in the system would say so.
+- **Which retrievals can be cited.** Only graph chunks carry `file_path`. The 1,982 Chroma
+  vectors carry `{"source": "legacy_v2"}` — no document-level lineage at all. That is a fact
+  about the current store, not a TODO, so the panel states it: *vector-branch recall cannot be
+  traced back to a paper*.
+- **Three retrieval states, not two.** `ok`, `empty` (ran, found nothing) and `unavailable`
+  (never ran). `unavailable` returns **200**, not 503, because it is a system state the
+  operator needs to see — a 503 becomes a generic error toast and teaches nobody that Ollama
+  was simply not up.
+
+Citation badges carry `reference_id`, which is LightRAG's per-response numbering ("1", "2", …)
+sorted by how often a file appears in *this* result. The same `[3]` points at different papers
+across two queries, so it is a link within one answer and never a document ID — `file_path` is
+the only stable handle. Clicking a badge opens the chunk it came from; that endpoint reads
+`kv_store_text_chunks.json` directly, so citation jumps keep working when the model is down,
+which is precisely when someone wants to check the source.
+
+Three bugs, all of which produced numbers that looked plausible:
+
+1. **`len(kv_store_full_entities.json)` is not the entity count.** The keys are `doc-<hash>`, so
+   it reports 22 — the number of *documents* — and the panel labels it "entities". The real
+   count is 4,826 after flattening `entity_names` and de-duplicating, a factor of 20, with no
+   cross-check anywhere on screen that could have caught it.
+2. **An entity's `file_path` is multi-valued.** `CO2 Leakage` is merged across 16 papers, so its
+   lineage is 16 filenames joined by `<SEP>` — *one string*. Rendered as a single filename it
+   looks like a very long filename rather than a merge. Entities and relations now carry
+   `sources: []`; chunks keep `source: ""`, because a chunk belongs to exactly one document.
+3. **`build_fragments` destroys provenance on purpose.** It concatenates both entities'
+   descriptions into each relation fragment to give the reranker longer semantic units — which
+   is right, and which makes "which paper is this sentence from" unanswerable, since one
+   fragment now mixes three sources. Evidence cards therefore live in a separate pure module,
+   `kb_evidence.py`, whose invariant is the opposite: one card per piece of evidence, never
+   merged. Keeping both in one file invites someone to reuse the merge helper on the citation
+   path, and the result would not error — every citation would just point at the same paper.
+
+Six constraints are load-bearing, and each is enforced by something that fails:
+
+- **Six states, not five.** `indeterminate` is not `normal`. It gets three signals at once —
+  grey, a dashed border, and an em dash where the number goes — because colour alone reads as
+  "fine" on a dim panel, and rendering "unknown" as "fine" is the one failure that never raises.
+- **Tailwind class names are never concatenated.** `text-sev-${token}` is correct at runtime and
+  invisible to Tailwind, which scans source text at build time. The classes silently vanish and
+  the text inherits its parent colour, with no error anywhere. `lib/severity.ts` holds a literal
+  table, and a CI step greps the built stylesheet for all six.
+- **The threshold shown is the sensor's, not the one that was hit.** `alarm.threshold_value`
+  means "which line was crossed" and is `null` when nothing was. Using it as "the threshold"
+  made every normal sensor read `阈值 — · 无阈值` — indistinguishable from a genuine blind spot.
+- **Decoration must not eat data.** `html[data-mode="engineer"] .fx { display: none }` is a
+  perfectly ordinary rule that, applied to the wrong element, deletes the plume instead of the
+  particle animation — and the engineer mode gets an empty cross-section. The test for what
+  counts as `.fx`: if this element disappeared, would any conclusion disappear with it?
+- **three stays in its own chunk.** 131 KB gzip behind a dynamic `import()`. The left rail is
+  the entire basis for "does anyone need to be called this shift" and must not wait for a 3D
+  library. CI asserts the separate chunk still exists and the first-paint bundle is under
+  320 KB — switching to a static import makes that property vanish with no error at all. The
+  97 KB retrieval fixture is code-split for the same reason, with its own guard.
+- **`empty` and `unavailable` never render the same.** This is the same rule as
+  `indeterminate ≠ normal`, one layer down: "the corpus has nothing on this" and "retrieval
+  never started" lead an operator to opposite actions, and merging them sends someone off to
+  buy literature when the real fix was starting Ollama.
+- **The frame budget is enforced, not asserted.** "60 FPS on integrated graphics" is a claim
+  that must be falsifiable, and an iGPU is a wide band — an Intel UHD 620 and an Iris Xe differ
+  by 3×, and the same chip differs again between plugged-in and battery-saver. So there is no
+  single value to tune to; there is a ladder the renderer walks down by itself: `high` →
+  `medium` (pixel ratio 1.25) → `low` (no particles, no 3D envelope — **every data primitive
+  stays**). It only steps down, at most twice, judged on the *median* frame time rather than
+  the mean, because one GC spike should not demote a machine that is actually fine. `?perf=1`
+  exposes `renderer.info` so the claim can be checked: measured 30 draw calls, 5,164 triangles,
+  3,000 particles in a single draw call, p50 3.3 ms against a 16.7 ms budget.
+  The number came from `renderer.info`, not from reading the source — and it paid for itself:
+  three transparent meshes were carrying `side: DoubleSide`, which silently doubles the draw
+  and the triangle count of each. 33 → 30 calls, 8,508 → 5,164 triangles, for zero visual
+  difference on a camera that only ever looks from +Z.
+- **Licences are checked to the transitive closure.** The frontend has 13 direct dependencies
+  and 143 packages in total, and a GPL three levels down is invisible in `package.json`. The
+  audit walks `node_modules` and fails on copyleft — with a self-test on the deny-list itself,
+  because a regex typo turns every package green and that green light then vouches for a check
+  that never ran. All 143 are permissive (127 MIT, 9 ISC, 4 Apache-2.0, 2 BSD-3, 1 CC-BY).
+  The one genuine blocker is on the Python side: `pymupdf` is AGPL-3.0-or-commercial, used for
+  offline PDF ingestion. It is recorded as an explicit exception in
+  [`docs/license-exceptions.json`](docs/license-exceptions.json) with a review date rather than
+  left to turn CI red — a permanently failing check gets skipped with `--no-verify`, and then it
+  is not even a reminder. **Until that decision is made, the stack is not fully
+  closed-source-sellable**, and [`docs/licenses.md`](docs/licenses.md) §3.2 lays out the three
+  ways to resolve it.
+
+Design rationale, component mapping and the five-week order are in
+[`docs/ui/design-spec.md`](docs/ui/design-spec.md); the open-source reconnaissance that preceded
+it is in [`docs/ui/recon-report.md`](docs/ui/recon-report.md). Implementation notes are in
+[`web/README.md`](web/README.md); licence findings are in
+[`docs/licenses.md`](docs/licenses.md).
 
 ---
 
@@ -2170,7 +2450,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 - **Token-level Streaming** — Reports arrive over a single SSE connection: node-level progress from `astream_events` plus real token deltas, rendered by `st.write_stream` so the text appears as it is generated. Two framework limitations had to be worked around (documented in [Streaming & Charts](#streaming--charts)): `astream_events` silently drops `get_stream_writer()` output, and `SqliteSaver` has no async support.
 - **Generated Figures, Not Text** — A `generate_pressure_curve` tool renders a formation-pressure/depth chart with matplotlib and returns its path; the frontend displays it with `st.image` under the report. The chart judges one specific thing — whether the injection pressure sits inside the safe window `[P_h, P_frac]` at reservoir depth — because comparing a constant pressure against a depth-varying gradient everywhere else is physically meaningless.
 - **Function Calling** — A deterministic physical tool computes CO₂ density from injection pressure and temperature (e.g. **250 bar / 80 °C → 663 kg/m³**, **300 bar / 90 °C → 688 kg/m³**), then a second LLM pass integrates the value into the report. The model is asked to emit a JSON tool instruction, but a regex guard on the extracted parameters invokes the tool anyway if it doesn't — so the density is guaranteed to come from physics rather than from the model's arithmetic.
-- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1352 unit tests** (1281 on every push), and a self-hosted end-to-end regression suite.
+- **Production Ready** — **FastAPI** backend fully decoupled from a minimal **Streamlit** frontend. SSE streaming, a **hard quality gate** (below threshold → rewrite, budget exhausted → fail; no "pass anyway"), SQLite checkpointing, structured logging to `app.log`, Docker Compose deployment, **1492 unit tests** (1421 on every push), and a self-hosted end-to-end regression suite.
 - **Self-Correcting Loop** — An evaluator agent scores each draft against the retrieved evidence and sends weak drafts back for rewrite, with a hard retry ceiling to bound latency and token cost.
 - **Local-first Hybrid Architecture** — Sensitive extraction, retrieval, reranking, physics validation and scoring all run locally on Ollama; only the final long-form report generation goes through the gateway to a cloud model, because that is the one step where model quality is visible in the deliverable. The boundary is configuration (`ROUTE_<STAGE>`), not code. A cloud key is **optional**: without one, the report stage degrades to the local model and records the reason in `model_routing`.
 - **Deterministic Physics Gate** — Before any model grades a report, a rule engine recomputes formation pressure and fracture pressure from the extracted depth and checks whether the report's own claims contradict them. A contradiction scores 0 and is sent back with numeric correction instructions. Rules are pure functions, unit-tested offline, and directional: "fracture pressure is above injection pressure" is a *safety* claim and is not mistaken for acknowledging risk.
@@ -2217,6 +2497,7 @@ Each breakdown row is recomputable by hand (`tokens ÷ 1e6 × unit price`), and 
 petro-rag-agent/
 ├── app.py                    # Streamlit frontend (pure HTTP client, API_BASE_URL-aware)
 ├── api_server.py             # FastAPI: SSE stream + sync + HITL (hitl/review/approve)
+├── api_ops.py                # /api/ops/* routes — separate module so tests need no reranker
 ├── Dockerfile                # python:3.10-slim, exposes 8000 (API) + 8501 (UI)
 ├── docker-compose.yml        # nginx + backend + frontend (Ollama stays on the host)
 ├── nginx.conf                # single entry point: /api/* → backend, /* → frontend
@@ -2281,6 +2562,7 @@ petro-rag-agent/
 │   ├── alarms.py             # Alarm agent: deterministic grading + attribution + actions
 │   ├── condition.py          # Condition Q&A agent: window parsing + stats + number guard
 │   ├── reports.py            # Report agent: templates + citation check + HITL state machine
+│   ├── store.py              # SQLite draft store (approval crosses shifts → memory won't do)
 │   └── supervisor.py         # Orchestrator: task split + cross-agent conflict detection
 ├── config/ops_thresholds.example.json  # Threshold template (every number marked 【替换】)
 ├── mcp_server_ccus.py        # MCP Server (stdio): 6 tools, lazy imports
@@ -2545,7 +2827,7 @@ Ran 661 tests in 10.360s
 OK
 ```
 
-Fifty-five suites (`tests/`). CI runs 1281 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
+Sixty suites (`tests/`). CI runs 1421 of those tests; the other 71 need torch/chromadb/plotly and run locally or on the self-hosted runner:
 
 - `test_fragment_builder.py` — the fragment-assembly logic that decides retrieval quality: relation fragments must embed **both** endpoint descriptions (this is what gives the reranker discriminative power), isolated entities must survive, ordering and de-duplication must be stable.
 - `test_file_memory.py` — memory bounds and compression: reads must return **only the most recent N entries**; compression must fire above threshold, keep the newest entries verbatim, never leave temp files, never corrupt the file on summarizer failure, never fire twice in a row, and must count **characters rather than bytes**.
@@ -2576,10 +2858,15 @@ Fifty-five suites (`tests/`). CI runs 1281 of those tests; the other 71 need tor
 - `test_domain_ontology.py` — the curated ontology is hand-written data, so the dangerous failure is not a crash but silent rot: a dimension quietly shrinking to five entities, a relation whose endpoint is misspelled and therefore skipped without a word, or a merge that re-adds edges on every run. The suite asserts what keeps the coverage claim honest: every entity and relation carries a `reference` (no unsourced knowledge), every `entity_type` stays inside the eight types `kg_prompt.py` allows, no dimension drops below 20 entities, no name repeats case-insensitively. The merge must be idempotent — a second run adds exactly zero nodes and zero edges — and a relation whose endpoint is absent from the graph must be *reported* as unresolved rather than dropped. One test exists purely because of a real bug: the writer built its case-insensitive name index from a `set` while the merger built it from a `list`, so the two resolved `Zechstein Caprock` and `Zechstein caprock` to different nodes and every re-run appended two more edges. Reverting the fix makes that test fail with `2 != 0`.
 - `test_branch_merge.py` — the fan-in logic, i.e. the code that only runs when something has already gone wrong. All four combinations are enumerated (both branches ok / geology down / wellbore down / both down), and two properties are locked: the text handed downstream for a failed branch is **never an empty string** (an empty section reads as "no requirement", a fallback sentence reads as "this requirement failed" — opposite meanings to a reader), and `parallel_timing_of` derives its speedup from branch timestamps rather than node names, so it reports ~1.0 if anyone ever turns the fan-out back into a serial chain. Non-string / non-dict state values are exercised too, because those functions are exactly what gets called on a corrupted state.
 - `test_retry.py` — exponential backoff, tested without any network or SDK: 429 and 5xx retry, **4xx does not** (retrying a 401 just repeats the same failure three times and delays the real error), delays grow exponentially and stop at the cap, jitter stays inside its band, the attempt budget is honoured, and the exception that escapes is the **original one** rather than a wrapper — so the caller still sees `401` instead of "retry failed".
-- `test_ops_contracts.py` — the contract layer, which is where "silently wrong" gets stopped before any agent runs. `Threshold(source="")` must raise (a limit with no stated origin is a policy dressed as physics); duplicate levels must raise (a duplicated level is a missing level, and alarms then under-report without erroring); monotonicity is checked **per direction** (`warn < alert < critical` when higher is worse, the reverse when lower is worse) because getting it backwards makes the top level unreachable while every alarm still looks fine; `Reading` rejects NaN (`NaN > 80` is `False`, so it would read as "not over the limit"); an unknown sensor name raises instead of returning `None` (one typo would otherwise become a permanent blind spot with no output anywhere); and the registry reports every problem at once **with the sensor name prefixed** — "source cannot be empty" is unactionable when sixteen sensors are configured. The rule tables are checked structurally: every action key resolves, every referenced sensor exists, `min_hits` cannot be 1 (one reading is a guess) or exceed the number of criteria (that rule can never fire), and every exclusion carries a reason.
-- `test_ops_alarms.py` — grading, where each test pins a specific way the rules go quiet. Both directions are exercised (`direction=low` sensors never alarm under a `>` comparison, and nothing raises); the `notice` band exists so a reading cannot jump from "fine" straight to `warn` unseen; `R_PERSIST` uses the **entry** threshold rather than the top one (using `critical` as the gate means three samples at `alert` never upgrade, and the alarm still looks correct); `R_RAPID` fires on the worsening direction for each sensor type; a single over-limit sample does **not** upgrade when the trend is flat; `quality=bad` yields `indeterminate` with an instrument action, not `normal` and not `critical`; a missing threshold yields `indeterminate` with a "configure it" action; `suspect` caps at `warn`; and no readings at all gives `top_severity() == indeterminate`, because no alarm is not the same as a normal process. Attribution is tested in three shapes: all criteria hit → `strong`, some hit → `partial` **with an explicit "not cross-checked" note**, and an exclusion **overrides evidence** — `annulus_p` normal must rule out wellbore integrity *with a reason*, rather than surviving a vote. Same input must produce byte-identical output.
+- `test_ops_contracts.py` — the contract layer, which is where "silently wrong" gets stopped before any agent runs. `Threshold(source="")` must raise (a limit with no stated origin is a policy dressed as physics); duplicate levels must raise (a duplicated level is a missing level, and alarms then under-report without erroring); monotonicity is checked **per direction** (`warn < alert < critical` when higher is worse, the reverse when lower is worse) because getting it backwards makes the top level unreachable while every alarm still looks fine; `Reading` rejects NaN (`NaN > 80` is `False`, so it would read as "not over the limit"); an unknown sensor name raises instead of returning `None` (one typo would otherwise become a permanent blind spot with no output anywhere); and the registry reports every problem at once **with the sensor name prefixed** — "source cannot be empty" is unactionable when sixteen sensors are configured. The rule tables are checked structurally: every action key resolves, every referenced sensor exists, `min_hits` cannot be 1 (one reading is a guess) or exceed the number of criteria (that rule can never fire), and every exclusion carries a reason. Two further assertions guard the *content* of those tables rather than their shape: no rule may require **both** endpoints of a coupling marked `discriminates=False` (annulus pressure and tubing pressure have no fixed directional relationship, so any rule using the pair is claiming a discrimination the data cannot support — this caught two rules that had drifted into asserting opposite mappings of the same pair), and no annulus rule may name a type in its `cause` before a bleed-down test has been run.
+- `test_ops_ceiling.py` — the one criterion a regulator, not the project, sets: bottomhole injection pressure against **90 % of the formation fracture pressure** (40 CFR §146.68(b)). The arithmetic is a division, so the tests are about the ways the answer comes out quietly wrong. The peak is used, **not the last value** — a 420 bar spike at the start of a shift that ends at 300 bar is exactly the event that has to be reported, and a last-value check makes it vanish at handover. Missing `bhp` is `indeterminate`, never `ok`, and the basis has to say **why surface pressure cannot stand in**: 120 bar at the wellhead is near the limit in an 800 m well and under half of it at 2,500 m, so a wellhead threshold is simultaneously a missed alarm and a false one, depending on depth. Missing `frac_p` is likewise `indeterminate` — fracture pressure is a formation property, and no operating parameter implies it. A non-positive `frac_p` is caught because entering MPa as bar divides the denominator by ten and turns a compliant well into a 7× overrun with no error anywhere; `quality=bad` readings are excluded from both the peak and the denominator (a bad spike would invent a violation, a bad denominator would certify one). Boundary behaviour is pinned as a closed interval — exactly 406.8 bar against a 406.8 bar limit is `near`, not `exceeded` — and a fracture pressure measured 100 days earlier still produces a ratio, but the basis is asserted to disclose the gap, because "74 %" and "74 %, against a two-year-old LOT" are different claims. When two LOTs fall inside the same window, the one **in force at the peak** is used, not the latest — a retest taken *after* a spike can retroactively turn a real overrun into compliance (430 bar in force makes a 420 bar peak 97.7 %; a 470 bar retest five days later would read 89.4 %), and the opposite direction is just as wrong, because a lower retest would convict operations that were compliant at the time. A window with no determination before the peak is `indeterminate` rather than "use the earliest one and move on": that is using hindsight to certify the past, and under UIC Class VI the absence of a prior determination is itself a finding, not a missing number. `CeilingCheck` refuses to exist without a basis: a conclusion with no reasoning is indistinguishable from no check at all.
+
+- `test_ops_alarms.py` — grading, where each test pins a specific way the rules go quiet. Both directions are exercised (`direction=low` sensors never alarm under a `>` comparison, and nothing raises); the `notice` band exists so a reading cannot jump from "fine" straight to `warn` unseen, and it is measured against the warn→alert gap rather than the threshold value — `co2_purity` (warn 95 %, ceiling 100 %) is asserted `normal` at 99.4 %, because a band computed as 10 % *of the threshold* covers the entire legal range and would leave that sensor permanently yellow; `R_PERSIST` uses the **entry** threshold rather than the top one (using `critical` as the gate means three samples at `alert` never upgrade, and the alarm still looks correct); `R_RAPID` fires on the worsening direction for each sensor type; a single over-limit sample does **not** upgrade when the trend is flat; `quality=bad` yields `indeterminate` with an instrument action, not `normal` and not `critical`; a missing threshold yields `indeterminate` with a "configure it" action; `suspect` caps at `warn`; and no readings at all gives `top_severity() == indeterminate`, because no alarm is not the same as a normal process. Attribution is tested in three shapes: all criteria hit → `strong`, some hit → `partial` **with an explicit "not cross-checked" note**, and an exclusion **overrides evidence** — `annulus_p` normal must rule out wellbore integrity *with a reason*, rather than surviving a vote. Same input must produce byte-identical output.
 - `test_ops_condition.py` — the agent that can always produce an answer, which is exactly why it needs tests for when it must refuse. Windows parse from Arabic and Chinese numerals and relative words; an unparseable window falls back to a default **and says so** (a silent default answers a different question than the one asked); an unparseable sensor **refuses to answer** rather than picking the closest match, because a wrong-subject answer with a right-looking number is worse than "I don't know"; `now` defaults to the newest data point, not the system clock (offline replay is days apart, and a clock-based window lands entirely outside the data, producing "no data" for the wrong reason); coverage and gaps are reported and interpolation is explicitly refused; the percentile is nearest-rank, so it never returns a value that was not measured; and the number guard is tested both ways — a phantom number in LLM output falls back to the **whole template** rather than deleting the sentence, since "fluent but unsourced" is more dangerous than "plain but every number traceable".
-- `test_ops_reports.py` — traceability and the approval state machine. A generated daily and regulatory report must pass their own citation check; a hand-inserted "up 15%" inside a data block must fail it; a citation pointing at a non-existent alarm is `dangling` (that report looks fully sourced while every source is empty); long units (`t/(d·bar)`) must not break the binding; and text **outside** a strict block — "resample within 24 h", "notice keeps a 10% margin", `co2_purity` — must not be flagged, because flagging those teaches everyone to ignore the check. Blind spots must appear in the body (concealing them is worse than reporting an anomaly: an anomaly can be explained, a blind spot means "we did not look"); an empty registry must not render as "operating normally"; a regulatory draft without a permit id raises; and the MVA section must say that no MVA data does not mean no leak. The state machine is pinned in the direction that matters: a draft cannot be approved directly, submission is blocked by citation problems, `reject` requires a note, and `approved` is terminal. Conflict detection separates the three blocking kinds from `coupling_deviation`, which must stay non-blocking, and the brief puts conflicts **before** conclusions.
+- `test_ops_reports.py` — traceability and the approval state machine. A generated daily and regulatory report must pass their own citation check; a hand-inserted "up 15%" inside a data block must fail it; a citation pointing at a non-existent alarm is `dangling` (that report looks fully sourced while every source is empty); long units (`t/(d·bar)`) must not break the binding; and text **outside** a strict block — "resample within 24 h", "notice keeps a 10% margin", `co2_purity` — must not be flagged, because flagging those teaches everyone to ignore the check. Blind spots must appear in the body (concealing them is worse than reporting an anomaly: an anomaly can be explained, a blind spot means "we did not look"); an empty registry must not render as "operating normally"; a regulatory draft without a permit id raises; and the MVA section must say that no MVA data does not mean no leak. The state machine is pinned in the direction that matters: a draft cannot be approved directly, submission is blocked by citation problems, `reject` requires a note, and `approved` is terminal. The regulatory ceiling section is checked for a different kind of leak: `CEILING_SOURCE` ends with "replace this constant and its source when changing jurisdiction", which is an instruction to whoever maintains the code — pasting it into a compliance document turns an internal reminder into a sentence the reader thinks applies to them, so the report must cite `CEILING_CITATION` and the full string must be absent from the body. Conflict detection separates the three blocking kinds from `coupling_deviation`, which must stay non-blocking, and the brief puts conflicts **before** conclusions.
+- `test_ops_supervisor.py` — orchestration, whose failures are not wrong numbers but wrong *sequencing*. The one that matters most: when the report agent fails, the alarm list must still be returned — a supervisor that dies with its weakest child goes silent exactly when someone needs to be called, so the test asserts `alarms is not None` while `report is None`. A weekly report given fewer than two periods must fail with a message that says how many arrived ("本次收到 1 期"), because one period renders a "distribution" with a single sample that reads like a week's conclusion; two periods must produce a real weekly draft. `coupling_deviation` is asserted **not** to be in `BLOCKING_KINDS` (blocking it makes the system refuse to report precisely when the process is changing), and `render_brief` is asserted to place the blocking-conflict section before the alarm section, since a reader who stops after three lines would otherwise get an unqualified conclusion. A third group pins `can_submit`: no report means `False`, not `True`. `detect_direction_conflicts` — which had no tests until it did — is exercised on the one boundary where two modules can disagree without either being wrong: a reading **exactly at** `warn` must count as over-limit on both sides (the alarm grades `>=`, the condition agent counts `>=`), because changing either one to `>` makes every shift that touches the line produce a blocking conflict and the system refuses to report a process nobody doubts; a `notice` reading must count as over-limit on **neither** side, since "watch this" is not "exceeded"; and a sensor absent from the alarm list is skipped rather than read as "judged normal".
+- `test_api_ops.py` — the HTTP surface, and the only group that imports a web framework. Its first assertion is a **static read of `api_server.py`** looking for `Depends(require_token)` on the `include_router` call, because `api_ops` cannot import that dependency without a cycle, and a missing `dependencies=` leaks every `/api/ops/*` route with no error anywhere. The rest is failure-shaped: an unknown sensor is a 4xx, not an empty alarm list; `NaN` is rejected at the boundary; a request with no readings and no period is a 4xx rather than a silent "nothing to report"; `{"readngs": …}` is a 422 rather than a 200 with zero readings (`extra="forbid"`); submitting a draft whose numbers lack citations is a **409** carrying `problems[]` so the UI can name the line; approving without a reviewer is a 400 and rejecting without a note is a 400; and a draft survives a fresh `TestClient` — the file-backed store is verified across connections, because an in-memory draft makes the approval flow look correct in a single-request test and lose the document across shifts.
+- `test_api_kb.py` / `test_kb_evidence.py` — the knowledge-base surface, split the same way `api_ops` is: the router does not import `api_server` (a cycle, and a 2.2 GB reranker on the import path), so the suite mounts a bare `FastAPI()` and asserts the `Depends(require_token)` on the mount line by **reading the source**, since a missing `dependencies=` leaks every paper title and every chunk of source text with no error. It also pins the two numbers that were wrong in ways nothing on screen could reveal: `len(kv_store_full_entities.json)` is the **document** count (22) because the keys are `doc-<hash>`, not the entity count (4,826 after flattening `entity_names` and de-duplicating) — a factor of 20 labelled "entities"; and an entity's `file_path` is **multi-valued** (`<SEP>`-joined, 16 papers for `CO2 Leakage`), so `kb_evidence` emits `sources: []` for entities and `source: ""` for chunks, because rendering the joined string as one filename looks like a long filename rather than a merge. The state machine is tested as three outcomes, not two: `unavailable` (Ollama down) must not read as `empty` (corpus has nothing), because the first sends an operator to buy literature and the second is the only one that should. Corpus paths are monkeypatched to a temp directory in every test — the 125 MB of PDFs is input, not code, and CI does not have it.
 - `test_chart_tools.py` — chart generation: hydrostatic/fracture formulas, all three verdicts (safe / above fracture / below formation pressure) plus their consistency with the plotted numbers, valid non-blank PNG output, unique filenames under repeated calls, out-of-range inputs clamped instead of crashing, and no pyplot figure leak across calls. It also asserts **object identity** with `pressure_model` (`assertIs`, not `assertEqual`): the front-end draws the same three curves in the browser, so a re-implementation anywhere would be caught as a different function object rather than merely a different number that happens to match today. The pruning policy is tested for the same reason a cleaner deserves tests: it must keep the newest N and report which files it deleted, a dry run must delete nothing, it must not touch a single file it did not create (`*.png` that is not `pressure_curve_*`), the size cap must work independently of the count cap, a negative `keep` must raise rather than delete everything, a missing directory is not an error, and a no-op must not report "over the count cap" as its reason — "deleted 0 (reason: over the count cap)" reads as if the rule fired and let things through. There is also a test that **the call site is wired**: `prune_charts` can be perfect while `generate_pressure_curve` never calls it, in which case every pruning test stays green and the directory grows exactly as before. That is the same shape as the ablation patch that never reached its call site, so it gets the same treatment — delete the `_auto_prune(out_dir)` line and the suite fails with `清理没有生效`.
 - `test_pressure_model.py` — the shared physics module, and the reason it exists: the formula used to live in `chart_tools`, which imports matplotlib, which the front-end is forbidden to import. Copying five lines into `app.py` would have been the obvious move and would have guaranteed drift. So the formulas moved to a zero-dependency module and this suite pins them independently — known values (2 000 m → 202.1 bar, `P_frac = 1.5·P_h` → 303 bar), linearity, the admissible-window round trip (`fracture_bar(d_min) == p` and `hydrostatic_bar(d_max) == p`), clamping before judging, and the verdict table including the case that is easy to get wrong: **250 bar at 2 500 m is `under`, not `ok`**, because `P_h(2500) ≈ 253`. Boundary conditions are pinned as *inclusive* — exactly at `P_frac` is safe, one bar above is not.
 - `test_ui_components.py` — the console's logic, extracted out of `app.py` precisely so it can be tested at all (a Streamlit page cannot be imported without executing it). Covers `compose_input` (typed parameters reach the backend, and the free-text description is preserved rather than replaced), the three formatters, the three plotly figures, and `pipeline_html`. The interesting assertions are about **distinguishing states that look alike**: a node that never ran must render `—`, while a node that ran but was skipped must render `跳过` — collapsing those two into one symbol would hide a broken fan-out. The figure tests check the y-axis is reversed (depth increases downward, as on a well log), that both threshold lines sit at the *reservoir* depth rather than spanning the plot, that the work point's colour tracks the verdict, and that margins leave room for the annotations — a label collision is invisible to a correctness test but obvious on screen, which is why it is asserted numerically here.
@@ -2815,6 +3102,7 @@ Closing the rest needs two things this pipeline does not do: **cross-paper entit
 - **Front-matter noise is fixed at the prompt, not just filtered afterwards.** The previous build carried 43 author affiliations and years in 765 nodes (5.6 %). The fix was three layers, and only the first two are guarantees: `strip_front_matter` removes the block from the text, the type constraint stops the extractor from wanting it, and `normalize_graph.py` deletes whatever still slips through (8 nodes on this build, 2 %). The remaining risk is that a node which *looks* like an affiliation but is actually knowledge gets deleted — the rules are conservative and every deletion is written to `docs/graph-normalization.json`, so it is auditable rather than silent.
 - **One corpus file was off-topic and had been since the beginning.** `ccus4.pdf` is *"Deep Q-Learning-Driven Power Control for Enhanced NOMA User Performance"* — a telecommunications paper about uplink power control, not CCUS. It contributed `Base Station`, `Cell-Center User`, `UAV-relay` and similar nodes, and because almost every paper "shares" them they made the graph look more connected than it was. It is now listed in `EXCLUDED_PAPERS` in `ingest_ccus_batch.py` with the reason, and skipped at ingest time rather than deleted from disk — the corpus is an input, and an exclusion nobody can audit is indistinguishable from a bug. **The ChromaDB collection still contains its chunks**; they are off-topic enough that they never rank near the top, but they are there.
 - **The corpus was selected by keyword scoring, not by citation impact.** `fetch_ccus_papers.py` ranks by term presence and recency. It cannot tell a landmark paper from a mediocre one, and it has no notion of which venues matter. Treat the corpus as "relevant and recent", not "authoritative".
+- **The top-ranked evidence can be a page of equations.** Asked "盖层完整性对 CO2 泄漏风险的影响" (caprock integrity vs. leakage risk), the retriever's first hit is a state-space discretisation formula from `ccus_auto_02.pdf` — `𝑡+1 = 𝐶(𝑥𝑡)𝑥𝑡+1 + 𝐷(𝑥𝑡)𝑢𝑡`. The dense score is legitimately high (the chunk is full of "CO2 storage", "pressure", "mole fraction"), but the chunk supports "this paper used that scheme", not "the caprock holds". 2 of the 12 returned chunks are like this. `kb_evidence` now measures each chunk's letter-vs-math ratio, flags formula-dominated ones, and the console prints "2 片以公式为主，不宜作为机理证据" next to the traceability count. It deliberately does **not** re-rank: the citation index `[n]` has to equal the retrieval rank, or a `[1]` in a report cannot be checked against the retrieval log, and a display-side reorder would also split the console from what RAGAS measured. The honest fix is a content-aware chunker at ingest time, which means rebuilding the 12,328-second graph index.
 - **Text extraction quality depends on the PDF's text layer.** PyMuPDF is used first because pypdf silently returns `actiontostabilizeatmosphericconcentrations` for some files (words positioned individually rather than separated by space glyphs). That class of failure is invisible downstream — the embedding model happily embeds nonsense. Where even PyMuPDF produces a poor layer (scans, complex two-column layouts), the chunks are degraded and nothing flags it.
 - **A failed report is still returned as text, just not as a deliverable.** Reflection is bounded at two rewrites; if the score is still under 8 the run ends with `quality_gate.status = failed` and `report_status = failed`, and the body is returned behind a blocking banner (quarantined entirely when the veto was physical). Nothing downstream treats it as approved — `save_file_memory` is skipped, the API says `status: failed`, the UI shows a red banner instead of "assessment complete" — but a caller that only reads `report` will still see prose. The structured field is the contract; the text is not.
 - **The quality threshold is a model score, and model scores are noisy.** 8/10 from a 7B reviewer is a quality signal with maybe ±1 of variance; the physics gate is the only part that is deterministic. This is why the physics veto runs first and cannot be outvoted, and why the RAGAS golden set exists as an independent measurement of faithfulness rather than trusting the reviewer's own score.

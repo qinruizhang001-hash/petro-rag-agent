@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-mode="deck" data-skin="neutral">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCUS 全链条运维控制台 · 概念原型</title>
+<style>
+:root{
+  --bg-0:#070F16; --bg-1:#0B1A24; --bg-2:#102532; --bg-3:#16303E;
+  --line:rgba(122,178,204,.14); --line-2:rgba(122,178,204,.30);
+  --txt-0:#E8F1F6; --txt-1:#9DB4C4; --txt-2:#64798A;
+  --acc:#58B8C9; --acc-dim:rgba(88,184,201,.16); --acc-2:#7E9CB8;
+  --brand:#58B8C9; --brand-soft:rgba(88,184,201,.12);
+  --hi:#58B8C9;
+  --sev-normal:#3F8F84; --sev-notice:#B99A3E; --sev-warn:#D08442;
+  --sev-alert:#C25A45; --sev-critical:#B23A3A; --sev-unknown:#6E7C88;
+  --font-cjk:"Microsoft YaHei UI","PingFang SC","Noto Sans SC",sans-serif;
+  --font-num:"Bahnschrift","DIN Alternate","Roboto Condensed","Arial Narrow",sans-serif;
+  --font-mono:"Consolas","JetBrains Mono","SF Mono",monospace;
+  --fs:13px; --gap:10px;
+}
+html[data-skin="sinopec"]{ --brand:#D8232A; --brand-soft:rgba(216,35,42,.14); --hi:#A3242B; }
+html[data-skin="cnpc"]{ --brand:#C8161D; --brand-soft:rgba(200,22,29,.14); --hi:#9C1A20; }
+html[data-mode="engineer"]{
+  --bg-0:#0C1014; --bg-1:#141A20; --bg-2:#1B232B; --bg-3:#222C35;
+  --line:rgba(255,255,255,.20); --line-2:rgba(255,255,255,.40);
+  --txt-0:#FFFFFF; --txt-1:#C9D6E0; --txt-2:#93A3B0;
+  --fs:15px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg-0); color:var(--txt-0);
+  font-family:var(--font-cjk); font-size:var(--fs); line-height:1.45;
+  overflow:hidden; -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:linear-gradient(rgba(88,184,201,.030) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(88,184,201,.030) 1px,transparent 1px);
+  background-size:64px 64px;
+}
+html[data-mode="engineer"] body::before{display:none}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mono{font-family:var(--font-mono);font-size:.86em;letter-spacing:0}
+
+.topbar{
+  position:relative;z-index:2;height:54px;display:flex;align-items:center;gap:18px;
+  padding:0 16px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(16,37,50,.92),rgba(7,15,22,.92));
+}
+.topbar::after{
+  content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
+  background:linear-gradient(90deg,var(--hi),transparent 55%);opacity:.9;
+}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-mark{
+  width:26px;height:26px;position:relative;flex:0 0 auto;
+  border:1px solid var(--brand);border-radius:2px;background:var(--brand-soft);
+}
+.brand-mark::before{content:"";position:absolute;inset:5px;border:1px solid var(--brand);opacity:.55}
+.brand-mark::after{content:"";position:absolute;left:50%;top:5px;bottom:5px;width:1px;background:var(--brand);opacity:.7}
+.brand-t{font-size:14px;letter-spacing:.14em;font-weight:500}
+.brand-s{font-size:10px;letter-spacing:.22em;color:var(--txt-2);text-transform:uppercase}
+
+.cobrand{display:flex;align-items:center;gap:8px;padding-left:4px}
+html[data-skin="neutral"] .cobrand{display:none}
+.cb-bar{width:3px;height:22px;background:var(--brand);border-radius:1px}
+.cb-name{font-size:12px;color:var(--txt-1);letter-spacing:.08em;white-space:nowrap}
+html[data-skin="sinopec"] .cb-name{color:#E0747A}
+html[data-skin="cnpc"] .cb-name{color:#DE6A70}
+
+.chain{display:flex;align-items:center;gap:0;margin-left:6px}
+.chain-seg{
+  display:flex;align-items:center;gap:6px;padding:5px 12px;font-size:11.5px;
+  border:1px solid var(--line);border-left:none;color:var(--txt-1);
+}
+.chain-seg:first-child{border-left:1px solid var(--line);border-radius:2px 0 0 2px}
+.chain-seg:last-child{border-radius:0 2px 2px 0}
+.chain-seg .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+.chain-seg[data-s="normal"]{color:var(--txt-0)}
+.chain-seg[data-s="normal"] .dot{background:var(--sev-normal)}
+.chain-seg[data-s="notice"] .dot{background:var(--sev-notice)}
+.chain-seg[data-s="critical"]{border-color:rgba(178,58,58,.5);background:rgba(178,58,58,.10)}
+.chain-seg[data-s="critical"] .dot{background:var(--sev-critical)}
+.chain-seg[data-s="unknown"] .dot{background:var(--sev-unknown)}
+
+.spacer{flex:1}
+.clock{text-align:right;line-height:1.15}
+.clock .t{font-size:17px;color:var(--txt-0)}
+.clock .d{font-size:10.5px;color:var(--txt-2);letter-spacing:.06em}
+.fresh{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txt-2);
+  padding:5px 10px;border:1px solid var(--line);border-radius:2px}
+.fresh .pulse{width:6px;height:6px;border-radius:50%;background:var(--sev-normal);
+  box-shadow:0 0 0 0 rgba(63,143,132,.6);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,143,132,.5)}70%{box-shadow:0 0 0 7px rgba(63,143,132,0)}100%{box-shadow:0 0 0 0 rgba(63,143,132,0)}}
+
+.seg-ctl{display:flex;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.seg-ctl button{
+  appearance:none;border:none;background:transparent;color:var(--txt-1);
+  font-family:var(--font-cjk);font-size:11.5px;padding:6px 12px;cursor:pointer;
+  border-right:1px solid var(--line);
+}
+.seg-ctl button:last-child{border-right:none}
+.seg-ctl button[aria-pressed="true"]{background:var(--acc-dim);color:var(--txt-0);box-shadow:inset 0 -2px 0 var(--hi)}
+html[data-mode="engineer"] .seg-ctl button[aria-pressed="true"]{background:var(--brand);color:#fff;box-shadow:none}
+
+.skin-dots{display:flex;gap:5px;align-items:center;padding:0 4px}
+.skin-dots i{width:13px;height:13px;border-radius:50%;cursor:pointer;border:1px solid var(--line-2);display:block}
+.skin-dots i[data-on="1"]{outline:1px solid var(--txt-0);outline-offset:2px}
+
+.grid{
+  position:relative;z-index:1;display:grid;grid-template-columns:320px minmax(0,1fr) 352px;
+  gap:var(--gap);padding:var(--gap);height:calc(100vh - 54px - 30px);
+}
+.col{display:flex;flex-direction:column;gap:var(--gap);min-height:0}
+
+.panel{
+  position:relative;background:linear-gradient(180deg,rgba(16,37,50,.86),rgba(9,20,28,.94));
+  border:1px solid var(--line);border-radius:3px;display:flex;flex-direction:column;min-height:0;
+}
+.panel::before,.panel::after{
+  content:"";position:absolute;width:12px;height:12px;pointer-events:none;
+  border-color:var(--hi);opacity:.8;
+}
+.panel::before{top:-1px;left:-1px;border-top:1px solid;border-left:1px solid}
+.panel::after{bottom:-1px;right:-1px;border-bottom:1px solid;border-right:1px solid}
+html[data-mode="engineer"] .panel{background:var(--bg-1);border-color:var(--line)}
+html[data-mode="engineer"] .panel::before,html[data-mode="engineer"] .panel::after{display:none}
+
+.p-head{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;flex:0 0 auto;
+  border-bottom:1px solid var(--line);
+}
+.p-head h2{font-size:11.5px;font-weight:500;letter-spacing:.18em;color:var(--txt-1);text-transform:uppercase}
+html[data-mode="engineer"] .p-head h2{font-size:13px;letter-spacing:.06em;color:var(--txt-0)}
+.p-head .tag{
+  margin-left:auto;font-size:10.5px;padding:2px 7px;border-radius:2px;
+  border:1px solid var(--line);color:var(--txt-2);
+}
+.p-body{padding:12px;overflow:auto;min-height:0;flex:1}
+.p-body::-webkit-scrollbar{width:6px}
+.p-body::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px}
+
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px}
+.kpi{
+  border:1px solid var(--line);border-radius:2px;padding:9px 10px 7px;
+  background:rgba(22,48,62,.34);position:relative;overflow:hidden;
+}
+.kpi .k-label{font-size:10.5px;color:var(--txt-2);letter-spacing:.08em;padding-right:50px}
+.kpi .k-val{font-size:25px;line-height:1.15;margin-top:3px;color:var(--txt-0)}
+.kpi .k-unit{font-size:10.5px;color:var(--txt-2);margin-left:3px;font-family:var(--font-cjk)}
+.kpi .k-spark{position:absolute;right:8px;top:9px;opacity:.85}
+.kpi[data-s="warn"]{border-color:rgba(208,132,66,.45);background:rgba(208,132,66,.08)}
+.kpi[data-s="unknown"]{border-style:dashed;border-color:var(--sev-unknown)}
+.kpi .k-delta{font-size:10.5px;color:var(--txt-2);margin-top:1px}
+.kpi .k-delta b{font-weight:400;color:var(--sev-warn)}
+
+.alarms{display:flex;flex-direction:column;gap:7px}
+.blind{
+  margin-top:10px;padding:8px 10px;border:1px dashed rgba(110,124,136,.55);
+  border-radius:2px;font-size:10.5px;line-height:1.5;color:var(--txt-2);
+}
+.blind b{color:#B9C5CE;font-weight:400}
+.alarm{
+  border:1px solid var(--line);border-left:2px solid var(--sev-unknown);
+  border-radius:2px;padding:8px 10px;background:rgba(22,48,62,.30);cursor:pointer;
+}
+.alarm[data-s="critical"]{border-left-color:var(--sev-critical);background:rgba(178,58,58,.10);border-color:rgba(178,58,58,.34)}
+.alarm[data-s="warn"]{border-left-color:var(--sev-warn)}
+.alarm[data-s="notice"]{border-left-color:var(--sev-notice)}
+.alarm[data-s="normal"]{border-left-color:var(--sev-normal);opacity:.72}
+.alarm[data-s="indeterminate"]{border-left-color:var(--sev-unknown);border-style:dashed;border-left-style:solid}
+.a-top{display:flex;align-items:center;gap:7px}
+.a-sev{font-size:10px;padding:1px 6px;border-radius:2px;letter-spacing:.06em;flex:0 0 auto}
+.a-sev[data-s="critical"]{background:rgba(178,58,58,.22);color:#E6A0A0}
+.a-sev[data-s="warn"]{background:rgba(208,132,66,.20);color:#E4B183}
+.a-sev[data-s="notice"]{background:rgba(185,154,62,.20);color:#DCC77E}
+.a-sev[data-s="normal"]{background:rgba(63,143,132,.18);color:#8CC4BB}
+.a-sev[data-s="indeterminate"]{background:rgba(110,124,136,.20);color:#A9B6C0}
+.a-name{font-size:12.5px;color:var(--txt-0)}
+.a-val{margin-left:auto;font-size:13px;color:var(--txt-0)}
+.a-meta{font-size:10.5px;color:var(--txt-2);margin-top:3px;display:flex;gap:10px}
+.a-more{display:none;margin-top:7px;padding-top:7px;border-top:1px dashed var(--line);font-size:11px;color:var(--txt-1)}
+.alarm[data-open="1"] .a-more{display:block}
+.a-more .row{display:flex;gap:6px;margin-bottom:4px}
+.a-more .row i{color:var(--txt-2);font-style:normal;flex:0 0 auto}
+.a-more .ruled{color:var(--txt-2);text-decoration:line-through}
+
+.center{display:grid;grid-template-rows:minmax(0,1fr) 118px;gap:var(--gap)}
+.stage{position:relative;overflow:hidden;border-radius:3px}
+.stage > svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stage-ov{position:absolute;inset:0;pointer-events:none}
+.hud-corner{position:absolute;font-size:10px;letter-spacing:.2em;color:var(--txt-2);text-transform:uppercase}
+.hud-corner.tl{top:10px;left:12px}
+.hud-corner.tr{top:10px;right:12px;text-align:right}
+.stage-title{
+  position:absolute;left:12px;top:26px;font-size:12px;color:var(--txt-1);
+  padding:3px 8px;border-left:2px solid var(--hi);background:rgba(7,15,22,.5);
+}
+.legend{position:absolute;left:12px;bottom:10px;display:flex;gap:12px;font-size:10px;color:var(--txt-2)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:14px;height:2px;display:block}
+
+.voice{display:flex;align-items:center;gap:16px;padding:0 16px}
+.orb-wrap{position:relative;width:88px;height:88px;flex:0 0 auto;cursor:pointer}
+.orb-wrap svg{width:100%;height:100%}
+.v-info{flex:1;min-width:0}
+.v-state{font-size:12px;color:var(--txt-1);letter-spacing:.1em;margin-bottom:5px}
+.v-state b{color:var(--acc);font-weight:400}
+.v-hint{font-size:11px;color:var(--txt-2)}
+.wave{display:flex;align-items:center;gap:2px;height:26px;margin-top:6px}
+.wave i{width:2px;background:var(--acc);opacity:.55;border-radius:1px;height:30%;animation:wv 1.1s ease-in-out infinite}
+@keyframes wv{0%,100%{height:22%;opacity:.35}50%{height:100%;opacity:.85}}
+.v-actions{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+.btn{
+  appearance:none;font-family:var(--font-cjk);font-size:11.5px;padding:6px 13px;cursor:pointer;
+  border:1px solid var(--line-2);border-radius:2px;background:transparent;color:var(--txt-1);
+}
+.btn:hover{border-color:var(--acc);color:var(--txt-0)}
+.btn-p{background:var(--acc-dim);border-color:var(--acc);color:var(--txt-0)}
+html[data-mode="engineer"] .btn{font-size:13px;padding:8px 15px}
+
+.chat{display:flex;flex-direction:column;gap:9px;padding:12px;overflow:auto;min-height:0;flex:1}
+.msg{max-width:96%;font-size:12px;line-height:1.6}
+.msg .who{font-size:10px;color:var(--txt-2);letter-spacing:.1em;margin-bottom:3px}
+.msg .bub{padding:8px 10px;border-radius:2px;border:1px solid var(--line)}
+.msg.user{align-self:flex-end;text-align:right}
+.msg.user .bub{background:rgba(88,184,201,.10);border-color:rgba(88,184,201,.30);text-align:left}
+.msg.ai .bub{background:rgba(22,48,62,.5)}
+.cite{
+  font-family:var(--font-mono);font-size:10px;padding:0 4px;margin-left:2px;
+  border:1px solid rgba(88,184,201,.4);border-radius:2px;color:var(--acc);cursor:pointer;
+  background:rgba(88,184,201,.08);white-space:nowrap;
+}
+.cite:hover{background:rgba(88,184,201,.2)}
+.ai-list{margin:6px 0 0;padding-left:14px;color:var(--txt-1);font-size:11.5px}
+.ai-list li{margin-bottom:3px}
+.ai-foot{margin-top:7px;padding-top:6px;border-top:1px dashed var(--line);font-size:10.5px;color:var(--txt-2)}
+
+.confirm{border:1px solid rgba(208,132,66,.42);background:rgba(208,132,66,.07);border-radius:2px;padding:9px 10px;margin:0 12px 12px;flex:0 0 auto}
+.confirm .c-t{font-size:11.5px;color:#E4B183;letter-spacing:.06em;margin-bottom:5px}
+.confirm .c-b{font-size:11.5px;color:var(--txt-1);line-height:1.5}
+.confirm .c-b b{color:var(--txt-0);font-weight:400}
+.confirm .c-row{display:flex;gap:7px;margin-top:8px}
+.confirm .c-note{font-size:10px;color:var(--txt-2);margin-top:6px}
+
+.statusbar{
+  position:relative;z-index:2;height:30px;display:flex;align-items:center;gap:20px;
+  padding:0 16px;border-top:1px solid var(--line);font-size:10.5px;color:var(--txt-2);
+  background:rgba(7,15,22,.92);
+}
+.statusbar b{font-weight:400;color:var(--txt-1)}
+.statusbar .warn{color:var(--sev-warn)}
+.statusbar .unk{color:var(--sev-unknown)}
+.statusbar .sep{width:1px;height:12px;background:var(--line)}
+
+.modal{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgba(4,9,13,.78)}
+.modal[data-open="1"]{display:flex}
+.modal-box{width:430px;background:var(--bg-1);border:1px solid var(--line-2);border-radius:3px;padding:18px}
+.modal-box h3{font-size:14px;font-weight:500;margin-bottom:10px}
+.modal-box p{font-size:12px;color:var(--txt-1);line-height:1.65;margin-bottom:6px}
+.modal-box .warnbox{border-left:2px solid var(--sev-warn);background:rgba(208,132,66,.08);padding:8px 10px;font-size:11.5px;color:var(--txt-1);margin:10px 0}
+.modal-box input{
+  width:100%;background:var(--bg-2);border:1px solid var(--line);border-radius:2px;
+  color:var(--txt-0);padding:7px 9px;font-family:var(--font-cjk);font-size:12px;margin-top:4px;
+}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+
+
+.eng-only{display:none}
+html[data-mode="engineer"] .eng-only{display:block}
+html[data-mode="engineer"] .deck-only{display:none}
+.eng-table{position:absolute;inset:0;overflow:auto;padding:12px}
+.eng-table table{width:100%;border-collapse:collapse;font-size:13.5px}
+.eng-table th{
+  text-align:left;font-weight:400;font-size:11.5px;letter-spacing:.08em;color:var(--txt-2);
+  padding:6px 8px;border-bottom:1px solid var(--line-2);position:sticky;top:0;background:var(--bg-1);
+}
+.eng-table td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--txt-0)}
+.eng-table tr[data-s="critical"]{background:rgba(178,58,58,.16)}
+.eng-table tr[data-s="critical"] td{border-bottom-color:rgba(178,58,58,.5)}
+.eng-table tr[data-s="warn"]{background:rgba(208,132,66,.10)}
+.eng-table tr[data-s="notice"]{background:rgba(185,154,62,.07)}
+.eng-table tr[data-s="indeterminate"]{background:rgba(110,124,136,.10)}
+.eng-table tr[data-s="indeterminate"] td{color:var(--txt-1)}
+.eng-table .v{font-size:15px;text-align:right;color:var(--txt-0)}
+.eng-table .t{font-size:12px;color:var(--txt-2)}
+.eng-table .sg{font-size:11.5px;padding:1px 6px;border-radius:2px;white-space:nowrap}
+.eng-table .sg[data-s="normal"]{background:rgba(63,143,132,.20);color:#9AD3C9}
+.eng-table .sg[data-s="notice"]{background:rgba(185,154,62,.22);color:#E0C982}
+.eng-table .sg[data-s="warn"]{background:rgba(208,132,66,.24);color:#EDBA8B}
+.eng-table .sg[data-s="critical"]{background:rgba(178,58,58,.28);color:#F0AEAE}
+.eng-table .sg[data-s="indeterminate"]{background:rgba(110,124,136,.24);color:#B9C5CE}
+.eng-foot{padding:10px 8px 4px;font-size:11.5px;color:var(--txt-2)}
+html[data-mode="engineer"] .p-kpi{display:none}
+html[data-mode="engineer"] .p-alarm{order:1}
+html[data-mode="engineer"] .voice{display:none}
+html[data-mode="engineer"] .eng-table td{padding:13px 8px;font-size:14px}
+html[data-mode="engineer"] .eng-table .v{font-size:17px}
+html[data-mode="engineer"] .eng-table th{padding:8px;font-size:12px}
+html[data-mode="engineer"] .center{grid-template-rows:minmax(0,1fr)}
+html[data-mode="engineer"] .fx{display:none !important}
+html[data-mode="engineer"] *{animation:none !important;transition:none !important}
+html[data-mode="engineer"] .stage{background:var(--bg-1)}
+html[data-mode="engineer"] .kpi .k-val{font-size:30px}
+html[data-mode="engineer"] .alarm{padding:11px 12px}
+html[data-mode="engineer"] .a-name{font-size:14px}
+html[data-mode="engineer"] .a-val{font-size:15px}
+html[data-mode="engineer"] .a-meta{font-size:11.5px}
+html[data-mode="engineer"] .msg{font-size:13.5px}
+html[data-mode="engineer"] .grid{grid-template-columns:340px minmax(0,1fr) 372px}
+@media (max-width:1500px){
+  .grid{grid-template-columns:288px minmax(0,1fr) 316px}
+  .kpi .k-val{font-size:22px}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div>
+      <div class="brand-t">CCUS OPS</div>
+      <div class="brand-s">Full-Chain Console</div>
+    </div>
+  </div>
+
+  <div class="cobrand" id="cobrand">
+    <span class="cb-bar"></span>
+    <span class="cb-name">客户标识位</span>
+  </div>
+
+  <div class="chain">
+    <div class="chain-seg" data-s="normal"><span class="dot"></span>捕集 正常</div>
+    <div class="chain-seg" data-s="notice"><span class="dot"></span>运输 关注</div>
+    <div class="chain-seg" data-s="critical"><span class="dot"></span>注入 严重</div>
+    <div class="chain-seg" data-s="unknown"><span class="dot"></span>MVA 不可判定</div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="fresh"><span class="pulse"></span>数据新鲜度 12s</div>
+  <div class="clock">
+    <div class="t num">09:20:14</div>
+    <div class="d">2026-10-27 · 数据时刻</div>
+  </div>
+
+  <div class="skin-dots" title="客户换肤">
+    <i data-skin-btn="neutral" data-on="1" style="background:#58B8C9"></i>
+    <i data-skin-btn="sinopec" data-on="0" style="background:#D8232A"></i>
+    <i data-skin-btn="cnpc" data-on="0" style="background:#C8161D"></i>
+  </div>
+
+  <div class="seg-ctl" id="modeCtl">
+    <button data-mode-btn="deck" aria-pressed="true">指挥舱</button>
+    <button data-mode-btn="engineer" aria-pressed="false">工程师</button>
+  </div>
+</header>
+
+<main class="grid">
+
+  <section class="col">
+    <div class="panel p-kpi">
+      <div class="p-head"><h2>关键指标</h2><span class="tag">4 / 4 有读数</span></div>
+      <div class="kpi-grid">
+        <div class="kpi" data-s="normal">
+          <div class="k-label">捕集率</div>
+          <div class="k-val num">92.4<span class="k-unit">%</span></div>
+          <div class="k-delta">阈值 90.0 · 余量 2.4</div>
+          <svg class="k-spark" width="46" height="22"><polyline fill="none" stroke="#3F8F84" stroke-width="1.2" points="0,14 8,12 16,15 24,11 32,13 40,10 46,11"/></svg>
+        </div>
+        <div class="kpi" data-s="normal">
+          <div class="k-label">CO₂ 纯度</div>
+          <div class="k-val num">99.1<span class="k-unit">%</span></div>
+          <div class="k-delta">阈值 98.0 · 余量 1.1</div>
+          <svg class="k-spark" width="46" height="22"><polyline fill="none" stroke="#3F8F84" stroke-width="1.2" points="0,10 8,11 16,9 24,12 32,10 40,11 46,9"/></svg>
+        </div>
+        <div class="kpi" data-s="warn">
+          <div class="k-label">再生能耗</div>
+          <div class="k-val num">3.05<span class="k-unit">GJ/t</span></div>
+          <div class="k-delta"><b>超 warn 阈值 0.05</b></div>
+          <svg class="k-spark" width="46" height="22"><polyline fill="none" stroke="#D08442" stroke-width="1.2" points="0,16 8,14 16,12 24,11 32,9 40,7 46,6"/></svg>
+        </div>
+        <div class="kpi" data-s="normal">
+          <div class="k-label">储层压力</div>
+          <div class="k-val num">32.6<span class="k-unit">MPa</span></div>
+          <div class="k-delta">破裂压力 35.0 · 余量 2.4</div>
+          <svg class="k-spark" width="46" height="22"><polyline fill="none" stroke="#3F8F84" stroke-width="1.2" points="0,12 8,13 16,12 24,14 32,13 40,15 46,14"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel p-alarm" style="flex:1">
+      <div class="p-head"><h2>告警</h2><span class="tag">5 条 · 2 需处置</span></div>
+      <div class="p-body">
+        <div class="alarms">
+
+          <div class="alarm" data-s="critical" data-open="1" onclick="this.dataset.open=this.dataset.open==='1'?'0':'1'">
+            <div class="a-top">
+              <span class="a-sev" data-s="critical">严重</span>
+              <span class="a-name">环空压力</span>
+              <span class="a-val num">12.4 <span style="font-size:10px;color:var(--txt-2)">bar</span></span>
+            </div>
+            <div class="a-meta"><span>井筒</span><span>阈值 12.0</span><span>09:20</span></div>
+            <div class="a-more">
+              <div class="row"><i>判据</i><span>超 critical 阈值 12.0 bar（实测 12.4）</span></div>
+              <div class="row"><i></i><span>连续 3 个采样点在 alert 以上（R_PERSIST）</span></div>
+              <div class="row"><i></i><span>1 h 内上升 1.8 bar，超 1.0 bar/h（R_RAPID）</span></div>
+              <div class="row"><i>出处</i><span style="color:var(--txt-2)">项目设计文件 §4.3 环空压力上限</span></div>
+              <div class="row" style="margin-top:6px"><i>归因</i><span>井筒完整性疑似劣化（strong）</span></div>
+              <div class="row"><i>已排除</i><span class="ruled">温度效应：井口温度 24.1℃ 稳定</span></div>
+              <div class="row" style="margin-top:6px"><i>处置</i><span>降注入速率至 35 t/h（注入班）</span></div>
+            </div>
+          </div>
+
+          <div class="alarm" data-s="warn" onclick="this.dataset.open=this.dataset.open==='1'?'0':'1'">
+            <div class="a-top">
+              <span class="a-sev" data-s="warn">警告</span>
+              <span class="a-name">再生能耗</span>
+              <span class="a-val num">3.05 <span style="font-size:10px;color:var(--txt-2)">GJ/t</span></span>
+            </div>
+            <div class="a-meta"><span>捕集</span><span>阈值 3.00</span><span>09:15</span></div>
+            <div class="a-more">
+              <div class="row"><i>判据</i><span>超 warn 阈值 3.00 GJ/tCO₂（实测 3.05）</span></div>
+              <div class="row"><i>出处</i><span style="color:var(--txt-2)">2026 年度能效考核指标</span></div>
+              <div class="row" style="margin-top:6px"><i>处置</i><span>核查再沸器蒸汽流量与贫液负荷（工艺班）</span></div>
+            </div>
+          </div>
+
+          <div class="alarm" data-s="notice" onclick="this.dataset.open=this.dataset.open==='1'?'0':'1'">
+            <div class="a-top">
+              <span class="a-sev" data-s="notice">关注</span>
+              <span class="a-name">捕集率</span>
+              <span class="a-val num">90.2 <span style="font-size:10px;color:var(--txt-2)">%</span></span>
+            </div>
+            <div class="a-meta"><span>捕集</span><span>阈值 90.0</span><span>09:10</span></div>
+            <div class="a-more">
+              <div class="row"><i>判据</i><span>落入 warn 阈值 90.0% 的 10% 提示带（90.0–99.0）</span></div>
+            </div>
+          </div>
+
+          <div class="alarm" data-s="indeterminate" onclick="this.dataset.open=this.dataset.open==='1'?'0':'1'">
+            <div class="a-top">
+              <span class="a-sev" data-s="indeterminate">不可判定</span>
+              <span class="a-name">地下水 pH</span>
+              <span class="a-val num" style="color:var(--sev-unknown)">—</span>
+            </div>
+            <div class="a-meta"><span>浅部</span><span>读数质量 suspect</span><span>09:05</span></div>
+            <div class="a-more">
+              <div class="row"><i>判据</i><span>探头校验已过期 37 天，读数不可信，本次不判定</span></div>
+              <div class="row"><i>处置</i><span>更换探头并重新校验（仪表班）</span></div>
+            </div>
+          </div>
+
+          <div class="alarm" data-s="normal" onclick="this.dataset.open=this.dataset.open==='1'?'0':'1'">
+            <div class="a-top">
+              <span class="a-sev" data-s="normal">正常</span>
+              <span class="a-name">井口压力</span>
+              <span class="a-val num">78.6 <span style="font-size:10px;color:var(--txt-2)">bar</span></span>
+            </div>
+            <div class="a-meta"><span>井筒</span><span>阈值 85.0</span><span>09:20</span></div>
+            <div class="a-more">
+              <div class="row"><i>判据</i><span>低于 alert 阈值 85.0 bar，无升级规则命中</span></div>
+            </div>
+          </div>
+
+        </div>
+        <div class="blind">
+          <b>3 个测点未配置阈值</b>：烟气流量、注入指数、地表形变。这些测点有读数但不参与判定，不计入上方列表。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="col center">
+
+    <div class="panel stage">
+      <div class="hud-corner tr">深部 — 近地表<br>实时合成</div>
+      <div class="stage-title">地质剖面 · CO₂ 运移</div>
+
+      <svg class="deck-only" viewBox="0 0 900 700" preserveAspectRatio="xMidYMid meet" aria-label="地质剖面与注入运移">
+        <defs>
+          <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#061019"/><stop offset="1" stop-color="#0D2431"/>
+          </linearGradient>
+          <linearGradient id="shal" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#17313F"/><stop offset="1" stop-color="#122834"/>
+          </linearGradient>
+          <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#2E5062"/><stop offset="1" stop-color="#1E3A48"/>
+          </linearGradient>
+          <linearGradient id="res" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1D4251"/><stop offset="1" stop-color="#132C37"/>
+          </linearGradient>
+          <pattern id="hatch" width="9" height="9" patternTransform="rotate(38)" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="0" y2="9" stroke="#8FC2D8" stroke-width=".8" opacity=".32"/>
+          </pattern>
+          <pattern id="dots" width="15" height="15" patternUnits="userSpaceOnUse">
+            <circle cx="4" cy="4" r="1.1" fill="#8FC2D8" opacity=".32"/>
+            <circle cx="11" cy="10" r=".9" fill="#8FC2D8" opacity=".18"/>
+          </pattern>
+          <radialGradient id="plume" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="#A8E9F2" stop-opacity=".82"/>
+            <stop offset="40%" stop-color="#5FB7C9" stop-opacity=".36"/>
+            <stop offset="100%" stop-color="#5FB7C9" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="core" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="#F4FEFF" stop-opacity="1"/>
+            <stop offset="32%" stop-color="#8AD6E2" stop-opacity=".66"/>
+            <stop offset="100%" stop-color="#8AD6E2" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="surfline" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#8FC2D8" stop-opacity=".1"/>
+            <stop offset="50%" stop-color="#CFF2F8" stop-opacity=".8"/>
+            <stop offset="100%" stop-color="#8FC2D8" stop-opacity=".1"/>
+          </linearGradient>
+          <radialGradient id="vig" cx="40%" cy="60%" r="70%">
+            <stop offset="52%" stop-color="#000" stop-opacity="0"/>
+            <stop offset="100%" stop-color="#03080C" stop-opacity=".82"/>
+          </radialGradient>
+        </defs>
+
+        <rect x="0" y="0" width="900" height="70" fill="url(#sky)"/>
+        <rect x="0" y="70" width="900" height="130" fill="url(#shal)"/>
+        <rect x="0" y="200" width="900" height="90" fill="url(#cap)"/>
+        <rect x="0" y="200" width="900" height="90" fill="url(#hatch)"/>
+        <rect x="0" y="290" width="900" height="270" fill="url(#res)"/>
+        <rect x="0" y="290" width="900" height="270" fill="url(#dots)"/>
+        <rect x="0" y="560" width="900" height="140" fill="#0B1B25"/>
+        <g stroke="#8FC2D8" stroke-width=".7" opacity=".12">
+          <line x1="0" y1="596" x2="900" y2="580"/>
+          <line x1="0" y1="634" x2="900" y2="614"/>
+          <line x1="0" y1="672" x2="900" y2="648"/>
+        </g>
+
+        <rect x="0" y="68.5" width="900" height="3" fill="url(#surfline)"/>
+        <line x1="0" y1="200" x2="900" y2="200" stroke="#8FC2D8" stroke-width=".8" opacity=".36"/>
+        <line x1="0" y1="290" x2="900" y2="290" stroke="#8FC2D8" stroke-width=".8" opacity=".36"/>
+        <line x1="0" y1="560" x2="900" y2="560" stroke="#8FC2D8" stroke-width=".8" opacity=".26"/>
+
+        <text x="18" y="114" font-family="Microsoft YaHei UI" font-size="11" fill="#8FA6B8">浅部含水层</text>
+        <text x="18" y="234" font-family="Microsoft YaHei UI" font-size="11" fill="#C4D4DF">盖层 · 封闭性关键层</text>
+        <text x="18" y="318" font-family="Microsoft YaHei UI" font-size="11" fill="#C4D4DF">目标储层</text>
+        <text x="18" y="648" font-family="Microsoft YaHei UI" font-size="11" fill="#526979">基底 · 无注入活动</text>
+
+        <ellipse cx="280" cy="462" rx="202" ry="92" fill="url(#plume)"/>
+        <ellipse cx="280" cy="462" rx="122" ry="58" fill="url(#plume)" opacity=".82"/>
+
+        <g class="fx" opacity=".5">
+          <ellipse cx="280" cy="462" rx="142" ry="64" fill="none" stroke="#8AD6E2" stroke-width=".7" stroke-dasharray="3 10"/>
+          <ellipse cx="280" cy="462" rx="180" ry="82" fill="none" stroke="#8AD6E2" stroke-width=".6" stroke-dasharray="2 14" opacity=".55"/>
+        </g>
+
+        <g>
+          <circle cx="280" cy="462" r="38" fill="url(#core)"/>
+          <circle cx="280" cy="462" r="4.2" fill="#F4FEFF"/>
+        </g>
+
+        <g class="fx" opacity=".95">
+          <circle r="2.5" fill="#B6ECF3"><animate attributeName="cx" values="292;486" dur="7s" repeatCount="indefinite"/><animate attributeName="cy" values="452;424" dur="7s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.95;0" dur="7s" repeatCount="indefinite"/></circle>
+          <circle r="2.1" fill="#B6ECF3"><animate attributeName="cx" values="288;546" dur="9s" repeatCount="indefinite"/><animate attributeName="cy" values="466;440" dur="9s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.8;0" dur="9s" repeatCount="indefinite"/></circle>
+          <circle r="1.8" fill="#B6ECF3"><animate attributeName="cx" values="290;436" dur="5.5s" repeatCount="indefinite"/><animate attributeName="cy" values="456;392" dur="5.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.85;0" dur="5.5s" repeatCount="indefinite"/></circle>
+          <circle r="2.2" fill="#B6ECF3"><animate attributeName="cx" values="292;398" dur="6s" repeatCount="indefinite"/><animate attributeName="cy" values="470;508" dur="6s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.75;0" dur="6s" repeatCount="indefinite"/></circle>
+          <circle r="1.9" fill="#F4FEFF"><animate attributeName="cx" values="280;356" dur="4.5s" repeatCount="indefinite"/><animate attributeName="cy" values="462;392" dur="4.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.9;0" dur="4.5s" repeatCount="indefinite"/></circle>
+          <circle r="1.9" fill="#B6ECF3"><animate attributeName="cx" values="280;222" dur="8s" repeatCount="indefinite"/><animate attributeName="cy" values="464;504" dur="8s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.65;0" dur="8s" repeatCount="indefinite"/></circle>
+          <circle r="1.6" fill="#B6ECF3"><animate attributeName="cx" values="280;320" dur="10s" repeatCount="indefinite"/><animate attributeName="cy" values="458;530" dur="10s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.55;0" dur="10s" repeatCount="indefinite"/></circle>
+        </g>
+
+        <rect x="274" y="46" width="11" height="486" fill="#264653" stroke="#8FC2D8" stroke-width=".8" opacity=".95"/>
+        <rect x="276.5" y="46" width="2.5" height="486" fill="#B6ECF3" opacity=".45"/>
+        <g stroke="#B6ECF3" stroke-width="1.3" opacity=".9">
+          <line x1="274" y1="472" x2="266" y2="472"/><line x1="285" y1="472" x2="293" y2="472"/>
+          <line x1="274" y1="488" x2="266" y2="488"/><line x1="285" y1="488" x2="293" y2="488"/>
+          <line x1="274" y1="504" x2="266" y2="504"/><line x1="285" y1="504" x2="293" y2="504"/>
+          <line x1="274" y1="520" x2="266" y2="520"/><line x1="285" y1="520" x2="293" y2="520"/>
+        </g>
+        <text x="298" y="58" font-family="Microsoft YaHei UI" font-size="10.5" fill="#DCE9F0">注入井 A1</text>
+
+        <g>
+          <rect x="515" y="46" width="8" height="146" fill="#264653" stroke="#8FC2D8" stroke-width=".7" opacity=".85"/>
+          <circle cx="519" cy="178" r="5" fill="none" stroke="#C9A94A" stroke-width="1.3"/>
+          <circle cx="519" cy="178" r="1.8" fill="#C9A94A"/>
+          <text x="533" y="172" font-family="Microsoft YaHei UI" font-size="10" fill="#A8BCC9">监测井 M2</text>
+          <text x="533" y="185" font-family="Consolas" font-size="10" fill="#6E8496">pH 6.85 · 1.24 mS/cm</text>
+        </g>
+
+        <g>
+          <rect x="715" y="44" width="8" height="24" fill="#264653" stroke="#8FC2D8" stroke-width=".7" opacity=".85"/>
+          <circle cx="719" cy="64" r="5" fill="none" stroke="#C9A94A" stroke-width="1.3"/>
+          <circle cx="719" cy="64" r="1.8" fill="#C9A94A"/>
+          <text x="733" y="58" font-family="Microsoft YaHei UI" font-size="10" fill="#A8BCC9">土壤通量站</text>
+          <text x="733" y="71" font-family="Consolas" font-size="10" fill="#6E8496">4.2 g/(m²·d)</text>
+        </g>
+
+        <g stroke="#8FC2D8" stroke-width=".7" opacity=".55" fill="none">
+          <circle cx="280" cy="242" r="3.2"/>
+          <circle cx="436" cy="462" r="3.2"/>
+        </g>
+        <text x="292" y="239" font-family="Microsoft YaHei UI" font-size="10" fill="#9DB4C4">环空 12.4 bar</text>
+        <text x="448" y="459" font-family="Microsoft YaHei UI" font-size="10" fill="#9DB4C4">储层 32.6 MPa</text>
+
+        <g opacity=".65">
+          <line x1="858" y1="70" x2="858" y2="560" stroke="#8FC2D8" stroke-width=".6"/>
+          <line x1="853" y1="70" x2="863" y2="70" stroke="#8FC2D8" stroke-width=".6"/>
+          <line x1="853" y1="200" x2="863" y2="200" stroke="#8FC2D8" stroke-width=".6"/>
+          <line x1="853" y1="290" x2="863" y2="290" stroke="#8FC2D8" stroke-width=".6"/>
+          <line x1="853" y1="560" x2="863" y2="560" stroke="#8FC2D8" stroke-width=".6"/>
+          <text x="868" y="74" font-family="Consolas" font-size="9.5" fill="#6E8496">0 m</text>
+          <text x="868" y="204" font-family="Consolas" font-size="9.5" fill="#6E8496">400</text>
+          <text x="868" y="294" font-family="Consolas" font-size="9.5" fill="#6E8496">900</text>
+          <text x="868" y="564" font-family="Consolas" font-size="9.5" fill="#6E8496">1600</text>
+        </g>
+
+        <rect x="0" y="0" width="900" height="700" fill="url(#vig)" pointer-events="none"/>
+      </svg>
+
+
+      <div class="eng-only eng-table">
+        <table>
+          <thead><tr>
+            <th style="width:150px">测点</th><th style="width:70px">环节</th>
+            <th style="width:96px;text-align:right">当前值</th><th style="width:56px">单位</th>
+            <th style="width:150px;text-align:right">阈值 warn / alert / crit</th>
+            <th style="width:82px">等级</th><th style="width:70px">质量</th>
+          </tr></thead>
+          <tbody>
+            <tr data-s="normal"><td>捕集率</td><td>捕集</td><td class="num v">92.4</td><td>%</td><td class="num t">90.0 / 88.0 / 85.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>CO₂ 纯度</td><td>捕集</td><td class="num v">99.1</td><td>%</td><td class="num t">98.0 / 97.0 / 96.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="warn"><td>再生能耗</td><td>捕集</td><td class="num v">3.05</td><td>GJ/t</td><td class="num t">3.00 / 3.20 / 3.50</td><td><span class="sg" data-s="warn">警告</span></td><td>good</td></tr>
+            <tr data-s="indeterminate"><td>烟气流量</td><td>捕集</td><td class="num v">128.4</td><td>t/h</td><td class="num t">未配置</td><td><span class="sg" data-s="indeterminate">不可判定</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>管输压力</td><td>运输</td><td class="num v">82.4</td><td>bar</td><td class="num t">85.0 / 90.0 / 95.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="notice"><td>管输流量</td><td>运输</td><td class="num v">41.8</td><td>t/h</td><td class="num t">38.0 / 35.0 / 30.0</td><td><span class="sg" data-s="notice">关注</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>井口压力</td><td>注入</td><td class="num v">78.6</td><td>bar</td><td class="num t">80.0 / 85.0 / 90.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="critical"><td>环空压力</td><td>注入</td><td class="num v">12.4</td><td>bar</td><td class="num t">9.5 / 10.0 / 12.0</td><td><span class="sg" data-s="critical">严重</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>注入速率</td><td>注入</td><td class="num v">42.0</td><td>t/h</td><td class="num t">38.0 / 35.0 / 30.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="indeterminate"><td>注入指数</td><td>注入</td><td class="num v">0.86</td><td>t/(d·bar)</td><td class="num t">未配置</td><td><span class="sg" data-s="indeterminate">不可判定</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>储层压力</td><td>深部</td><td class="num v">32.6</td><td>MPa</td><td class="num t">33.0 / 34.0 / 35.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="normal"><td>土壤 CO₂ 通量</td><td>近地表</td><td class="num v">4.2</td><td>g/(m²·d)</td><td class="num t">8.0 / 12.0 / 20.0</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="indeterminate"><td>地下水 pH</td><td>浅部</td><td class="num v">—</td><td>-</td><td class="num t">6.50 / 6.20 / 6.00</td><td><span class="sg" data-s="indeterminate">不可判定</span></td><td>suspect</td></tr>
+            <tr data-s="normal"><td>地下水电导率</td><td>浅部</td><td class="num v">1.24</td><td>mS/cm</td><td class="num t">2.00 / 3.00 / 5.00</td><td><span class="sg" data-s="normal">正常</span></td><td>good</td></tr>
+            <tr data-s="indeterminate"><td>地表形变</td><td>近地表</td><td class="num v">1.8</td><td>mm/a</td><td class="num t">未配置</td><td><span class="sg" data-s="indeterminate">不可判定</span></td><td>good</td></tr>
+          </tbody>
+        </table>
+        <div class="eng-foot">16 个已声明测点 · 12 个有可信读数 · 4 个不可判定（3 个未配置阈值 + 1 个读数不可信）· 不可判定不等于正常</div>
+      </div>
+
+      <div class="legend deck-only">
+        <span><i style="background:#58B8C9"></i>CO₂ 羽流</span>
+        <span><i style="background:#B99A3E"></i>MVA 测点</span>
+        <span><i style="background:#7AB2CC;opacity:.5"></i>盖层</span>
+      </div>
+    </div>
+
+    <div class="panel voice">
+      <div class="orb-wrap" id="orb" title="点击切换语音状态">
+        <svg viewBox="0 0 100 100">
+          <defs>
+            <radialGradient id="orbCore" cx="50%" cy="50%" r="50%">
+              <stop offset="0" stop-color="#DFF6FA" stop-opacity=".95"/>
+              <stop offset="45%" stop-color="#58B8C9" stop-opacity=".45"/>
+              <stop offset="100%" stop-color="#58B8C9" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <circle cx="50" cy="50" r="34" fill="url(#orbCore)" class="fx"/>
+          <circle cx="50" cy="50" r="40" fill="none" stroke="#58B8C9" stroke-width=".6" opacity=".25"/>
+          <g class="fx">
+            <circle cx="50" cy="50" r="44" fill="none" stroke="#58B8C9" stroke-width="1.4"
+                    stroke-dasharray="46 232" stroke-linecap="round" opacity=".85">
+              <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="6s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="50" cy="50" r="48" fill="none" stroke="#7E9CB8" stroke-width=".8"
+                    stroke-dasharray="10 16" opacity=".4">
+              <animateTransform attributeName="transform" type="rotate" from="360 50 50" to="0 50 50" dur="14s" repeatCount="indefinite"/>
+            </circle>
+          </g>
+          <circle cx="50" cy="50" r="13" fill="none" stroke="#58B8C9" stroke-width=".8" opacity=".55"/>
+          <circle cx="50" cy="50" r="5" fill="#CFF2F8" opacity=".9"/>
+        </svg>
+      </div>
+      <div class="v-info">
+        <div class="v-state">语音状态 · <b id="orbState">待机</b></div>
+        <div class="v-hint" id="orbHint">说「A1 井现在什么情况」或点击麦克风</div>
+        <div class="wave fx">
+          <i style="animation-delay:0s"></i><i style="animation-delay:.12s"></i><i style="animation-delay:.24s"></i>
+          <i style="animation-delay:.06s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.18s"></i>
+          <i style="animation-delay:.36s"></i><i style="animation-delay:.09s"></i><i style="animation-delay:.27s"></i>
+          <i style="animation-delay:.15s"></i><i style="animation-delay:.33s"></i><i style="animation-delay:.03s"></i>
+          <i style="animation-delay:.21s"></i><i style="animation-delay:.39s"></i><i style="animation-delay:.12s"></i>
+          <i style="animation-delay:.27s"></i><i style="animation-delay:.06s"></i><i style="animation-delay:.3s"></i>
+          <i style="animation-delay:.18s"></i><i style="animation-delay:.09s"></i><i style="animation-delay:.36s"></i>
+          <i style="animation-delay:.24s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.33s"></i>
+        </div>
+      </div>
+      <div class="v-actions">
+        <button class="btn btn-p" id="micBtn">按住说话</button>
+        <button class="btn">转文字</button>
+      </div>
+    </div>
+
+  </section>
+
+  <section class="col">
+    <div class="panel" style="flex:1">
+      <div class="p-head"><h2>AI 助手</h2><span class="tag">已引用 3 条告警</span></div>
+      <div class="chat">
+        <div class="msg user">
+          <div class="who">你</div>
+          <div class="bub">环空压力为什么升到 12.4 了？要不要降注入？</div>
+        </div>
+        <div class="msg ai">
+          <div class="who">OPS · 工况问答</div>
+          <div class="bub">
+            A1 井环空压力 <b>12.4 bar</b>，已超 critical 阈值 12.0。<span class="cite">alarm:A-…-annulus_p</span>
+            <ul class="ai-list">
+              <li>三条规则同时命中：阈值基础等级、连续 3 点稳态越限、1 h 内 +1.8 bar 速率。</li>
+              <li>归因：井筒完整性疑似劣化（strong）—— 环空升压而井口持平 78.6 bar。<span class="cite">wellhead_p</span></li>
+              <li>已排除：温度效应 —— 井口温度 24.1℃ 稳定。</li>
+              <li>建议：注入速率 42 → 35 t/h，24 h 内做环空压力测试。</li>
+            </ul>
+            <div class="ai-foot">窗口 08:20–09:20 · 3 个测点无阈值 · 本回答不含推测</div>
+          </div>
+        </div>
+        <div class="msg user">
+          <div class="who">你</div>
+          <div class="bub">MVA 那边有变化吗？</div>
+        </div>
+        <div class="msg ai">
+          <div class="who">OPS · 工况问答</div>
+          <div class="bub">
+            浅部与近地表均未检出同向变化：土壤通量 4.2 g/(m²·d) 在基线内。<span class="cite">soil_co2_flux</span>
+            但地下水 pH 因探头校验过期 37 天，<b style="color:#E4B183;font-weight:400">不可判定</b>。
+            <div class="ai-foot">不可判定 ≠ 正常。该测点当前不构成任何结论。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="confirm">
+      <div class="c-t">待确认操作 · 需二次确认</div>
+      <div class="c-b">
+        将 A1 井注入速率由 <b>42 t/h</b> 下调至 <b>35 t/h</b><br>
+        预计环空压力 2 h 内回落约 0.6 bar
+      </div>
+      <div class="c-row">
+        <button class="btn btn-p" id="actBtn">确认执行</button>
+        <button class="btn">驳回</button>
+      </div>
+      <div class="c-note">语音不可直接执行 · 需操作人签名留痕</div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="statusbar">
+  <span>跨 Agent 冲突 <b>0</b></span><span class="sep"></span>
+  <span>阻断 <b>0</b></span><span class="sep"></span>
+  <span class="unk">已知盲区 <b>3</b> 个测点无阈值</span><span class="sep"></span>
+  <span class="warn">无读数 <b>1</b></span><span class="sep"></span>
+  <span>报告草稿 <b>待提交审批</b></span><span class="sep"></span>
+  <span>阈值来源 <b>项目设计文件 / 能效考核指标</b></span>
+  <span style="margin-left:auto">CCUS OPS · 概念原型 · 非生产环境</span>
+</footer>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <h3>确认执行高危操作</h3>
+    <p>对象：A1 井注入泵 P-02</p>
+    <p>动作：注入速率 42 t/h → 35 t/h</p>
+    <div class="warnbox">
+      该操作会改变井下物理状态。系统已核验：环空压力 12.4 bar 超 critical 阈值，但<b>盖层完整性未确认</b>——降速只能减缓升压，不能替代井筒检测。
+    </div>
+    <p style="font-size:11px;color:var(--txt-2)">操作人签名（必填）</p>
+    <input id="signer" placeholder="工号 / 姓名">
+    <div class="modal-actions">
+      <button class="btn" id="cancelBtn">取消</button>
+      <button class="btn btn-p" id="okBtn">确认并记录</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+
+  // 支持 ?mode=engineer&skin=sinopec —— 演示时直接给客户一个链接，不必手点
+  var q = new URLSearchParams(location.search);
+  if(q.get('mode') === 'engineer' || q.get('mode') === 'deck'){
+    root.dataset.mode = q.get('mode');
+    document.querySelectorAll('[data-mode-btn]').forEach(function(x){
+      x.setAttribute('aria-pressed', String(x.dataset.modeBtn === root.dataset.mode));
+    });
+  }
+  if(['neutral','sinopec','cnpc'].indexOf(q.get('skin')) >= 0){
+    root.dataset.skin = q.get('skin');
+    document.querySelectorAll('[data-skin-btn]').forEach(function(x){
+      x.dataset.on = String(x.dataset.skinBtn === root.dataset.skin);
+    });
+  }
+  var CB = {neutral:'客户标识位', sinopec:'中国石化 · 华东分公司', cnpc:'中国石油 · 长庆油田'};
+  function syncCobrand(){ document.querySelector('.cb-name').textContent = CB[root.dataset.skin] || CB.neutral; }
+  syncCobrand();
+  if(q.get('modal') === '1'){ setTimeout(function(){ document.getElementById('modal').dataset.open = '1'; }, 0); }
+
+  document.getElementById('modeCtl').addEventListener('click', function(e){
+    var b = e.target.closest('[data-mode-btn]');
+    if(!b) return;
+    root.dataset.mode = b.dataset.modeBtn;
+    this.querySelectorAll('[data-mode-btn]').forEach(function(x){
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+  });
+
+  document.querySelectorAll('[data-skin-btn]').forEach(function(el){
+    el.addEventListener('click', function(){
+      root.dataset.skin = el.dataset.skinBtn;
+      document.querySelectorAll('[data-skin-btn]').forEach(function(x){
+        x.dataset.on = String(x === el);
+      });
+      document.querySelector('.cb-name').textContent = CB[root.dataset.skin] || CB.neutral;
+    });
+  });
+
+  var states = [
+    ['待机', '说「A1 井现在什么情况」或点击麦克风'],
+    ['聆听', '正在采集现场语音 · 8 dB 信噪比'],
+    ['思考', '检索 71 条语料 · 核对 16 个测点'],
+    ['回复', '已生成回答 · 3 条引用可回代']
+  ];
+  var si = 0;
+  var orb = document.getElementById('orb');
+  var orbState = document.getElementById('orbState');
+  var orbHint = document.getElementById('orbHint');
+  orb.addEventListener('click', function(){
+    si = (si + 1) % states.length;
+    orbState.textContent = states[si][0];
+    orbHint.textContent = states[si][1];
+  });
+
+  var modal = document.getElementById('modal');
+  document.getElementById('actBtn').addEventListener('click', function(){ modal.dataset.open = '1'; });
+  document.getElementById('cancelBtn').addEventListener('click', function(){ modal.dataset.open = '0'; });
+  document.getElementById('okBtn').addEventListener('click', function(){
+    var v = document.getElementById('signer').value.trim();
+    if(!v){ document.getElementById('signer').style.borderColor = '#C25A45'; return; }
+    modal.dataset.open = '0';
+  });
+  modal.addEventListener('click', function(e){ if(e.target === modal) modal.dataset.open = '0'; });
+})();
+</script>
+</body>
+</html>

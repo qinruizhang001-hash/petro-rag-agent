@@ -18,7 +18,8 @@ README 用五处声明同一个测试总数（badge / highlights 表 / §3 正�
 1. badge 与所有 "**N unit tests" 声明的总数相同。
 2. 所有 CI 计数声明（"1047 of them on every push" / "1047 in CI" /
    "CI runs 1047 of those tests" …）相同。
-3. 分项之和等于 CI 计数：906 + 78 + 17 + 46 = 1047。
+3. 分项之和等于 CI 计数（stdlib-only + ops-API + dependency-backed +
+   gate/graph + chart/UI）。
 4. "the other N need torch" 的 N 等于 总数 − CI 计数。
 
 后两条是**与审计记录比对** —— 从"自相矛盾"升级到"与实测不符"：
@@ -67,6 +68,10 @@ _CI_PATTERNS = [
 
 _BREAKDOWN_PATTERNS = [
     ("stdlib-only", r"(\d+) stdlib-only"),
+    # 运维接口那一组必须单列：它需要 fastapi/httpx，不能进 stdlib-only job，
+    # 也不该混进 dependency-backed（那边装的是 openai/ragas 那条评估链）。
+    # 分组一多，分项之和最容易漏 —— 而这个脚本正是为了拦住"改了总数忘了分项"。
+    ("ops-API", r"(\d+) ops-API"),
     ("dependency-backed", r"(\d+) dependency-backed"),
     ("gate/graph", r"(\d+) gate/graph"),
     ("chart/UI", r"(\d+) chart/UI"),
