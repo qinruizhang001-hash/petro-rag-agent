@@ -264,6 +264,31 @@ def _dump(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
+def _first_diff(expected: str, actual: str, limit: int = 14) -> str:
+    """定位第一处差异，带上下文。
+
+    只报"内容不一致"等于让下一个人重跑一遍去猜。开发机与 CI 的差别可能只是
+    时区、Python 版本、或某个浮点末位 —— 把行号与两边的值打出来，几秒钟就能
+    判断这是"真的漂移"还是"环境不同"，而这两者的处置完全相反。
+    """
+    import difflib
+
+    out: list[str] = []
+    for line in difflib.unified_diff(
+        expected.splitlines(),
+        actual.splitlines(),
+        fromfile="已提交的 fixture",
+        tofile="接口实际输出",
+        n=2,
+        lineterm="",
+    ):
+        out.append(line)
+        if len(out) >= limit:
+            out.append("…（只显示前几处差异）")
+            break
+    return "\n".join(out)
+
+
 def main(argv: list[str]) -> int:
     check_only = "--check" in argv[1:]
     payloads = capture()
@@ -276,8 +301,13 @@ def main(argv: list[str]) -> int:
         if check_only:
             if not target.exists():
                 stale.append(f"{name}：文件不存在")
-            elif target.read_text(encoding="utf-8") != text:
-                stale.append(f"{name}：内容与接口实际输出不一致")
+            else:
+                on_disk = target.read_text(encoding="utf-8")
+                if on_disk != text:
+                    stale.append(
+                        f"{name}：内容与接口实际输出不一致\n"
+                        + _first_diff(on_disk, text)
+                    )
             continue
         target.write_text(text, encoding="utf-8")
         print(f"写入 {target.relative_to(ROOT)}  ({len(text):,} 字节)")
