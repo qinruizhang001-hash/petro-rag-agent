@@ -140,6 +140,25 @@ test("?source 必须同时管住 ops 与知识库", () => {
   }
 });
 
+test("面板标题行能换行，标题不被压断", () => {
+  /*
+   * 默认的 flex 让标题和 aside 一起缩，两个都会缩到内容宽度以下 ——
+   * 工程师模式给标题行多塞了「卡片 / 表格」之后，「报警与关键指标」被压成
+   * 「报警与关键指 / 标」，旁边的计数被压成竖排单字。两个元素都在、都读不
+   * 出来，而控制台里没有任何报错。
+   *
+   * 静态渲染测试看不出这件事（它只比较文本），所以用源码守卫锁形状。
+   */
+  const panel = read("src/components/Panel.tsx");
+  assert.match(panel, /header className="[^"]*flex-wrap/, "标题行缺 flex-wrap");
+  assert.match(panel, /<h2[^>]*whitespace-nowrap/, "标题缺 whitespace-nowrap，会被压断");
+
+  // 计数是这一栏的结论，不许被按钮挤掉；挤不下时换行的是按钮。
+  const rail = read("src/components/LeftRail.tsx");
+  assert.match(rail, /tnum whitespace-nowrap/, "左栏计数缺 whitespace-nowrap");
+  assert.match(rail, /flex flex-wrap items-center justify-end/, "左栏 aside 缺 flex-wrap");
+});
+
 test("live 模式：状态栏必须说清输入是回放而不是实时", () => {
   // 这句文案现在住在 `lib/source.ts`（数据源判定与措辞的唯一出处）。
   const src = read("src/lib/source.ts");

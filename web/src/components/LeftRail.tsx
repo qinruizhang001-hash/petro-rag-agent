@@ -156,13 +156,23 @@ export function LeftRail({ report, thresholds, mode }: LeftRailProps) {
        */
       className="min-h-[520px] lg:min-h-0"
       aside={
-        <span className="flex items-center gap-1.5">
-          <span className="tnum">
+        /*
+         * `flex-wrap` + 计数 `whitespace-nowrap` 是必需的，不是装饰。
+         *
+         * 工程师模式往这一格里多塞了「卡片 / 表格」两个按钮之后，标题行
+         * （`justify-between gap-3`）分给它的宽度不够了，而 flex 子项默认
+         * 会缩到内容宽度以下 —— 结果是「4 需动作 · 3 不可判定 / 共 18」
+         * 被压成一列竖排的「4 / 需动 / 作 · / 3 不可判…」，看起来像渲染
+         * 坏了。计数是这一栏的结论（"有几个要叫人"），不能被按钮挤掉；
+         * 挤不下时该换行的是按钮。
+         */
+        <span className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1">
+          <span className="tnum whitespace-nowrap">
             {actionableCount} 需动作 · {indetCount} 不可判定
             {ackCount > 0 && ` · ${ackCount} 已标记`} / 共 {ordered.length}
           </span>
           {mode === "engineer" && (
-            <span className="flex gap-0.5">
+            <span className="flex shrink-0 gap-0.5">
               {(
                 [
                   ["cards", "卡片"],
