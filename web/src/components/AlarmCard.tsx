@@ -59,7 +59,16 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
   return (
     <article
       className={cn(
-        "rounded-panel border border-line bg-surface-2",
+        "rounded-panel border border-line",
+        /*
+         * 已标记处置的卡片：背景压暗一档、标题降一档，**读数与等级色不动**。
+         *
+         * 为什么不整卡 `opacity-60`：读数会跟着一起淡，而"已确认"不改变
+         * 这个测点现在的值。也不把左侧等级色条改成灰色 —— 那是这张卡上
+         * 唯一说明"有多严重"的东西，已确认不等于降级。
+         * 区别靠背景与标题，识别靠等级色，两者分工。
+         */
+        ack ? "bg-surface-1/70" : "bg-surface-2",
         // 左侧色条承担等级识别；不可判定时整卡虚线，与"正常"再拉开一层
         "border-l-2",
         cls.border,
@@ -75,11 +84,19 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <SeverityChip severity={alarm.severity} />
-            <span className="truncate text-sm text-ink-0">{alarm.label}</span>
+            <span
+              className={cn(
+                "truncate text-sm",
+                ack ? "text-ink-1" : "text-ink-0",
+              )}
+            >
+              {alarm.label}
+            </span>
             {/*
               处置标记。**不改变卡片颜色**：已确认不等于问题消失，
               把一条 critical 调淡会让下一个人以为它不用看了。
               徽标只说"有人处理过"，等级色仍然是等级。
+              （整卡背景压暗一档是"区别"，等级色是"识别"，见 `<article>` 上的注释。）
             */}
             {ack && (
               <span

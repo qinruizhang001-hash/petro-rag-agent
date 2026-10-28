@@ -143,8 +143,18 @@ export function GeoSection({ report, thresholds, mode, voice = "idle", className
                但读者有权利知道自己在看哪一张。
             少了 ②③，这张图会被截图放进汇报材料，而里面的数没人能复现，
             也没人知道它是不是降级版。
+
+            `shrink-0` 不能省：画布是 `flex-1`，一旦画布里的内容把这一格
+            撑紧，这个区块会被 flex 压缩到只剩半行 —— 而它是这张图上
+            唯一说明"哪些数字不能拿去用"的地方。宁可压画布，不压它。
+
+            这三句话**没有**后端对应字段：`AlarmReport` 里有 `policy` 与
+            `threshold_origin`（分级政策的出处），但没有剖面示意性的说明。
+            也就是说这里是唯一来源 —— 将来接入储层模拟时，必须同步改
+            `lib/section.ts` 里的 `PLUME_SOURCE` / `STRATA_SOURCE`，
+            否则界面会继续声称"未接储层模拟"。
           */}
-          <div className="border-t border-line px-3 py-1.5 text-2xs text-ink-2">
+          <div className="shrink-0 border-t border-line px-3 py-1.5 text-2xs text-ink-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <Legend className="bg-acc/40" label="CO₂ 波及范围" />
               <Legend className="border border-dashed border-acc-2/60" label="压力影响范围" />

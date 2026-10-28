@@ -637,13 +637,17 @@ jobs:
               exit 1
             fi
           done
-          # 三档栅格的 lg 行高与 xl 单行，靠 grid-template-rows 的两个表达式
-          for expr in "460px" "minmax(0,1fr)"; do
-            if ! grep -q -- "$expr" dist/assets/*.css; then
-              echo "::error::$expr missing from the built stylesheet — the three-tier layout grid is gone"
-              exit 1
-            fi
-          done
+          # 三档栅格的 lg 行高（按视口比例、带 px 下限）与 xl 单行。
+          # 用正则而不是写死 `36vh`：这个比例是要调的（画布高度不够时会改），
+          # 但"整个表达式被删掉"必须能抓到。
+          if ! grep -qE 'minmax\([0-9]+px,[0-9]+vh\)' dist/assets/*.css; then
+            echo "::error::the lg row height (minmax(Npx, Mvh)) is gone — the right rail is no longer sized against the viewport, and the section canvas gets squeezed"
+            exit 1
+          fi
+          if ! grep -q -- "minmax(0,1fr)" dist/assets/*.css; then
+            echo "::error::minmax(0,1fr) missing — grid rows are back to auto and the section canvas will be stretched to content height"
+            exit 1
+          fi
           echo "Narrow-screen floors and the layout grid are in the stylesheet."
 
       # 中文注释：three 压缩后约 130 KB gzip。它被**动态 import** 时是一个独立

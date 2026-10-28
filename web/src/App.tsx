@@ -88,6 +88,20 @@ export default function App() {
   const [perf] = useState(perfEnabled);
   const [push, setPush] = useState<PushStatus>("idle");
   const [health, setHealth] = useState<BackendHealth>(HEALTH_INITIAL);
+  /**
+   * 右栏是否展开。
+   *
+   * 窄屏上三栏是硬挤的：左栏要留给告警，中央要留给剖面，右栏一展开
+   * 中央就被压到看不见羽流。收起右栏之后中央拿到全部剩余宽度 ——
+   * 这是"关键信息优先"的具体做法，而不是把右栏直接 `hidden` 掉
+   * （藏起来的知识库与对话，等于把"这条结论出自哪篇"的入口关掉）。
+   *
+   * `?rail=off` 供截图与评审直接定位到收起态。
+   */
+  const [railOpen, setRailOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return new URLSearchParams(window.location.search).get("rail") !== "off";
+  });
 
   /*
    * 后端可达性。
@@ -153,7 +167,12 @@ export default function App() {
 
   return (
     <div className="relative z-10 flex h-full flex-col bg-surface-0">
-      <Header mode={mode} onModeChange={setMode} />
+      <Header
+        mode={mode}
+        onModeChange={setMode}
+        railOpen={railOpen}
+        onShowRail={() => setRailOpen(true)}
+      />
 
       {error && (
         <div className="border-b border-sev-critical/60 bg-sev-critical/10 px-3 py-2 text-xs text-sev-critical">
@@ -181,10 +200,17 @@ export default function App() {
            *   靠 `min-h` 撑住，否则画布在 auto 行里会是 0 px 高。
            * - 平板（1024–1279）：两列，右栏落到第二行整宽（460 px）。
            * - 桌面（≥ 1280）：三列，行高钉死，各栏内部自己滚。
+           *
+           * 右栏收起时少一列、少一行：中央直接拿到那一份宽度。这不是
+           * 隐藏功能 —— 顶部会多出一个「知识库 · 对话」按钮把它叫回来。
            */
-          "grid-rows-none lg:grid-rows-[minmax(0,1fr)_460px] xl:grid-rows-[minmax(0,1fr)]",
+          railOpen
+            ? "grid-rows-none lg:grid-rows-[minmax(0,1fr)_minmax(300px,36vh)] xl:grid-rows-[minmax(0,1fr)]"
+            : "grid-rows-none lg:grid-rows-[minmax(0,1fr)]",
           "overflow-auto lg:overflow-hidden",
-          "grid-cols-1 lg:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)_minmax(280px,20rem)]",
+          railOpen
+            ? "grid-cols-1 lg:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)_minmax(280px,20rem)]"
+            : "grid-cols-1 lg:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)]",
         )}
       >
         {report && thresholds ? (
@@ -204,9 +230,18 @@ export default function App() {
 
               窄屏不再是 `hidden`：藏掉右栏等于在手机上关掉知识库与对话，
               而这两样恰好是"这条结论出自哪篇"的唯一入口。
+
+              收起时用 `hidden` 而**不是**条件渲染：`DialogPanel` 的对话历史
+              存在自己的 `useState` 里，卸载一次就全没了 —— 为了看一眼剖面
+              把刚问的对话清空，没人会觉得这是对的。
             */}
-            <div className="min-h-[480px] min-w-0 lg:col-span-2 lg:min-h-0 xl:col-span-1">
-              <RightRail />
+            <div
+              className={cn(
+                "min-h-[480px] min-w-0 lg:col-span-2 lg:min-h-0 xl:col-span-1",
+                !railOpen && "hidden",
+              )}
+            >
+              <RightRail onCollapse={() => setRailOpen(false)} />
             </div>
           </>
         ) : (
@@ -237,9 +272,13 @@ export default function App() {
 function Header({
   mode,
   onModeChange,
+  railOpen,
+  onShowRail,
 }: {
   mode: Mode;
   onModeChange: (m: Mode) => void;
+  railOpen: boolean;
+  onShowRail: () => void;
 }) {
   return (
     <header className="flex items-center gap-3 border-b border-line px-3 py-2">
@@ -254,6 +293,20 @@ function Header({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/*
+          右栏收起后，这是唯一能把它叫回来的入口。
+          只在收起时出现：展开态下右栏自己标题栏里就有「›」，
+          两个按钮同时指向相反的动作，会让人不知道当前是开还是关。
+        */}
+        {!railOpen && (
+          <button
+            type="button"
+            onClick={onShowRail}
+            className="rounded-panel border border-acc/40 px-2 py-0.5 text-2xs text-acc hover:bg-acc/10"
+          >
+            ‹ 知识库 · 对话
+          </button>
+        )}
         <div
           className="flex rounded-panel border border-line p-0.5"
           role="group"

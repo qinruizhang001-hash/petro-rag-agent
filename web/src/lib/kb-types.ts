@@ -182,3 +182,27 @@ export interface KbDocDetail {
     content: string;
   }>;
 }
+
+/**
+ * 从对话里的引用角标跳到知识库详情时的入参。
+ *
+ * ## 为什么带 `fallback`
+ *
+ * 跳转落点是 `/kb/documents/{name}`，而 fixture 模式下**没有**这个端点
+ * （12 篇论文的全文切片是 MB 级，不为演示存一份）。但检索响应里
+ * **已经有那一片原文** —— 把它带过去，落点就成立：读者看到的是真实的
+ * 那一片，而不是一个"演示数据不可用"的错误页。
+ *
+ * 带 `fallback` 时详情页**不显示总片数**：那个数字没取到。
+ * 显示成"共 1 片"会把"缺数据"说成"数据是 1"。
+ */
+export interface FocusDoc {
+  name: string;
+  /** 命中切片的 id，后端会换算成 `chunks[].chunk_id` 并高亮 */
+  focus?: string;
+  fallback?: {
+    chunk_id: string;
+    chars: number;
+    content: string;
+  };
+}

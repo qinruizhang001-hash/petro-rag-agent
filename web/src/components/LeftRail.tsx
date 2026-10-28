@@ -67,12 +67,29 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
     return map;
   }, [report.attribution]);
 
-  const ordered = useMemo(() => sortAlarms(report.alarms), [report.alarms]);
-  const actionableCount = ordered.filter((a) => SEVERITY_META[a.severity].actionable).length;
-  const indetCount = ordered.filter((a) => isIndeterminate(a.severity)).length;
-
   // 本页处置标记。只用于"这个班次有人看过"的演示，不写后端（见 `lib/ack.ts`）。
   const acks = useAcks();
+
+  /**
+   * 排序：严重度优先，**已标记处置的沉底**。
+   *
+   * 两段稳定分区，不是 `sort` 加比较函数 —— 后者在"未处理"内部会重排，
+   * 而读者记住的是"第三条是环空压力"。分区之后，未处理之间的相对顺序
+   * 完全不变。
+   *
+   * 为什么沉底而不是隐藏：藏掉一条 critical，下一个人就再也看不到它。
+   * "有人处理过"和"这件事不存在"必须长得不一样。
+   */
+  const ordered = useMemo(() => {
+    const base = sortAlarms(report.alarms);
+    const todo: typeof base = [];
+    const done: typeof base = [];
+    for (const a of base) (acks[a.alarm_id] ? done : todo).push(a);
+    return [...todo, ...done];
+  }, [report.alarms, acks]);
+
+  const actionableCount = ordered.filter((a) => SEVERITY_META[a.severity].actionable).length;
+  const indetCount = ordered.filter((a) => isIndeterminate(a.severity)).length;
   const ackCount = ordered.filter((a) => acks[a.alarm_id]).length;
 
   return (
@@ -104,7 +121,8 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
       */}
       {ackCount > 0 && (
         <p className="mb-2 rounded-panel border border-line px-2 py-1 text-2xs text-ink-2">
-          {ackCount} 条已在本页标记处置 —— 仅本页，刷新即失效，没有写入后端审计。
+          {ackCount} 条已在本页标记处置，已排到列表末尾 —— 仅本页，刷新即失效，
+          没有写入后端审计。
         </p>
       )}
 

@@ -29,18 +29,23 @@ import { CitationText } from "./CitationText";
  * 在对话里塞一个只在内存里改状态的"批准"按钮，会比没有更危险 ——
  * 它看起来像批准过了。
  *
- * ## 三种消息长得不一样
+ * ## 两种"点引用"是两件事
  *
- * | kind | 来源 | 可信度 |
+ * | 点哪里 | 去哪 | 为什么 |
  * |---|---|---|
- * | `answer` | `/ops/condition` | 每个数字都能在事实块里回代 |
- * | `retrieval` | `/kb/search` | 每片原文都能点开，但不是结论 |
- * | `error` | 请求失败 | 什么都不成立 |
+ * | 正文里的角标 `[2]` | 知识库详情页（`KbDocDetail`） | 读者想知道"这句话出自哪"，他要的是上下文，不是这一片 |
+ * | 「原文证据」列表里的 `[2]` | 就地展开这一片 | 他已经在看清单了，点开是为了核对这一段，不该被带离当前对话 |
  *
- * 把 `retrieval` 渲染成 `answer` 是最容易犯的错：检索结果读起来像结论，
- * 而它其实只是"库里有哪些句子与这个问题邻近"。
+ * 两个入口都做成"跳走"会让核对变成一次往返；都做成"就地展开"则
+ * 永远看不到上下文。分开是对的，但**必须让两者的样子不同**，
+ * 否则同一个人在同一个页面上点两个长得一样的按钮，得到两种结果。
  */
-export function DialogPanel() {
+export function DialogPanel({
+  onOpenCitation,
+}: {
+  /** 正文角标的落点。不传时退回"就地展开"，让这个面板能单独用 */
+  onOpenCitation?: (c: Citation) => void;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,7 +191,12 @@ export function DialogPanel() {
       <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
         {messages.length === 0 && <Empty onPick={(q) => void send(q)} />}
         {messages.map((m) => (
-          <Bubble key={m.id} message={m} onPick={openPeek} />
+          <Bubble
+            key={m.id}
+            message={m}
+            onPeek={openPeek}
+            onJump={onOpenCitation ?? openPeek}
+          />
         ))}
         <VoiceBoundary />
         <NotDone />
@@ -249,10 +259,14 @@ function Empty({ onPick }: { onPick: (q: string) => void }) {
 
 function Bubble({
   message,
-  onPick,
+  onPeek,
+  onJump,
 }: {
   message: ChatMessage;
-  onPick: (c: Citation, siblings?: number) => void;
+  /** 证据列表里的按钮：就地展开这一片 */
+  onPeek: (c: Citation, siblings?: number) => void;
+  /** 正文里的角标：跳到知识库详情 */
+  onJump: (c: Citation) => void;
 }) {
   if (message.role === "user") {
     return (
@@ -299,7 +313,12 @@ function Bubble({
         <p className="mt-1 text-ink-2">正在取数与检索…</p>
       ) : (
         <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed text-ink-0">
-          <CitationText text={message.text} citations={citations} onPick={onPick} />
+          <CitationText
+            text={message.text}
+            citations={citations}
+            onPick={onJump}
+            hint="跳到知识库看这篇的原文"
+          />
         </p>
       )}
 
@@ -345,20 +364,33 @@ function Bubble({
           <ul className="mt-0.5 space-y-px">
             {groups.map((g) => (
               <li key={g.reference_id} className="flex items-baseline gap-1">
+                {/*
+                  编号 = 出处，点了去详情页；文件名 = 这一篇的正文，点了就地展开。
+                  两个动作不同，所以样子不同（带框的按钮 / 像链接的文字）。
+                  没有文件血缘时编号不可点 —— 那个落点会是一页空白，
+                  而"点了没反应"比"不能点"更像故障。
+                */}
                 <button
                   type="button"
-                  onClick={() => onPick(g.chunks[0]!, g.chunks.length)}
-                  className="shrink-0 rounded-panel border border-acc/40 px-1 font-num text-acc hover:bg-acc/10"
-                  title="点开看这一篇的第一片原文"
+                  onClick={() => onJump(g.chunks[0]!)}
+                  disabled={!g.source}
+                  title={
+                    g.source
+                      ? `${g.source} · 跳到知识库看这篇的原文`
+                      : "该证据没有文件级血缘，无法定位到具体文献"
+                  }
+                  className="shrink-0 rounded-panel border border-acc/40 px-1 font-num text-acc hover:bg-acc/10 disabled:border-line disabled:text-ink-2 disabled:hover:bg-transparent"
                 >
                   {g.reference_id}
                 </button>
-                <span
-                  className="min-w-0 flex-1 truncate text-ink-1"
-                  title={g.source || "无出处"}
+                <button
+                  type="button"
+                  onClick={() => onPeek(g.chunks[0]!, g.chunks.length)}
+                  title="就地展开这一篇的第一片原文（不离开对话）"
+                  className="min-w-0 flex-1 truncate text-left text-ink-1 hover:text-acc"
                 >
                   {g.source || "无出处"}
-                </span>
+                </button>
                 <span className="shrink-0 font-num text-ink-2">{g.chunks.length} 片</span>
                 <StrengthChip source={g.source} />
               </li>

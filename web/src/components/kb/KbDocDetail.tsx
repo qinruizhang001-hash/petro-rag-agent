@@ -17,11 +17,20 @@ export function KbDocDetail({
   name,
   detail,
   error,
+  partialNote,
   onBack,
 }: {
   name: string;
   detail: KbDocDetail | null;
   error: string | null;
+  /**
+   * "只含这一片"的说明。
+   *
+   * 有它的时候**不显示"共 N 片"** —— 演示数据里根本没取到那个数字，
+   * 而一个显示成"共 1 片"的详情页，读起来像"这篇文献只有一片"。
+   * 缺数据和数据是 1 是两件事，不能靠把 0 填进去来省一个分支。
+   */
+  partialNote?: string | null;
   onBack: () => void;
 }) {
   const focusedIndex = useMemo(
@@ -51,11 +60,17 @@ export function KbDocDetail({
               {detail.title}
             </p>
           )}
-          <p className="text-ink-2">
-            共 <span className="font-num text-ink-1">{detail.total_chunks}</span> 片
-            {detail.has_more &&
-              `，显示 ${detail.offset + 1}–${detail.offset + detail.chunks.length}`}
-          </p>
+          {partialNote ? (
+            <p className="rounded-panel border border-sev-notice/50 bg-sev-notice/5 px-2 py-1 leading-relaxed text-sev-notice">
+              {partialNote}
+            </p>
+          ) : (
+            <p className="text-ink-2">
+              共 <span className="font-num text-ink-1">{detail.total_chunks}</span> 片
+              {detail.has_more &&
+                `，显示 ${detail.offset + 1}–${detail.offset + detail.chunks.length}`}
+            </p>
+          )}
           <div className="space-y-1">
             {detail.chunks.map((c, i) => (
               <div

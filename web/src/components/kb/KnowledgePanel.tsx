@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchKbDocuments, fetchKbOverview } from "../../lib/kb";
-import type { KbDocuments, KbOverview as KbOverviewData } from "../../lib/kb-types";
+import type {
+  FocusDoc,
+  KbDocuments,
+  KbOverview as KbOverviewData,
+} from "../../lib/kb-types";
 import { cn } from "../../lib/utils";
 import { KbOverview } from "./KbOverview";
 import { KbSearch } from "./KbSearch";
@@ -30,7 +34,7 @@ import { KbSearch } from "./KbSearch";
  */
 type Tab = "overview" | "search";
 
-export function KnowledgePanel() {
+export function KnowledgePanel({ focusDoc }: { focusDoc?: FocusDoc | null }) {
   // `?kb=search` 供截图与评审直接定位到检索页。
   // 一个只能靠点击才能到达的状态，评审时总会有人截错图 —— 这条约定
   // 在 `?mode=` / `?tab=chain` / `?rail=dialog` 上已经用了四次。
@@ -43,6 +47,16 @@ export function KnowledgePanel() {
   const [overview, setOverview] = useState<KbOverviewData | null>(null);
   const [docs, setDocs] = useState<KbDocuments | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * 从对话里的引用角标跳进来时，直接停在检索页。
+   *
+   * 停在概览会让这次跳转看起来"没反应"——读者点了一个角标，看到的是
+   * 24 行文档清单，而他期待的是那片原文。
+   */
+  useEffect(() => {
+    if (focusDoc?.name) setTab("search");
+  }, [focusDoc]);
 
   useEffect(() => {
     let alive = true;
@@ -66,7 +80,7 @@ export function KnowledgePanel() {
 
       <div className="mt-2 min-h-0 flex-1 overflow-auto pr-1">
         {tab === "search" ? (
-          <KbSearch />
+          <KbSearch focusDoc={focusDoc} />
         ) : error ? (
           <div className="p-3 text-2xs leading-relaxed text-sev-alert">
             知识库状态读取失败：{error}
