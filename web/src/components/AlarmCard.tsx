@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ACK_CLASS, ACK_LABEL, ACK_TEXT_CLASS, setAck, useAcks } from "../lib/ack";
 import {
   SEVERITY_CLASS,
   describeMargin,
@@ -52,12 +53,8 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
     alarm.threshold_value,
     alarm.direction,
   );
-  const hasDetail =
-    alarm.rationale.length > 0 ||
-    alarm.attribution.length > 0 ||
-    excluded.length > 0 ||
-    alarm.actions.length > 0 ||
-    Boolean(alarm.provenance);
+  const acks = useAcks();
+  const ack = acks[alarm.alarm_id];
 
   return (
     <article
@@ -71,17 +68,30 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
     >
       <button
         type="button"
-        onClick={() => hasDetail && setOpen((v) => !v)}
+        onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={cn(
-          "flex w-full items-start gap-2 px-2.5 py-2 text-left",
-          hasDetail && "cursor-pointer hover:bg-surface-3/60",
-        )}
+        className="flex w-full cursor-pointer items-start gap-2 px-2.5 py-2 text-left hover:bg-surface-3/60"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <SeverityChip severity={alarm.severity} />
             <span className="truncate text-sm text-ink-0">{alarm.label}</span>
+            {/*
+              处置标记。**不改变卡片颜色**：已确认不等于问题消失，
+              把一条 critical 调淡会让下一个人以为它不用看了。
+              徽标只说"有人处理过"，等级色仍然是等级。
+            */}
+            {ack && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-panel border px-1 text-2xs",
+                  ACK_CLASS[ack.state],
+                )}
+                title={`本页标记于 ${ack.at}：刷新即失效，没有写入后端审计`}
+              >
+                {ACK_LABEL[ack.state]}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-2xs text-ink-2">
             <span>{STAGE_SHORT[alarm.stage]}</span>
@@ -124,6 +134,45 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
           </div>
         </div>
       </button>
+
+      {/*
+        处置标记条。**常驻**，不藏在展开区里：一个要展开才存在的按钮，
+        演示时没人会发现，值班时也不会有人去点。
+        条右侧那半句话（"未标记" / "已标记 10:12"）就是状态本身 ——
+        左栏要回答的是"这一条有没有人看过"，而不是"有没有备注"。
+      */}
+      <div
+        className="flex items-center gap-2 border-t border-line px-2.5 py-0.5 text-2xs text-ink-2"
+        title="仅本页标记：刷新即失效，不写入后端审计。真正的处置要提交到 ops 侧。"
+      >
+        <span>处置</span>
+        {(["acknowledged", "ignored"] as const).map((state) => (
+          <button
+            key={state}
+            type="button"
+            aria-pressed={ack?.state === state}
+            onClick={() => setAck(alarm.alarm_id, state)}
+            className={cn(
+              "hover:text-ink-1",
+              ack?.state === state && "text-ink-0 underline underline-offset-2",
+            )}
+          >
+            {state === "acknowledged" ? "确认" : "忽略"}
+          </button>
+        ))}
+        {ack && (
+          <button
+            type="button"
+            onClick={() => setAck(alarm.alarm_id, null)}
+            className="hover:text-ink-1"
+          >
+            撤销
+          </button>
+        )}
+        <span className={cn("ml-auto", ack && ACK_TEXT_CLASS[ack.state])}>
+          {ack ? `${ACK_LABEL[ack.state]} ${ack.at} · 仅本页` : "未标记"}
+        </span>
+      </div>
 
       {open && (
         <div className="border-t border-line px-2.5 py-2 text-2xs leading-relaxed">
@@ -186,6 +235,11 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
               </ul>
             </Block>
           )}
+
+          {/*
+            标记控件在卡片底部那条常驻的条里（见上）。这里不再放一份 ——
+            同一件事两个入口，演示时总会有人点了一个然后说"没反应"。
+          */}
         </div>
       )}
     </article>

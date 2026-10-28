@@ -103,7 +103,7 @@ export function PerfOverlay() {
   const jitter = sample ? sample.overBudget > sample.frames * 0.05 : false;
 
   return (
-    <div className="pointer-events-auto absolute right-2 top-2 z-50 w-44 rounded-panel border border-line bg-surface-0/92 px-2 py-1.5 font-num text-2xs backdrop-blur-sm">
+    <div className="pointer-events-auto absolute right-2 top-2 z-50 w-52 rounded-panel border border-line bg-surface-0/92 px-2 py-1.5 font-num text-2xs backdrop-blur-sm">
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
@@ -119,30 +119,67 @@ export function PerfOverlay() {
             label="FPS (p50)"
             value={sample ? String(sample.fps) : "—"}
             tone={slow ? "bad" : "ok"}
+            hint="每秒帧数，由中位数帧耗时折算，不是平均值 —— 平均值会被一次 GC 尖峰拉低。"
           />
-          <Row label="p95" value={sample ? `${sample.p95} ms` : "—"} />
+          <Row
+            label="p50"
+            value={sample ? `${sample.p50} ms` : "—"}
+            hint="中位数帧耗时：一帧多数时候要多久。16.7 ms 是 60 Hz 的一帧预算。"
+          />
+          <Row
+            label="p95"
+            value={sample ? `${sample.p95} ms` : "—"}
+            hint="最慢 5% 的帧耗时。人感到的卡顿来自这里 —— 平均值看不出来。"
+          />
           <Row
             label="超预算帧"
             value={sample ? `${sample.overBudget}/${sample.frames}` : "—"}
             tone={jitter ? "bad" : "ok"}
+            hint="耗时超过 16.7 ms 的帧数 / 总采样帧数。占比 >5% 记为抖动。"
           />
           <div className="my-1 border-t border-line" />
-          <Row label="draw calls" value={stats ? String(stats.drawCalls) : "—"} />
-          <Row label="triangles" value={stats ? stats.triangles.toLocaleString() : "—"} />
-          <Row label="points" value={stats ? stats.points.toLocaleString() : "—"} />
-          <Row label="geometries" value={stats ? String(stats.geometries) : "—"} />
-          <Row label="textures" value={stats ? String(stats.textures) : "—"} />
+          <Row
+            label="draw calls"
+            value={stats ? String(stats.drawCalls) : "—"}
+            hint="每帧提交的绘制批次。透明网格开 DoubleSide 会让它凭空翻倍。"
+          />
+          <Row
+            label="triangles"
+            value={stats ? stats.triangles.toLocaleString() : "—"}
+            hint="每帧三角形数。与 draw calls 一起看：三角形多而批次少，说明合并得好。"
+          />
+          <Row
+            label="points"
+            value={stats ? stats.points.toLocaleString() : "—"}
+            hint="每帧点精灵数（羽流粒子）。降档时先动这一项，不动任何数据图元。"
+          />
+          <Row
+            label="geometries"
+            value={stats ? String(stats.geometries) : "—"}
+            hint="常驻 GPU 的几何体数量。只增不减 = 泄漏。"
+          />
+          <Row
+            label="textures"
+            value={stats ? String(stats.textures) : "—"}
+            hint="常驻 GPU 的纹理数量。同样只增不减就是泄漏。"
+          />
           <Row
             label="画布"
             value={stats ? `${stats.width}×${stats.height}@${stats.pixelRatio}` : "—"}
+            hint="实际渲染分辨率 @ 像素比。降档后这里会变小 —— 这是填充率在降。"
           />
-          <Row label="GPU" value={stats ? shortGpu(stats.gpu) : "—"} />
+          <Row label="GPU" value={stats ? shortGpu(stats.gpu) : "—"} hint="WebGL 报告的适配器名。" />
           <Row
             label="档位"
             value={stats ? `${stats.quality}${stats.qualityPinned ? " (钉死)" : ""}` : "—"}
             tone={stats && stats.quality !== "high" ? "bad" : undefined}
+            hint="自适应画质档位。只降不升，最多降两档，判据是帧耗时的中位数。"
           />
-          <Row label="循环" value={stats ? (stats.animating ? "跑" : "停") : "—"} />
+          <Row
+            label="循环"
+            value={stats ? (stats.animating ? "跑" : "停") : "—"}
+            hint="渲染循环是否在跑。停在后台标签页时会自动停。"
+          />
           {sample && sample.fps > 120 && (
             /*
              * rAF 没有锁 vsync 时（远程桌面、虚拟显示器、部分驱动配置），
@@ -154,6 +191,16 @@ export function PerfOverlay() {
               rAF 未锁 vsync，FPS 读作余量
             </p>
           )}
+
+          {/*
+            一段给人读的说明。面板上这些缩写对非前端的人没有意义，
+            而"看不懂所以不看"的下一步就是"这个面板没用"。
+          */}
+          <p className="border-t border-line pt-1 font-sans leading-snug text-ink-2">
+            判据是 <span className="text-ink-1">p50</span>：中位数帧耗时（一帧多数时候要多久）。
+            <span className="text-ink-1"> p95</span> 是最慢 5% 的帧 —— 卡顿感来自那里。
+            <span className="text-ink-1"> 超预算帧</span> 指超过 16.7 ms 的帧数。
+          </p>
         </div>
       )}
     </div>
@@ -164,13 +211,16 @@ function Row({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   tone?: "ok" | "bad";
+  /** 一句话说明这个指标是什么。非前端的人看不懂缩写，而看不懂的下一步是不看 */
+  hint?: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-1">
+    <div className="flex items-baseline justify-between gap-1" title={hint}>
       <span className="truncate font-sans text-ink-2">{label}</span>
       <span
         className={cn(

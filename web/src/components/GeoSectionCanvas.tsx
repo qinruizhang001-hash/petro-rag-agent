@@ -36,6 +36,14 @@ interface Props {
   data: SectionData;
   mode: "deck" | "engineer";
   voice?: VoiceState;
+  /**
+   * 建场景失败时回调。
+   *
+   * 有它，父组件会切到 SVG 降级版（数据同源，只是没有厚度与粒子）；
+   * 没有它，这块屏只剩一句"3D 视图不可用"。剖面上的测点等级与盖层间距
+   * 是**数据**，不该因为显卡不行就消失。
+   */
+  onFailed?: (reason: string) => void;
 }
 
 /**
@@ -81,7 +89,7 @@ function pinnedQuality(): Quality | undefined {
  * 它不该等一个 3D 库下载完才出现。把 three 拆成独立 chunk，
  * 左栏先亮、剖面随后补上，是这块屏上唯一正确的加载顺序。
  */
-export default function GeoSectionCanvas({ data, mode, voice = "idle" }: Props) {
+export default function GeoSectionCanvas({ data, mode, voice = "idle", onFailed }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<GeoScene | null>(null);
@@ -95,6 +103,10 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle" }: Props) 
   const modeRef = useRef(mode);
   dataRef.current = data;
   modeRef.current = mode;
+  // 回调走 ref：场景构造只跑一次（`[]` 依赖），把 `onFailed` 放进依赖会让
+  // 每次父组件重渲染都重建场景 —— 那是一次可见的闪白。
+  const onFailedRef = useRef(onFailed);
+  onFailedRef.current = onFailed;
 
   const labels = useMemo<LabelDef[]>(() => {
     const out: LabelDef[] = [];
@@ -202,7 +214,10 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle" }: Props) 
       })
       .catch((e: unknown) => {
         // WebGL 上下文创建失败在工控机上是真实会发生的事，不是理论风险
-        if (!cancelled) setFailed(e instanceof Error ? e.message : String(e));
+        if (cancelled) return;
+        const reason = e instanceof Error ? e.message : String(e);
+        setFailed(reason);
+        onFailedRef.current?.(reason);
       });
 
     return () => {

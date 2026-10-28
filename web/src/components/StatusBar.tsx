@@ -1,3 +1,5 @@
+import { BACKEND_LABEL } from "../lib/health";
+import type { BackendHealth, BackendState } from "../lib/health";
 import type { PushStatus } from "../lib/push";
 import { SEVERITY_CLASS, SEVERITY_META } from "../lib/severity";
 import type { AlarmCounts } from "../lib/types";
@@ -16,7 +18,26 @@ interface StatusBarProps {
    * 推送断了而界面照旧显示旧数字，是最难发现的一类故障。
    */
   push?: PushStatus;
+  /**
+   * 后端可达性。
+   *
+   * 与"数据来源"是**两件事**：fixture 模式下界面读本地快照，后端在不在
+   * 都不影响显示。于是"界面全绿 + 后端挂了三天"是一个可能的状态，
+   * 而它读起来像"系统正常"。两个指示器必须并排出现。
+   */
+  health: BackendHealth;
+  /** 点一下重探。缺省时不渲染成按钮（只显示状态） */
+  onProbe?: () => void;
 }
+
+/** 后端状态 → 配色。字面量，理由同 `severity.ts`。 */
+const BACKEND_TONE: Record<BackendState, string> = {
+  unknown: "border-line-strong text-ink-2",
+  checking: "border-line-strong text-ink-2",
+  ok: "border-sev-normal/50 text-sev-normal",
+  degraded: "border-sev-warn/60 text-sev-warn",
+  unreachable: "border-sev-alert/60 text-sev-alert",
+};
 
 /** 推送状态 → 文案与配色。`idle` 不在此表里：它不渲染。 */
 const PUSH_META: Record<Exclude<PushStatus, "idle">, { label: string; cls: string }> = {
@@ -42,7 +63,14 @@ const ORDER = [
  * 它告诉读者"我看过了，确实没有"，而只显示非零项会让人分不清
  * "没有严重告警"和"这一栏不存在"。
  */
-export function StatusBar({ counts, source, period, push = "idle" }: StatusBarProps) {
+export function StatusBar({
+  counts,
+  source,
+  period,
+  push = "idle",
+  health,
+  onProbe,
+}: StatusBarProps) {
   return (
     <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-surface-1 px-3 py-1.5 text-2xs text-ink-2">
       <span className="tracking-wide">状态计数</span>
@@ -79,12 +107,40 @@ export function StatusBar({ counts, source, period, push = "idle" }: StatusBarPr
           )}
           title={
             source === "fixture"
-              ? "数据来自 scripts/capture_ops_fixtures.py 抓取的真实响应，不是手写样例"
+              ? "数据来自 scripts/capture_ops_fixtures.py 抓取的真实响应，不是手写样例。注意：它不代表后端此刻可达。"
               : "数据来自运行中的后端"
           }
         >
           {source === "fixture" ? "fixture（真实响应快照）" : "live"}
         </span>
+
+        {/*
+          后端可达性。点击重探 —— 探针只跑一次的话，界面会永远停在
+          打开页面那一刻的结论，而"后端刚才起来了"这件事没人能看见。
+        */}
+        <button
+          type="button"
+          onClick={onProbe}
+          disabled={!onProbe || health.state === "checking"}
+          className={cn(
+            "rounded-panel border px-1.5 py-0.5",
+            BACKEND_TONE[health.state],
+            onProbe && "cursor-pointer hover:brightness-125",
+          )}
+          title={[
+            health.detail || "后端 /health 正常",
+            health.auth ? `鉴权：${health.auth === "disabled" ? "未启用" : "已启用"}` : "",
+            health.at ? `探测于 ${health.at}` : "",
+            onProbe ? "点一下重新探测" : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          {BACKEND_LABEL[health.state]}
+          {health.state === "degraded" && health.failing.length > 0
+            ? ` · ${health.failing.length} 项`
+            : ""}
+        </button>
         {push !== "idle" && (
           <span
             className={cn("rounded-panel border px-1.5 py-0.5", PUSH_META[push].cls)}

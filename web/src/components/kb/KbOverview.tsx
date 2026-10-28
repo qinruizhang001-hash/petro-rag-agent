@@ -25,7 +25,11 @@ export function KbOverview({
 }) {
   const { corpus, graph, vector, gaps } = overview;
   const ingest = formatHours(graph.ingest_seconds);
-  const gapCount = gaps.not_ingested.length + gaps.orphaned.length + gaps.unfinished.length;
+  const gapCount =
+    gaps.not_ingested.length +
+    gaps.unknown_source.length +
+    gaps.orphaned.length +
+    gaps.unfinished.length;
 
   return (
     <div className="space-y-3 text-2xs">
@@ -78,6 +82,15 @@ function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) 
           label="盘上有、图谱里没有"
           items={gaps.not_ingested}
           note="这些文件没有切片，检索不到它们的内容。"
+          advice="先看该文档的入库状态：卡在 processing 会阻塞后续插入，用 scripts/repair_partial_ingest.py 清掉再重跑入库。"
+        />
+      )}
+      {gaps.unknown_source.length > 0 && (
+        <GapList
+          label="来源无法识别"
+          items={gaps.unknown_source}
+          note="切片的 file_path 认不出对应哪个文件。"
+          advice="多半是文件被改名或换过目录：改回原名，或补 manifest.json 的题录后重新入库。"
         />
       )}
       {gaps.orphaned.length > 0 && (
@@ -85,6 +98,7 @@ function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) 
           label="图谱里有、盘上已删"
           items={gaps.orphaned}
           note="检索可能命中一篇打不开的文献。"
+          advice="要么把原文件放回 ccus_docs/，要么从图谱里删掉该文档 —— 留着比缺更糟：它会让引用指向一个打不开的出处。"
         />
       )}
       {gaps.unfinished.length > 0 && (
@@ -92,13 +106,56 @@ function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) 
           label="建图未完成"
           items={gaps.unfinished}
           note="processing 状态会阻塞后续所有插入，必须删掉重来。"
+          advice="先跑 repair_partial_ingest.py，确认状态清空后再重新入库。"
         />
       )}
+
+      {/*
+        "缺了 2 篇"只说了问题，没说下一步。给建议而不是给链接：
+        这个仓库没有稳定的文献获取入口，硬凑一个 URL 会变成一条迟早失效的死链。
+        分类说清"从哪类来源补"，读者自己知道该去哪儿。
+      */}
+      <details className="mt-1.5 border-t border-line pt-1.5">
+        <summary className="cursor-pointer text-ink-1 hover:text-ink-0">
+          建议补充（从哪类来源）
+        </summary>
+        <ol className="mt-1 list-inside list-decimal space-y-0.5 text-ink-2">
+          <li>
+            <span className="text-ink-1">目标场地的公开项目报告</span>
+            —— IEAGHG、GCCSI 的场地级报告，讲的是同一类储层与盖层，比通用综述更贴
+          </li>
+          <li>
+            <span className="text-ink-1">同行评议期刊</span>
+            —— IJGGC、SPE Journal、Fuel：机理与监测方法的主要来源，适合补
+            "盖层完整性 / 井筒腐蚀"这类问题的证据
+          </li>
+          <li>
+            <span className="text-ink-1">监管与标准文件</span>
+            —— EPA Class VI、EU CCS Directive：阈值与上限的唯一法定出处，
+            比论文更适合回答"这条线是多少"
+          </li>
+        </ol>
+        <p className="mt-1 text-ink-2">
+          补进来之后先补题录（DOI / arXiv ID），否则文档清单里只有文件名，
+          读者无法判断它是不是同一篇。
+        </p>
+      </details>
     </section>
   );
 }
 
-function GapList({ label, items, note }: { label: string; items: string[]; note: string }) {
+function GapList({
+  label,
+  items,
+  note,
+  advice,
+}: {
+  label: string;
+  items: string[];
+  note: string;
+  /** 这一类的处置建议。缺口列表只报问题的话，读者下一步只能靠猜 */
+  advice?: string;
+}) {
   return (
     <div className="mt-1">
       <div className="text-ink-1">
@@ -112,6 +169,7 @@ function GapList({ label, items, note }: { label: string; items: string[]; note:
         ))}
       </ul>
       <p className="mt-0.5 text-ink-2">{note}</p>
+      {advice && <p className="mt-0.5 text-ink-1">建议：{advice}</p>}
     </div>
   );
 }
@@ -191,7 +249,13 @@ function DocList({
         ))}
       </ul>
       {missingTitles > 0 && (
-        <p className="mt-1 text-ink-2">{missingTitles} 篇没有题录（文件名即全部信息）。</p>
+        <p className="mt-1 text-ink-2">
+          {missingTitles} 篇没有题录（文件名即全部信息）。
+          <span className="text-ink-1">
+            建议：按 DOI / arXiv ID 补进 manifest.json
+          </span>
+          —— 没有题录时，同一篇论文的两次抓取会被当成两篇。
+        </p>
       )}
     </section>
   );

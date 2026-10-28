@@ -1,7 +1,10 @@
+import { summarize } from "../../lib/evidence";
+import { kbDataSource } from "../../lib/kb";
 import type { KbSearchResult } from "../../lib/kb-types";
 import { readable } from "../../lib/text";
 import { KbChunkCard } from "./KbChunkCard";
 import { RefBadge } from "./RefBadge";
+import { StrengthChip } from "./StrengthChip";
 
 /**
  * 检索结果的三种状态。
@@ -49,6 +52,7 @@ export function KbResultView({
 
   return (
     <div className="space-y-2">
+      <EvidenceStrength result={result} />
       <References result={result} onOpenDoc={onOpenDoc} />
       <Chunks result={result} onOpenDoc={onOpenDoc} />
       <GraphHits result={result} />
@@ -57,6 +61,74 @@ export function KbResultView({
         {result.elapsed_ms > 0 ? " ms" : ""} · 模式 {result.mode}
       </p>
     </div>
+  );
+}
+
+/**
+ * 证据强度。
+ *
+ * ## 为什么这一块排在证据卡前面
+ *
+ * "这次检索找到了 12 片"是一个会让人直接往下读的数字，而"其中 3 片
+ * 无法回溯到任何文献"会改变他怎么读那 12 片。把后者放在最后，
+ * 读者已经看完证据了；放在最前，他带着这个前提往下看。
+ *
+ * ## 三个数字分开数，不合成一个"强度分"
+ *
+ * 可溯源、无血缘、公式为主是**三个不同的缺陷**，一条切片可以同时犯后两个。
+ * 合成一个分数之后，界面上只剩一个颜色，而读者无从知道缺的是哪一项。
+ */
+function EvidenceStrength({ result }: { result: KbSearchResult }) {
+  const s = summarize(result.evidence);
+  const fixture = kbDataSource === "fixture";
+
+  return (
+    <section className="rounded-panel border border-line px-2 py-1.5">
+      <h3 className="flex items-baseline justify-between text-ink-1">
+        <span>证据强度</span>
+        <span className="font-num text-ink-2">
+          {s.chunks} 片 / {s.sources} 篇
+        </span>
+      </h3>
+
+      <ul className="mt-1 space-y-0.5">
+        <li className="flex items-baseline gap-1.5">
+          <span className="w-14 shrink-0 text-ink-2">可溯源</span>
+          <span className="font-num text-ink-0">{s.traceable}</span>
+          <span className="text-ink-2">片带 file_path，能点回原文</span>
+        </li>
+        <li className="flex items-baseline gap-1.5">
+          <span className="w-14 shrink-0 text-ink-2">无文件血缘</span>
+          <span className={s.unattributed > 0 ? "font-num text-sev-notice" : "font-num text-ink-0"}>
+            {s.unattributed}
+          </span>
+          <span className="text-ink-2">
+            {s.unattributed > 0
+              ? "片只有向量召回，无法回溯到具体文献"
+              : "片 —— 这一批没有不可回溯的证据"}
+          </span>
+        </li>
+        <li className="flex items-baseline gap-1.5">
+          <span className="w-14 shrink-0 text-ink-2">公式为主</span>
+          <span className={s.formulaHeavy > 0 ? "font-num text-sev-notice" : "font-num text-ink-0"}>
+            {s.formulaHeavy}
+          </span>
+          <span className="text-ink-2">
+            {s.formulaHeavy > 0
+              ? "片 —— 语义邻近，但不支撑机理结论"
+              : "片 —— 全部以文字叙述为主"}
+          </span>
+        </li>
+      </ul>
+
+      <p className="mt-1 border-t border-line pt-1 text-ink-2">
+        检索来源：
+        <span className={fixture ? "text-ink-1" : "text-acc"}>
+          {fixture ? "fixture（真实响应快照）" : "live（后端实时检索）"}
+        </span>
+        {fixture && " · 结果是抓取时那个固定问题的，不随输入变化"}
+      </p>
+    </section>
   );
 }
 
@@ -73,9 +145,7 @@ function References({
     <section>
       <h3 className="flex items-baseline justify-between text-ink-1">
         <span>来源</span>
-        <span className="font-num text-ink-2">
-          {evidence.stats.sources} 篇 / {evidence.stats.chunks} 片
-        </span>
+        <span className="font-num text-ink-2">{evidence.stats.sources} 篇</span>
       </h3>
       <ul className="mt-0.5 space-y-px">
         {evidence.references.map((r) => (
@@ -90,37 +160,15 @@ function References({
             >
               {r.source || "无出处"}
             </button>
+            <StrengthChip source={r.source} />
           </li>
         ))}
       </ul>
       {/*
-        无出处条数。为 0 时也要说一句"全部可回溯" —— 一个可以显示为 0 的
-        数字比"没有提示"强：读者能确认这件事被检查过。
+        计数只在上面的「证据强度」里出现一次。
+        同一件事在两处各算一遍，迟早会有一处忘了改，而界面上两个数字
+        并排显示时，读者无从判断哪个是对的。
       */}
-      <p className="mt-1 text-ink-2">
-        {evidence.stats.unsourced > 0 ? (
-          <span className="text-sev-notice">
-            {evidence.stats.unsourced} 片无法回溯来源（入库时未写血缘）
-          </span>
-        ) : (
-          <>全部 {evidence.stats.traceable} 片可回溯到原文</>
-        )}
-      </p>
-      {/*
-        公式为主的切片数。与"无出处"并列，因为它回答的是同一层问题：
-        这条证据**能不能支撑结论**。检索器会把公式块排到前面（满篇都是
-        CO2 / pressure，向量相似度确实高），而它对"盖层完整性"提供不了
-        任何机理证据 —— 这件事必须被数出来，否则面板看起来像找到了支持。
-      */}
-      <p className="mt-0.5 text-ink-2">
-        {evidence.stats.low_quality_chunks > 0 ? (
-          <span className="text-sev-notice">
-            {evidence.stats.low_quality_chunks} 片以公式为主，不宜作为机理证据
-          </span>
-        ) : (
-          <>全部切片均以文字叙述为主</>
-        )}
-      </p>
     </section>
   );
 }
@@ -160,6 +208,13 @@ function GraphHits({ result }: { result: KbSearchResult }) {
           {evidence.stats.entities} 实体 / {evidence.stats.relationships} 关系
         </span>
       </h3>
+      {/*
+        实体与关系是模型抽出来的中间产物，**不能引用**。
+        它们带 `sources`（多来源），但那不是"这句话出自哪一片" ——
+        一个合并实体来自 16 篇论文，点它不知道会落到哪一篇。
+        所以这里没有角标，只有"多少篇支撑"。
+      */}
+      <p className="text-ink-2">实体与关系是检索线索，不是可引用证据 —— 引用角标只挂在原文切片上。</p>
       {evidence.entities.slice(0, 6).map((e) => (
         <div key={e.name} className="rounded-panel border border-line px-1.5 py-1">
           <div className="flex items-baseline gap-1">

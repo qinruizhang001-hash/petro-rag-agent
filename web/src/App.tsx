@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GeoSection } from "./components/GeoSection";
 import type { VoiceState } from "./components/GeoSectionCanvas";
 import { LeftRail } from "./components/LeftRail";
@@ -6,6 +6,8 @@ import { PerfOverlay } from "./components/PerfOverlay";
 import { RightRail } from "./components/RightRail";
 import { StatusBar } from "./components/StatusBar";
 import { dataSource, fetchAlarms, fetchThresholds } from "./lib/api";
+import { HEALTH_INITIAL, probeBackend } from "./lib/health";
+import type { BackendHealth } from "./lib/health";
 import { createPushClient, pushUrl } from "./lib/push";
 import type { PushStatus } from "./lib/push";
 import type { AlarmReport, ThresholdStatus } from "./lib/types";
@@ -85,6 +87,23 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [perf] = useState(perfEnabled);
   const [push, setPush] = useState<PushStatus>("idle");
+  const [health, setHealth] = useState<BackendHealth>(HEALTH_INITIAL);
+
+  /*
+   * 后端可达性。
+   *
+   * 与数据加载**分开**：`Promise.all` 里任何一项失败都会让整屏进入
+   * "数据加载失败"，而后端在不在跟这份快照能不能显示是两件事。
+   * `probeBackend` 永不抛，所以这里不需要 catch。
+   */
+  const probe = useCallback(async () => {
+    setHealth((h) => ({ ...h, state: "checking" }));
+    setHealth(await probeBackend());
+  }, []);
+
+  useEffect(() => {
+    void probe();
+  }, [probe]);
 
   useEffect(() => {
     document.documentElement.dataset.mode = mode;
@@ -156,11 +175,15 @@ export default function App() {
            *
            * `minmax(0,1fr)` 是唯一能压住它的写法：`1fr` 单独用会被
            * `min-height:auto` 顶开，仍然按内容算。
+           *
+           * 三档布局：
+           * - 窄屏（< 1024）：单列三行、行高交给内容、整页滚。剖面的高度
+           *   靠 `min-h` 撑住，否则画布在 auto 行里会是 0 px 高。
+           * - 平板（1024–1279）：两列，右栏落到第二行整宽（460 px）。
+           * - 桌面（≥ 1280）：三列，行高钉死，各栏内部自己滚。
            */
-          "grid-rows-[minmax(0,1fr)]",
-          // 窄屏是单列三行，行高钉死后必须让 main 自己可滚，
-          // 否则下面的面板会被裁掉且滚不到。
-          "overflow-auto xl:overflow-hidden",
+          "grid-rows-none lg:grid-rows-[minmax(0,1fr)_460px] xl:grid-rows-[minmax(0,1fr)]",
+          "overflow-auto lg:overflow-hidden",
           "grid-cols-1 lg:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(300px,22rem)_minmax(0,1fr)_minmax(280px,20rem)]",
         )}
       >
@@ -172,13 +195,17 @@ export default function App() {
               thresholds={thresholds}
               mode={mode}
               voice={voice}
+              className="min-h-[440px] lg:min-h-0"
             />
             {/*
               `min-h-0` 不能省：包一层的 div 是 grid item，它的高度默认由内容
               决定，而 `h-full` 的 Panel 拿到的是一个被内容撑高的父级 ——
               右栏于是不再"填满这一格"，而是"和内容一样高"。
+
+              窄屏不再是 `hidden`：藏掉右栏等于在手机上关掉知识库与对话，
+              而这两样恰好是"这条结论出自哪篇"的唯一入口。
             */}
-            <div className="hidden min-h-0 xl:block">
+            <div className="min-h-[480px] min-w-0 lg:col-span-2 lg:min-h-0 xl:col-span-1">
               <RightRail />
             </div>
           </>
@@ -197,6 +224,8 @@ export default function App() {
           source={dataSource}
           period={report.period}
           push={push}
+          health={health}
+          onProbe={() => void probe()}
         />
       )}
 

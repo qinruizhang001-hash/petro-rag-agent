@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useAcks } from "../lib/ack";
 import { SEVERITY_META, sortAlarms, isIndeterminate } from "../lib/severity";
 import type { AlarmReport, Attribution, ThresholdStatus } from "../lib/types";
 import { AlarmCard } from "./AlarmCard";
@@ -70,16 +71,43 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
   const actionableCount = ordered.filter((a) => SEVERITY_META[a.severity].actionable).length;
   const indetCount = ordered.filter((a) => isIndeterminate(a.severity)).length;
 
+  // 本页处置标记。只用于"这个班次有人看过"的演示，不写后端（见 `lib/ack.ts`）。
+  const acks = useAcks();
+  const ackCount = ordered.filter((a) => acks[a.alarm_id]).length;
+
   return (
     <Panel
       title="报警与关键指标"
+      /*
+       * 窄屏必须有 `min-h`。
+       *
+       * 单列布局下行高是 `auto`，而 `Panel` 的 body 是 `flex-1 min-h-0`
+       * —— 一个 `flex: 1 1 0%` 的子元素在"由内容决定高度"的父级里，
+       * 假设高度是 **0**，于是整个面板缩成只剩标题条：左栏的告警、
+       * 上限校核、盲区全都被裁掉，而控制台里没有任何报错。
+       * 这正是"关键信息被挤掉"最典型的样子。
+       *
+       * `lg` 起行高被钉死（`minmax(0,1fr)`），面板自己滚，不再需要 min-h。
+       */
+      className="min-h-[420px] lg:min-h-0"
       aside={
         <span className="tnum">
-          {actionableCount} 需动作 · {indetCount} 不可判定 / 共 {ordered.length}
+          {actionableCount} 需动作 · {indetCount} 不可判定
+          {ackCount > 0 && ` · ${ackCount} 已标记`} / 共 {ordered.length}
         </span>
       }
       bodyClassName="space-y-1.5"
     >
+      {/*
+        标记只存在于这一页。必须写在面板里，而不是只在每个徽标的 tooltip 上：
+        tooltip 要悬浮才出现，而"已确认"这个说法在交接时会被当真。
+      */}
+      {ackCount > 0 && (
+        <p className="mb-2 rounded-panel border border-line px-2 py-1 text-2xs text-ink-2">
+          {ackCount} 条已在本页标记处置 —— 仅本页，刷新即失效，没有写入后端审计。
+        </p>
+      )}
+
       <BlindSpotBanner
         unconfigured={report.unconfigured}
         noData={report.no_data}

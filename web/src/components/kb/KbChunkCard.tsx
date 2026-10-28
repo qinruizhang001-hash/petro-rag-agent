@@ -3,6 +3,7 @@ import type { KbChunkCard } from "../../lib/kb-types";
 import { readable } from "../../lib/text";
 import { cn } from "../../lib/utils";
 import { RefBadge } from "./RefBadge";
+import { StrengthChip } from "./StrengthChip";
 
 /**
  * 一条原文证据。
@@ -44,6 +45,12 @@ export function KbChunkCard({
         >
           {card.source || "无出处"}
         </button>
+        {/*
+          血缘徽标：每条证据都要自己说清"能不能点回原文"。
+          只在汇总里数一句是不够的 —— 读者核对的是**这一条**，
+          而一条没有文件名的切片长得很像有文件名的（都有角标、都有正文）。
+        */}
+        <StrengthChip source={card.source} />
         {formulaHeavy && (
           <span
             className="shrink-0 rounded-panel border border-sev-notice/60 px-1 text-2xs text-sev-notice"
