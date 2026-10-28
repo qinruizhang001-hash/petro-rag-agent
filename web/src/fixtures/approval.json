@@ -1,0 +1,60 @@
+{
+  "generated_by": "scripts/export_approval_contract.py",
+  "source": "ops/reports.py（TRANSITIONS / submit / approve / reject / reopen）",
+  "statuses": [
+    "draft",
+    "pending_review",
+    "approved",
+    "rejected"
+  ],
+  "labels": {
+    "draft": "草稿",
+    "pending_review": "待审批",
+    "approved": "已批准",
+    "rejected": "已驳回"
+  },
+  "edges": [
+    {
+      "from": "draft",
+      "action": "submit",
+      "to": "pending_review"
+    },
+    {
+      "from": "pending_review",
+      "action": "approve",
+      "to": "approved"
+    },
+    {
+      "from": "pending_review",
+      "action": "reject",
+      "to": "rejected"
+    },
+    {
+      "from": "rejected",
+      "action": "reopen",
+      "to": "draft"
+    }
+  ],
+  "guards": [
+    {
+      "action": "reject",
+      "field": "note",
+      "message": "驳回必须写意见。没有意见的驳回，起草方无法知道要改什么，下一稿会原样再来一遍"
+    },
+    {
+      "action": "reject",
+      "field": "reviewer",
+      "message": "驳回必须记录审批人"
+    },
+    {
+      "action": "approve",
+      "field": "reviewer",
+      "message": "批准必须记录审批人；无署名的批准无法追溯"
+    },
+    {
+      "action": "submit",
+      "field": "problems",
+      "message": "引用检查未通过，拒绝提交审批：\n  - 第 195 行数字 '999.9' 没有引用标记（上下文：…- 环空压力 999.9 bar…）\n审批人无法核对无出处的数字，批准这样的稿子等于背书"
+    }
+  ]
+}

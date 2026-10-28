@@ -198,6 +198,65 @@ export const PLUME_SOURCE = "示意（未接储层模拟）";
 export const STRATA_SOURCE = "示意（未接本场地测井/地震解释）";
 
 /**
+ * 剖面上每一个几何参数的**来源**。
+ *
+ * ## 为什么要把这件事做成数据结构
+ *
+ * "羽流是示意值"这句话已经写在图例里了，但读者真正会问的是更具体的问题：
+ * *哪个*数是示意的？半径 380 m 是怎么来的？顶距盖层 6 m 是测出来的吗？
+ * 一句笼统的"示意"回答不了这些，于是有人会挑其中看起来最像实测的那个数
+ * 去引用 —— 而它们全部都是占位值。
+ *
+ * 所以每个参数都带一条 `origin`：**空字符串是不允许的**（有测试锁着）。
+ * 一个说不清出处的几何参数，宁可不在图上画。
+ *
+ * ## 接上真实模型时
+ *
+ * 把 `PLUME_PLACEHOLDER` 换成后端下发的对象，并把这里的 `origin` 换成
+ * 模型版本号与拟合日期。界面与渲染器都不用改。
+ */
+export interface GeometryParam {
+  key: string;
+  label: string;
+  value: string;
+  /** 这个数从哪来。**不允许为空** —— 说不清出处的参数不该出现在图上 */
+  origin: string;
+}
+
+export const GEOMETRY_PARAMS: GeometryParam[] = [
+  {
+    key: "apex",
+    label: "羽流顶",
+    value: `盖层底界下 ${PLUME_PLACEHOLDER.sealClearance} m（${PLUME_PLACEHOLDER.apex} m）`,
+    origin: "占位：假定羽流顶恰好停在盖层底界下方，没有运移模拟支撑",
+  },
+  {
+    key: "base",
+    label: "羽流底",
+    value: `${PLUME_PLACEHOLDER.base} m（射孔段）`,
+    origin: "射孔段深度是设计参数（`INJECTION_DEPTH`），不是测量值",
+  },
+  {
+    key: "radius",
+    label: "水平半径",
+    value: `${PLUME_PLACEHOLDER.radius} m`,
+    origin: "占位：为了让波及范围在 1900 m 宽的剖面上可读，取约三分之一宽",
+  },
+  {
+    key: "clearance",
+    label: "顶距盖层",
+    value: `${PLUME_PLACEHOLDER.sealClearance} m`,
+    origin: "占位：用于演示「已贴近封闭层」这一提示状态，非实测间距",
+  },
+  {
+    key: "strata",
+    label: "地层分层",
+    value: `${STRATA.length} 层，0–${DEPTH_MAX} m`,
+    origin: STRATA_SOURCE,
+  },
+];
+
+/**
  * 羽流在某个相对高度处的横向半径（米）。`t`: 0 = 射孔段，1 = 羽流顶。
  *
  * ## 为什么必须是"喇叭"而不是"高脚杯"

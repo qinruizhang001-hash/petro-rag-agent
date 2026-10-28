@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { buildSection, PLUME_SOURCE, STRATA_SOURCE } from "../lib/section";
+import { buildSection, GEOMETRY_PARAMS, PLUME_SOURCE, STRATA_SOURCE } from "../lib/section";
 import type { AlarmReport, ThresholdStatus } from "../lib/types";
 import { webglAvailable } from "../lib/webgl";
 import { cn } from "../lib/utils";
@@ -183,6 +183,28 @@ export function GeoSection({ report, thresholds, mode, voice = "idle", className
               离盖层还有多远"，<span className="text-ink-1">不能</span>
               作为井位设计、封存容量或压力预测的依据。
             </p>
+
+            {/*
+              逐参数交代来源。
+              "羽流是示意值"是一句笼统的话，读者真正会问的是"哪个数是示意的、
+              半径 380 m 怎么来的"。答不上来时，人会挑一个看起来最像实测的数
+              去引用 —— 而它们全部是占位值。所以每个参数都带一条 origin。
+            */}
+            <details className="mt-1">
+              <summary className="cursor-pointer hover:text-ink-1">
+                几何参数与来源（{GEOMETRY_PARAMS.length} 项，全部为占位值）
+              </summary>
+              <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+                {GEOMETRY_PARAMS.map((p) => (
+                  <div key={p.key} className="col-span-2 grid grid-cols-[auto_1fr] gap-x-2">
+                    <dt className="whitespace-nowrap">
+                      {p.label} <span className="text-ink-1">{p.value}</span>
+                    </dt>
+                    <dd className="text-ink-2">{p.origin}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
           </div>
         </div>
       )}

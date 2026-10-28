@@ -66,6 +66,14 @@ export interface ChatMessage {
   /** 来自固定快照，不是本次会话产生的 */
   demo?: boolean;
   pending?: boolean;
+  /**
+   * 数值回答已渲染，出处还在检索中。
+   *
+   * 与 `pending` 分开：`pending` 是"这一条还什么都没有"，`retrieving` 是
+   * "正文已经能读了，只是引用还没到"。两者混成一个会让读者以为整条回答
+   * 都还没准备好，于是继续等 —— 而其实现在就可以读。
+   */
+  retrieving?: boolean;
   facts?: string[];
   unresolved?: string[];
   unsourced?: string[];
@@ -120,8 +128,68 @@ function toCitation(card: KbChunkCard): Citation {
  * 只有"数值回答"失败时抛异常 —— 检索失败不抛，因为一条没有引用的
  * 数值回答仍然是可用的（它的每个数字都能在事实块里回代）；
  * 把整条消息标成失败，会让人以为数字也不可信。
+ *
+ * 这个函数是 `askStream` 的薄封装：等所有事件走完再返回一个完整对象。
+ * 保留它是因为非界面调用方（测试、脚本）只想要结果，不关心过程。
  */
 export async function ask(question: string): Promise<AskOutcome> {
+  let outcome: AskOutcome | null = null;
+  await askStream(question, (event) => {
+    if (event.type === "done") outcome = event.outcome;
+  });
+  if (!outcome) {
+    // 走不到这里：`askStream` 要么抛，要么在最后发 done。
+    throw new Error("问答流程没有产出结果");
+  }
+  return outcome;
+}
+
+/** 问答的两个真实阶段。顺序即发生顺序，不是进度条上的装饰。 */
+export type AskStage = "condition" | "retrieval";
+
+export const STAGE_LABEL: Record<AskStage, string> = {
+  condition: "正在读取时序、算统计量",
+  retrieval: "正在检索知识库原文",
+};
+
+export type AskEvent =
+  /** 某一步真的开始了。不是预估，是"已经发出去在等" */
+  | { type: "stage"; stage: AskStage; label: string }
+  /** 数值回答到手 —— 此时检索可能还在跑 */
+  | { type: "answer"; answer: ConditionAnswer; demo: boolean; notes: string[] }
+  /** 出处到手（或明确没有出处的理由） */
+  | {
+      type: "evidence";
+      citations: Citation[];
+      retrieval: RetrievalState;
+      retrievalNote: string;
+    }
+  | { type: "done"; outcome: AskOutcome };
+
+/**
+ * 流式问答：**哪一步真的完成了，就先把哪一步交给界面**。
+ *
+ * ## 为什么不是"逐字打印"
+ *
+ * 默认路径的数值回答是**模板**生成的（`ops/condition.answer` 的 `llm=None`），
+ * 服务端一次就把整段算完了，没有 token 流可言。把一段已经完成的字符串
+ * 按 20ms 一个字吐出来，是给等待加装饰，不是减少等待 —— 而它会让"看起来
+ * 在动"和"真的在推进"变得无法区分。
+ *
+ * ## 真实的等待在哪
+ *
+ * 在**检索**这一侧：`/kb/search` 要跑 LightRAG，实测约 21 秒；而
+ * `/ops/condition` 是模板计算，毫秒级。原先 `ask()` 把两件事 `await` 在
+ * 一起，于是数值回答明明早就好了，界面却要陪着检索一起等 21 秒 ——
+ * 那才是"只有一句正在取数与检索"的原因。
+ *
+ * 拆开之后：数值回答先渲染出来（含全部数字依据），检索完成后再把引用
+ * 挂上去。这不是乐观更新，每个事件都对应一次真实完成。
+ */
+export async function askStream(
+  question: string,
+  onEvent: (event: AskEvent) => void,
+): Promise<AskOutcome> {
   const notes: string[] = [];
   const demo = dataSource === "fixture";
 
@@ -134,12 +202,15 @@ export async function ask(question: string): Promise<AskOutcome> {
     }
   }
 
+  onEvent({ type: "stage", stage: "condition", label: STAGE_LABEL.condition });
   const answer = await fetchCondition(question);
+  onEvent({ type: "answer", answer, demo, notes });
 
   let retrieval: RetrievalState = "skipped";
   let retrievalNote = "";
   let citations: Citation[] = [];
 
+  onEvent({ type: "stage", stage: "retrieval", label: STAGE_LABEL.retrieval });
   try {
     const result = await searchKb(question);
     if (result.status !== "ok") {
@@ -168,7 +239,18 @@ export async function ask(question: string): Promise<AskOutcome> {
     retrievalNote = `知识库检索失败（${e instanceof Error ? e.message : String(e)}），本条回答没有引用。`;
   }
 
-  return { answer, citations, retrieval, retrievalNote, notes, demo };
+  onEvent({ type: "evidence", citations, retrieval, retrievalNote });
+
+  const outcome: AskOutcome = {
+    answer,
+    citations,
+    retrieval,
+    retrievalNote,
+    notes,
+    demo,
+  };
+  onEvent({ type: "done", outcome });
+  return outcome;
 }
 
 /** 把一次 `AskOutcome` 折成一条助手消息。 */

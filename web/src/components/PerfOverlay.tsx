@@ -26,6 +26,14 @@ import { cn } from "../lib/utils";
  *
  * 它不是常驻 UI —— 常驻的性能数字会变成背景噪声，最后谁都不看。
  * 默认关闭，只在 URL 上显式要求时出现，这样截图与演示不会被它污染。
+ *
+ * ## 结论先行
+ *
+ * 面板原先第一行就是 `FPS (p50)`。对不搞渲染的人，那个数字既判断不了好坏
+ * （60 算好吗？30 算坏吗？），也说明不了该做什么。而这块面板真正要回答的
+ * 只有两个问题："现在看着卡不卡"、"是不是已经自己降过档了"。
+ * 所以顶部先给一句人话结论，技术数字收进「技术细节」——
+ * 它们仍然在，只是不再挡在最前面。
  */
 
 /** `window.__perf` 的返回形状。CDP 脚本按这个结构断言。 */
@@ -101,85 +109,135 @@ export function PerfOverlay() {
   // 的样本压成 60，而 16.6 与 16.9 在这块屏上是同一件事。
   const slow = sample ? sample.p50 > FRAME_BUDGET_MS : false;
   const jitter = sample ? sample.overBudget > sample.frames * 0.05 : false;
+  const downgraded = !!stats && stats.quality !== "high";
+
+  /*
+   * 结论的顺序按"用户会先注意到什么"排：
+   * 卡了 → 先说卡；不卡但降过档 → 说降档；否则说流畅。
+   * 反过来（先报降档）会让一台其实很顺的机器看起来有问题。
+   */
+  const verdict = !sample
+    ? { label: "测量中", cls: "text-ink-2" }
+    : slow || jitter
+      ? { label: "画面吃力", cls: "text-sev-alert" }
+      : downgraded
+        ? { label: "已自动降档", cls: "text-sev-warn" }
+        : { label: "画面流畅", cls: "text-sev-normal" };
 
   return (
-    <div className="pointer-events-auto absolute right-2 top-2 z-50 w-52 rounded-panel border border-line bg-surface-0/92 px-2 py-1.5 font-num text-2xs backdrop-blur-sm">
+    <div className="pointer-events-auto absolute right-2 top-2 z-50 w-56 rounded-panel border border-line bg-surface-0/92 px-2 py-1.5 text-2xs backdrop-blur-sm">
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-baseline justify-between text-ink-2"
+        className="flex w-full items-baseline justify-between gap-1"
       >
-        <span className="font-sans">渲染开销</span>
-        <span>{collapsed ? "▸" : "▾"}</span>
+        <span className="flex items-baseline gap-1">
+          <span className="font-sans text-ink-2">渲染</span>
+          <span className={cn("font-sans font-medium", verdict.cls)}>{verdict.label}</span>
+        </span>
+        <span className="text-ink-2">{collapsed ? "▸" : "▾"}</span>
       </button>
 
       {!collapsed && (
         <div className="mt-1 space-y-0.5">
+          {/*
+            给人读的结论。技术数字在这下面，展开才有 —— 顺序反了的话，
+            非技术人员读到的第一个词就是 draw calls。
+          */}
+          <p className="font-sans leading-snug text-ink-2">
+            {!sample
+              ? "正在采样，约 2 秒一轮。"
+              : slow || jitter
+                ? "每帧经常来不及画完，滚动和转视角时会感到卡。"
+                : "帧耗时稳定在 60 Hz 的预算里，看着是顺的。"}
+            {downgraded && (
+              <>
+                {" "}
+                这台机器跑不动最高档，程序自己降到了
+                <span className="text-ink-1"> {stats?.quality} </span>
+                档：只降填充率（分辨率与粒子数），数据图元一个没少。
+              </>
+            )}
+          </p>
+
+          <div className="my-1 border-t border-line" />
           <Row
-            label="FPS (p50)"
+            label="流畅度（帧/秒）"
             value={sample ? String(sample.fps) : "—"}
             tone={slow ? "bad" : "ok"}
-            hint="每秒帧数，由中位数帧耗时折算，不是平均值 —— 平均值会被一次 GC 尖峰拉低。"
+            hint="每秒画多少帧，按中位数帧耗时折算，不是平均值 —— 平均值会被一次垃圾回收的尖峰拉低。"
           />
           <Row
-            label="p50"
+            label="一帧要多久"
             value={sample ? `${sample.p50} ms` : "—"}
-            hint="中位数帧耗时：一帧多数时候要多久。16.7 ms 是 60 Hz 的一帧预算。"
+            hint="中位数帧耗时。16.7 ms 是 60 Hz 的一帧预算，超过就来不及画完。"
           />
           <Row
-            label="p95"
+            label="最慢的 5%"
             value={sample ? `${sample.p95} ms` : "—"}
-            hint="最慢 5% 的帧耗时。人感到的卡顿来自这里 —— 平均值看不出来。"
+            hint="最慢那 5% 的帧耗时。人感到的卡顿来自这里 —— 平均值看不出来。"
           />
           <Row
-            label="超预算帧"
+            label="超时的帧"
             value={sample ? `${sample.overBudget}/${sample.frames}` : "—"}
             tone={jitter ? "bad" : "ok"}
             hint="耗时超过 16.7 ms 的帧数 / 总采样帧数。占比 >5% 记为抖动。"
           />
-          <div className="my-1 border-t border-line" />
-          <Row
-            label="draw calls"
-            value={stats ? String(stats.drawCalls) : "—"}
-            hint="每帧提交的绘制批次。透明网格开 DoubleSide 会让它凭空翻倍。"
-          />
-          <Row
-            label="triangles"
-            value={stats ? stats.triangles.toLocaleString() : "—"}
-            hint="每帧三角形数。与 draw calls 一起看：三角形多而批次少，说明合并得好。"
-          />
-          <Row
-            label="points"
-            value={stats ? stats.points.toLocaleString() : "—"}
-            hint="每帧点精灵数（羽流粒子）。降档时先动这一项，不动任何数据图元。"
-          />
-          <Row
-            label="geometries"
-            value={stats ? String(stats.geometries) : "—"}
-            hint="常驻 GPU 的几何体数量。只增不减 = 泄漏。"
-          />
-          <Row
-            label="textures"
-            value={stats ? String(stats.textures) : "—"}
-            hint="常驻 GPU 的纹理数量。同样只增不减就是泄漏。"
-          />
-          <Row
-            label="画布"
-            value={stats ? `${stats.width}×${stats.height}@${stats.pixelRatio}` : "—"}
-            hint="实际渲染分辨率 @ 像素比。降档后这里会变小 —— 这是填充率在降。"
-          />
-          <Row label="GPU" value={stats ? shortGpu(stats.gpu) : "—"} hint="WebGL 报告的适配器名。" />
-          <Row
-            label="档位"
-            value={stats ? `${stats.quality}${stats.qualityPinned ? " (钉死)" : ""}` : "—"}
-            tone={stats && stats.quality !== "high" ? "bad" : undefined}
-            hint="自适应画质档位。只降不升，最多降两档，判据是帧耗时的中位数。"
-          />
-          <Row
-            label="循环"
-            value={stats ? (stats.animating ? "跑" : "停") : "—"}
-            hint="渲染循环是否在跑。停在后台标签页时会自动停。"
-          />
+
+          <details className="pt-1">
+            <summary className="cursor-pointer font-sans text-ink-2 hover:text-ink-1">
+              技术细节（排查用）
+            </summary>
+            <div className="mt-1 space-y-0.5 font-num">
+              <Row
+                label="draw calls"
+                value={stats ? String(stats.drawCalls) : "—"}
+                hint="每帧提交的绘制批次。透明网格开 DoubleSide 会让它凭空翻倍。"
+              />
+              <Row
+                label="triangles"
+                value={stats ? stats.triangles.toLocaleString() : "—"}
+                hint="每帧三角形数。与 draw calls 一起看：三角形多而批次少，说明合并得好。"
+              />
+              <Row
+                label="points"
+                value={stats ? stats.points.toLocaleString() : "—"}
+                hint="每帧点精灵数（羽流粒子）。降档时先动这一项，不动任何数据图元。"
+              />
+              <Row
+                label="geometries"
+                value={stats ? String(stats.geometries) : "—"}
+                hint="常驻 GPU 的几何体数量。只增不减 = 泄漏。"
+              />
+              <Row
+                label="textures"
+                value={stats ? String(stats.textures) : "—"}
+                hint="常驻 GPU 的纹理数量。同样只增不减就是泄漏。"
+              />
+              <Row
+                label="画布"
+                value={stats ? `${stats.width}×${stats.height}@${stats.pixelRatio}` : "—"}
+                hint="实际渲染分辨率 @ 像素比。降档后这里会变小 —— 这是填充率在降。"
+              />
+              <Row
+                label="GPU"
+                value={stats ? shortGpu(stats.gpu) : "—"}
+                hint="WebGL 报告的适配器名。"
+              />
+              <Row
+                label="档位"
+                value={stats ? `${stats.quality}${stats.qualityPinned ? " (钉死)" : ""}` : "—"}
+                tone={downgraded ? "bad" : undefined}
+                hint="自适应画质档位。只降不升，最多降两档，判据是帧耗时的中位数。"
+              />
+              <Row
+                label="循环"
+                value={stats ? (stats.animating ? "跑" : "停") : "—"}
+                hint="渲染循环是否在跑。停在后台标签页时会自动停。"
+              />
+            </div>
+          </details>
+
           {sample && sample.fps > 120 && (
             /*
              * rAF 没有锁 vsync 时（远程桌面、虚拟显示器、部分驱动配置），
@@ -188,19 +246,9 @@ export function PerfOverlay() {
              * 当成"这台机器能跑 303 帧"写进汇报。
              */
             <p className="pt-1 font-sans leading-tight text-ink-2">
-              rAF 未锁 vsync，FPS 读作余量
+              屏幕没锁刷新率，帧/秒读作余量，不代表观感
             </p>
           )}
-
-          {/*
-            一段给人读的说明。面板上这些缩写对非前端的人没有意义，
-            而"看不懂所以不看"的下一步就是"这个面板没用"。
-          */}
-          <p className="border-t border-line pt-1 font-sans leading-snug text-ink-2">
-            判据是 <span className="text-ink-1">p50</span>：中位数帧耗时（一帧多数时候要多久）。
-            <span className="text-ink-1"> p95</span> 是最慢 5% 的帧 —— 卡顿感来自那里。
-            <span className="text-ink-1"> 超预算帧</span> 指超过 16.7 ms 的帧数。
-          </p>
         </div>
       )}
     </div>
@@ -238,7 +286,7 @@ function Row({
  * 把 `WEBGL_debug_renderer_info` 的长串压成一行。
  *
  * 原始值是 `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 Laptop GPU (0x00002D19)
- * Direct3D11 vs_5_0 ps_5_0, D3D11)` —— 一百多个字符，在 176 px 宽的栏里
+ * Direct3D11 vs_5_0 ps_5_0, D3D11)` —— 一百多个字符，在 224 px 宽的栏里
  * 只会显示成 `ANGLE (NVIDIA, NVID…`，恰好把型号切掉，留下的是没信息量的部分。
  */
 function shortGpu(raw: string): string {

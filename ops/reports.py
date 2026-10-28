@@ -82,6 +82,32 @@ TRANSITIONS: dict[str, tuple[str, ...]] = {
     STATUS_APPROVED: (),
 }
 
+#: 动作名 → 它落到哪个状态。动作名同时是 HTTP 端点的末段
+#: （``/reports/{id}/submit``），所以前端拿到的就是它能直接调用的东西。
+#:
+#: 这是一张**声明**，`submit()` / `approve()` 里仍各自调用
+#: ``_advance(draft, STATUS_XXX)``。声明与实现是两份，但由
+#: ``tests/test_ops_reports.py::TestActionTargets`` 用「在四个状态上各真跑一遍」
+#: 锁在一起：表里写的目标必须等于实际落到的状态。少了那条测试，这张表
+#: 会安静地变成一句过时的注释，而界面照着它渲染按钮。
+ACTION_TARGETS: dict[str, str] = {
+    "submit": STATUS_PENDING,
+    "approve": STATUS_APPROVED,
+    "reject": STATUS_REJECTED,
+    "reopen": STATUS_DRAFT,
+}
+
+
+def allowed_actions(status: str) -> list[str]:
+    """当前状态下允许执行的动作名。
+
+    按 ``ACTION_TARGETS`` 的顺序返回（提交 / 批准 / 驳回 / 重新打开），
+    而不是 ``dict`` 的偶然顺序 —— 界面上的按钮顺序由这里决定，
+    换一次 Python 版本就换一个顺序属于不该发生的事。
+    """
+    reachable = TRANSITIONS.get(status, ())
+    return [name for name, to in ACTION_TARGETS.items() if to in reachable]
+
 
 # ─── 引用检查 ───
 #: 豁免区：这些片段里的数字是**标识**不是**测量值**，不需要引用。
@@ -416,11 +442,18 @@ def build_daily(
         f"分级政策：{report.policy}",
     ]
 
+    # 正文里**不写**审批状态。
+    #
+    # 这不是漏了一节，是刻意去掉的：`build_*` 全部在提交之前调用，所以
+    # `draft.status` 在这里恒为「草稿」。把它写进正文，等于每一份已批准的
+    # 稿子都印着「状态：草稿」—— 而正文是要归档的，状态是流程字段。
+    # 读者在两个地方看到两个相反的说法时，会相信印在文件上的那一个。
     lines += [
         "",
         "## 五、审批",
         "",
-        f"状态：{STATUS_LABELS[draft.status]}",
+        "审批状态由报告记录维护，不在正文内固化 —— 正文在提交审批**之前**生成，"
+        "把状态写进正文会让每一份已批准的稿子都印着「草稿」。",
         "",
     ]
 
@@ -513,7 +546,8 @@ def build_weekly(
     else:
         lines.append("- 本周期内所有测点均配置了阈值。")
 
-    lines += ["", "## 四、审批", "", f"状态：{STATUS_LABELS[draft.status]}", ""]
+    lines += ["", "## 四、审批", "", "审批状态由报告记录维护，不在正文内固化 —— 正文在提交审批**之前**生成，"
+        "把状态写进正文会让每一份已批准的稿子都印着「草稿」。", ""]
     draft.body = "\n".join(lines)
     draft.problems = check_citations(draft.body, draft.citations)
     return draft
@@ -711,7 +745,8 @@ def build_regulatory(
         "",
         "## 六、审批",
         "",
-        f"状态：{STATUS_LABELS[draft.status]}",
+        "审批状态由报告记录维护，不在正文内固化 —— 正文在提交审批**之前**生成，"
+        "把状态写进正文会让每一份已批准的稿子都印着「草稿」。",
         "",
     ]
 

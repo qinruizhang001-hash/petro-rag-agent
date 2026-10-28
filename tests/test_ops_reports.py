@@ -338,6 +338,122 @@ class ApprovalFlowTests(unittest.TestCase):
                 self.assertIn(status, reports.TRANSITIONS)
 
 
+class BodyDoesNotFreezeStatusTests(unittest.TestCase):
+    """正文里不能写审批状态。
+
+    这不是风格问题，是一个**恒为假**的陈述：`build_daily` / `build_weekly` /
+    `build_regulatory` 全部在提交之前调用，所以那里的 `draft.status` 永远是
+    「草稿」。写进正文之后，每一份已批准的稿子都会印着「状态：草稿」。
+
+    而正文是要归档的。读者在报告记录（已批准）和文件正文（草稿）上看到两个
+    相反的说法时，会相信印在文件上的那一个 —— 于是"审批"这件事在档案里
+    等于没有发生过。
+    """
+
+    def _bodies(self):
+        reg = _reg()
+        report = _alarm_report()
+        return {
+            "daily": reports.build_daily(report, reg, period=PERIOD).body,
+            "weekly": reports.build_weekly([report], reg, period=PERIOD).body,
+            "regulatory": reports.build_regulatory(
+                report, reg, period=PERIOD, permit_id="CCS-2026-0417"
+            ).body,
+        }
+
+    def test_no_status_line_in_any_body(self):
+        for kind, body in self._bodies().items():
+            with self.subTest(kind=kind):
+                self.assertNotIn(
+                    "状态：", body,
+                    f"{kind} 的正文里写死了审批状态。它恒为「草稿」，"
+                    "已批准的稿子也会印着草稿",
+                )
+                for label in reports.STATUS_LABELS.values():
+                    self.assertNotIn(
+                        f"状态：{label}", body,
+                        f"{kind} 的正文里出现了状态标签「{label}」",
+                    )
+
+    def test_body_explains_why_there_is_no_status_line(self):
+        # 静默删掉那一节会让读者以为漏了一节。必须留一句话说明它去哪了。
+        for kind, body in self._bodies().items():
+            with self.subTest(kind=kind):
+                self.assertIn("不在正文内固化", body, f"{kind} 没有解释为什么没有状态行")
+                self.assertIn("审批", body)
+
+
+class ActionTargetTests(unittest.TestCase):
+    """`ACTION_TARGETS` 是**声明**，`submit()` / `approve()` 才是实现。
+
+    声明与实现分成两份，就有对不上的可能。而这张声明是要下发给前端的
+    （`/api/ops/reports/{id}` 的 `allowed` 字段）—— 界面照着它渲染按钮。
+    对不上的表现是：按钮点了 409，或者该有的按钮根本没有。两种都不报错。
+
+    所以这里不检查"表里写了什么"，而是**在四个状态上把四个动作各真跑一遍**，
+    要求实际落到的状态等于表里写的。表要是过时了，这条会红。
+    """
+
+    def _draft_at(self, status: str):
+        d = reports.build_daily(_alarm_report(), _reg(), period=PERIOD)
+        if status == reports.STATUS_DRAFT:
+            return d
+        reports.submit(d, actor="值班员")
+        if status == reports.STATUS_PENDING:
+            return d
+        if status == reports.STATUS_APPROVED:
+            reports.approve(d, reviewer="张工")
+            return d
+        reports.reject(d, reviewer="张工", note="归因缺少排除理由")
+        return d
+
+    def _run(self, draft, action: str):
+        kwargs = {
+            "submit": {"actor": "值班员"},
+            "approve": {"reviewer": "张工", "note": ""},
+            "reject": {"reviewer": "张工", "note": "补依据"},
+            "reopen": {"actor": "值班员"},
+        }[action]
+        getattr(reports, action)(draft, **kwargs)
+
+    def test_declared_targets_match_real_behaviour(self):
+        statuses = (reports.STATUS_DRAFT, reports.STATUS_PENDING,
+                    reports.STATUS_REJECTED, reports.STATUS_APPROVED)
+        for status in statuses:
+            for action, declared in reports.ACTION_TARGETS.items():
+                with self.subTest(status=status, action=action):
+                    draft = self._draft_at(status)
+                    try:
+                        self._run(draft, action)
+                    except ValueError:
+                        # 从该状态出发不合法 —— 那么它就不该出现在 allowed 里
+                        self.assertNotIn(
+                            action, reports.allowed_actions(status),
+                            f"{status} 下 allowed 声称可以 {action}，但真跑一次被拒了",
+                        )
+                        continue
+                    self.assertEqual(
+                        draft.status, declared,
+                        f"{status} 上执行 {action} 落到了 {draft.status}，"
+                        f"而 ACTION_TARGETS 声明的是 {declared}",
+                    )
+                    self.assertIn(action, reports.allowed_actions(status))
+
+    def test_allowed_actions_order_is_stable(self):
+        # 界面按钮顺序由这里决定。`dict` 的偶然顺序不该成为产品行为。
+        self.assertEqual(reports.allowed_actions(reports.STATUS_DRAFT), ["submit"])
+        self.assertEqual(
+            reports.allowed_actions(reports.STATUS_PENDING), ["approve", "reject"]
+        )
+        self.assertEqual(reports.allowed_actions(reports.STATUS_REJECTED), ["reopen"])
+        self.assertEqual(reports.allowed_actions(reports.STATUS_APPROVED), [])
+
+    def test_unknown_status_has_no_actions(self):
+        # 库里读到一条状态字段被改坏的旧记录时，宁可一个按钮都不给，
+        # 也不要靠猜。猜错的后果是批准一份不知道处于什么状态的稿子。
+        self.assertEqual(reports.allowed_actions("已批准?"), [])
+
+
 class WeeklyReportTests(unittest.TestCase):
     def test_requires_at_least_one_period(self):
         # 空列表会让周报看起来"一切正常"

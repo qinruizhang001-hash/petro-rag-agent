@@ -304,7 +304,7 @@ function Header({
             onClick={onShowRail}
             className="rounded-panel border border-acc/40 px-2 py-0.5 text-2xs text-acc hover:bg-acc/10"
           >
-            ‹ 知识库 · 对话
+            ‹ 知识库 · 对话 · 报告
           </button>
         )}
         <div

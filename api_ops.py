@@ -215,6 +215,42 @@ def _load_draft(draft_id: str) -> ops_reports.ReportDraft:
     return draft
 
 
+def _draft_payload(draft: ops_reports.ReportDraft, draft_id: str) -> dict:
+    """草稿的对外表示。
+
+    比 ``ReportDraft.to_dict()`` 多两个字段，两个都是**前端无法自己算出来**的：
+
+    ``draft_id``
+        草稿号。`ReportDraft` 不知道自己叫什么（号是 ``store`` 分配的），
+        所以详情响应里原本没有它 —— 而审批的每一个后续请求都按号寻址。
+        让调用方"记住自己刚才问了哪个号"是把服务端的责任推给客户端：
+        一旦有人拿详情响应去做一次刷新，号就丢了。
+
+    ``allowed``
+        当前状态下允许执行的**动作名**（`submit` / `approve` / `reject` /
+        `reopen`）。**这张表必须由后端下发**，不能在前端抄一份。抄的那一刻
+        就有了两份真值，后端将来加一条迁移（比如允许 ``approved → draft``
+        做更正）时前端的表不会跟着变，表现是按钮点不动、或点下去 409 ——
+        两种情况都不报错。
+
+        下发的是动作名而不是目标状态名，因为动作名就是端点末段：
+        前端拿到 ``"approve"`` 就知道该打 ``/reports/{id}/approve``，
+        不需要再维护一张"状态 → 动作"的映射。
+    """
+    payload = draft.to_dict()
+    payload["draft_id"] = draft_id
+    payload["allowed"] = ops_reports.allowed_actions(draft.status)
+    # 引用明细。`to_dict()` 只给 `citation_count`，而界面要回答的是
+    # "正文里这个 [alarm:A-...] 指的是哪条告警"。只给计数等于让读者
+    # 相信"有 19 处引用"，却没法核对任何一处 —— 而"每个数字可回代"
+    # 正是这份报告存在的理由。
+    payload["citations"] = {
+        key: {"kind": c.kind, "ref": c.ref, "detail": c.detail}
+        for key, c in draft.citations.items()
+    }
+    return payload
+
+
 # ══════════════════════════════════════════════════════════
 # 阈值与测点目录
 # ══════════════════════════════════════════════════════════
@@ -372,7 +408,7 @@ async def ops_reports_list(limit: int = 20):
 async def ops_report_detail(draft_id: str):
     """读取一份草稿的完整内容与审批轨迹。"""
     draft = await asyncio.to_thread(_load_draft, draft_id)
-    return draft.to_dict()
+    return _draft_payload(draft, draft_id)
 
 
 @router.post("/api/ops/reports/{draft_id}/submit")
@@ -397,7 +433,7 @@ async def ops_report_submit(draft_id: str, request: DraftSubmitRequest):
         )
     await asyncio.to_thread(ops_store.save, draft_id, draft)
     log.info(f"[OPS] 报告 {draft_id} 已提交审批（{request.actor or '起草方'}）")
-    return draft.to_dict()
+    return _draft_payload(draft, draft_id)
 
 
 @router.post("/api/ops/reports/{draft_id}/approve")
@@ -412,7 +448,7 @@ async def ops_report_approve(draft_id: str, request: DraftReviewRequest):
         raise HTTPException(status_code=409, detail=str(exc))
     await asyncio.to_thread(ops_store.save, draft_id, draft)
     log.info(f"[OPS] 报告 {draft_id} 已批准（{request.reviewer}）")
-    return draft.to_dict()
+    return _draft_payload(draft, draft_id)
 
 
 @router.post("/api/ops/reports/{draft_id}/reject")
@@ -432,7 +468,7 @@ async def ops_report_reject(draft_id: str, request: DraftReviewRequest):
         raise HTTPException(status_code=409, detail=str(exc))
     await asyncio.to_thread(ops_store.save, draft_id, draft)
     log.info(f"[OPS] 报告 {draft_id} 已驳回（{request.reviewer}）")
-    return draft.to_dict()
+    return _draft_payload(draft, draft_id)
 
 
 @router.post("/api/ops/reports/{draft_id}/reopen")
@@ -444,4 +480,4 @@ async def ops_report_reopen(draft_id: str, request: DraftSubmitRequest):
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     await asyncio.to_thread(ops_store.save, draft_id, draft)
-    return draft.to_dict()
+    return _draft_payload(draft, draft_id)

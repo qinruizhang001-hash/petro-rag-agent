@@ -12,3 +12,8 @@ dist/
 
 # TypeScript 增量构建信息
 *.tsbuildinfo
+
+# vite 在 --watch / preview 时会往配置旁边丢一份带时间戳的临时配置副本。
+# 它只活几秒，但 `git add -A` 正好会撞上 —— 于是仓库里多一个 3 KB 的
+# 随机文件名，且下次有人 `git add -A` 又会多一个。
+vite.config.ts.timestamp-*.mjs

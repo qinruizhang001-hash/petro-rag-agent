@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// 唯一一处运行期 import：`GEOMETRY_PARAMS` 的 `origin` 是数据而不是源码片段，
+// 只有真读出来才知道它是不是空串（文本断言会漏掉 `origin: ""` 之外的所有空法，
+// 比如 `origin: STRATA_SOURCE` 而那个常量被改成空）。
+import { GEOMETRY_PARAMS } from "../src/lib/section";
+
 /**
  * 文案守卫。
  *
@@ -43,6 +48,39 @@ test("剖面图例：限制说明写清了不能拿来做什么", () => {
       `限制说明缺少「${phrase}」—— 少了它，这张图会被截图放进汇报材料`,
     );
   }
+});
+
+test("剖面几何：每个参数都写得出出处，且没有重复 key", () => {
+  // 这条对应 `section.ts` 里那句「空字符串是不允许的（有测试锁着）」。
+  // 少了它，加一个新参数时最容易的写法就是 `origin: ""` —— 编译通过、
+  // 界面照常渲染，只是那个数悄悄变成「无需解释」。
+  assert.ok(GEOMETRY_PARAMS.length > 0, "几何参数表空了，图例会显示「0 项」");
+  const seen = new Set();
+  for (const p of GEOMETRY_PARAMS) {
+    assert.ok(p.key, "参数没有 key");
+    assert.ok(!seen.has(p.key), `参数 key 重复：${p.key}`);
+    seen.add(p.key);
+    assert.ok(p.label, `${p.key} 没有 label`);
+    assert.ok(p.value, `${p.key} 没有 value`);
+    assert.ok(
+      typeof p.origin === "string" && p.origin.trim().length >= 4,
+      `${p.key} 的 origin 是空的或太短 —— 说不清出处的参数不该出现在图上`,
+    );
+  }
+  // 至少要有一个参数承认自己是占位值。全部声称有出处，比全部空着更危险：
+  // 读者会照着去引用。
+  assert.ok(
+    GEOMETRY_PARAMS.some((p) => p.origin.includes("占位") || p.origin.includes("示意")),
+    "没有任何参数标注为占位/示意 —— 这五个数目前全部不是实测值",
+  );
+
+  // 数据表存在 ≠ 界面用上了。删掉渲染那一段，上面所有断言依然全绿，
+  // 而图例退回一句笼统的「羽流 示意」，读者又开始猜哪个数是实测的。
+  const geo = read("src/components/GeoSection.tsx");
+  assert.ok(
+    geo.includes("GEOMETRY_PARAMS"),
+    "逐参数来源列表没有渲染 —— 图例只剩一句笼统的「示意」",
+  );
 });
 
 test("引用角标：无文件血缘时不渲染成可点按钮", () => {

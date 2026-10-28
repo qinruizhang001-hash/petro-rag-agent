@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAcks } from "../lib/ack";
+import { useAckStorage, useAcks } from "../lib/ack";
 import { SEVERITY_META, sortAlarms, isIndeterminate } from "../lib/severity";
 import type { AlarmReport, Attribution, ThresholdStatus } from "../lib/types";
 import { AlarmCard } from "./AlarmCard";
@@ -67,8 +67,9 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
     return map;
   }, [report.attribution]);
 
-  // 本页处置标记。只用于"这个班次有人看过"的演示，不写后端（见 `lib/ack.ts`）。
+  // 本机处置标记：存在浏览器里，刷新不丢，但不写后端（见 `lib/ack.ts`）。
   const acks = useAcks();
+  const storageOk = useAckStorage();
 
   /**
    * 排序：严重度优先，**已标记处置的沉底**。
@@ -122,13 +123,19 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
       bodyClassName="space-y-1.5"
     >
       {/*
-        标记只存在于这一页。必须写在面板里，而不是只在每个徽标的 tooltip 上：
-        tooltip 要悬浮才出现，而"已确认"这个说法在交接时会被当真。
+        标记存在本机浏览器里，不在后端。这句话必须写在面板里，而不是只放在
+        每个徽标的 tooltip 上：tooltip 要悬浮才出现，而"已确认"这个说法在
+        交接时会被当真。
+
+        存储不可用时（无痕模式、配额满）要照实说"刷新就会丢"——
+        浏览器里存不住却显示"已保存"，比一开始就说存不住糟得多。
       */}
       {ackCount > 0 && (
         <p className="mb-2 rounded-panel border border-line px-2 py-1 text-2xs text-ink-2">
-          {ackCount} 条已在本页标记处置，已排到列表末尾 —— 仅本页，刷新即失效，
-          没有写入后端审计。
+          {ackCount} 条已标记处置，已排到列表末尾 ——{" "}
+          {storageOk
+            ? "标记存在本机浏览器，刷新不丢；但没有写入后端审计，跨班次交接不能只凭这个。"
+            : "本机浏览器不允许本地存储，刷新就会丢；也没有写入后端审计。"}
         </p>
       )}
 

@@ -56,15 +56,27 @@ import { KbResultView } from "./src/components/kb/KbResultView";
 import { LeftRail } from "./src/components/LeftRail";
 import { StatusBar } from "./src/components/StatusBar";
 import { clearAcks, setAck } from "./src/lib/ack";
+import { askStream } from "./src/lib/chat";
+import { ApprovalPanel } from "./src/components/reports/ApprovalPanel";
+import { ReportBody } from "./src/components/reports/ReportBody";
+import { FIXTURE_QUERY } from "./src/lib/kb";
 import { HEALTH_INITIAL } from "./src/lib/health";
 import alarms from "./src/fixtures/alarms.json";
 import search from "./src/fixtures/search.json";
 import thresholds from "./src/fixtures/thresholds.json";
+import reportSeeds from "./src/fixtures/reports.json";
 
 const html = (el) => renderToStaticMarkup(el);
 
-export const fixtures = { alarms, search, thresholds, health: HEALTH_INITIAL };
-export { setAck, clearAcks };
+export const fixtures = {
+  alarms,
+  search,
+  thresholds,
+  health: HEALTH_INITIAL,
+  reportSeeds: reportSeeds.drafts,
+};
+export { setAck, clearAcks, askStream };
+export const fixtureQuery = FIXTURE_QUERY;
 
 export const renderKb = (result) =>
   html(createElement(KbResultView, { result, onOpenDoc: () => {} }));
@@ -77,6 +89,11 @@ export const renderLeftRail = () =>
   html(createElement(LeftRail, { report: alarms, thresholds }));
 
 export const renderDialog = () => html(createElement(DialogPanel));
+
+export const renderApproval = () => html(createElement(ApprovalPanel));
+
+export const renderReportBody = (draft) =>
+  html(createElement(ReportBody, { body: draft.body, citations: draft.citations }));
 `;
 
 const ENV_KEYS = [
@@ -171,7 +188,7 @@ test("StatusBar 把数据来源与后端可达性分开显示", () => {
   assert.doesNotMatch(plain, /后端可达/);
 });
 
-test("AlarmCard 的处置标记常驻，标记后左栏明确说「仅本页」", () => {
+test("AlarmCard 的处置标记常驻，且自称「本机」而不是「已提交」", () => {
   const alarm = mod.fixtures.alarms.alarms.find(
     (a) => a.severity === "alert" || a.severity === "critical",
   );
@@ -189,26 +206,29 @@ test("AlarmCard 的处置标记常驻，标记后左栏明确说「仅本页」"
   try {
     const after = text(mod.renderAlarm(props));
     assert.match(after, /已确认/, "标记后卡片上要出现状态");
-    assert.match(after, /仅本页/, "标记必须自称只在本页生效");
+    // 断言的是"说清了存在哪"，不是"用了哪个词"：换成「本机」之外的说法可以，
+    // 但不能再出现「仅本页 / 刷新即失效」这种已经不符合事实的描述。
+    assert.match(after, /本机/, "标记必须自称存在本机，不能暗示已提交后端");
+    assert.doesNotMatch(after, /刷新即失效/, "现在刷新不会丢了，这句话已经不成立");
     // 已处置不等于问题消失：读数与等级仍然显示
     assert.match(after, new RegExp(alarm.label));
     assert.match(after, /警告|告警|严重/);
 
     const rail = text(mod.renderLeftRail());
-    assert.match(rail, /已在本页标记处置/, "左栏要说清有几条被标记");
+    assert.match(rail, /条已标记处置/, "左栏要说清有几条被标记");
     assert.match(rail, /没有写入后端审计/, "左栏要说明它没有落库");
   } finally {
     mod.clearAcks();
   }
 
   const restored = text(mod.renderLeftRail());
-  assert.doesNotMatch(restored, /已在本页标记处置/, "清空标记后提示必须消失");
+  assert.doesNotMatch(restored, /条已标记处置/, "清空标记后提示必须消失");
 });
 
 test("LeftRail 在没有任何标记时不说「已标记」", () => {
   const plain = text(mod.renderLeftRail());
   assert.match(plain, /报警与关键指标/);
-  assert.doesNotMatch(plain, /已在本页标记处置/);
+  assert.doesNotMatch(plain, /条已标记处置/);
 });
 
 test("DialogPanel 空态给出可点的示例问题，而不是一片空白", () => {
@@ -220,4 +240,65 @@ test("DialogPanel 空态给出可点的示例问题，而不是一片空白", ()
   assert.match(html, /<textarea/);
   // 演示模式的说明不能丢：不说清楚的话，用户会以为系统回答了他的问题
   assert.match(plain, /清空/);
+});
+
+test("问答是分段的：数值回答先渲染，引用后到", async () => {
+  const seen = [];
+  const outcome = await mod.askStream(mod.fixtureQuery, (e) => seen.push(e));
+
+  // 顺序即契约。如果有人把两件事重新 await 在一起（回到"一次性返回"），
+  // 这里会立刻红 —— 那正是这次改动要防的回归。
+  assert.deepEqual(
+    seen.map((e) => e.type),
+    ["stage", "answer", "stage", "evidence", "done"],
+    "事件顺序必须是 取数开始 → 回答 → 检索开始 → 出处 → 结束",
+  );
+
+  const answer = seen.find((e) => e.type === "answer");
+  assert.ok(answer.answer.text.length > 0, "answer 事件必须带正文，否则界面没东西可渲染");
+  assert.ok(
+    Array.isArray(answer.answer.facts) && answer.answer.facts.length > 0,
+    "数字依据要跟正文一起到，不能等检索",
+  );
+
+  const evidence = seen.find((e) => e.type === "evidence");
+  assert.ok(evidence.citations.length > 0, "问句对得上快照时应当有引用");
+  assert.equal(
+    answer.answer.text,
+    outcome.answer.text,
+    "分段渲染拼出来的必须和一次性返回的结果一致，否则是两条不同的路径",
+  );
+});
+
+test("问句对不上快照时，evidence 事件明确说「不挂引用」而不是静默为空", async () => {
+  const seen = [];
+  await mod.askStream("完全无关的问题", (e) => seen.push(e));
+  const evidence = seen.find((e) => e.type === "evidence");
+  assert.deepEqual(evidence.citations, []);
+  assert.match(evidence.retrievalNote, /不是同一次检索/);
+});
+
+test("审批面板首屏就把「本机演练 / 不是审计记录」写在脸上", () => {
+  // 这句话藏起来的后果很具体：一次演练看起来像一次真实审批。
+  // 而审批的全部价值就在于它能被追溯 —— 存在浏览器里的轨迹不能。
+  const plain = text(mod.renderApproval());
+  assert.match(plain, /本机演练/, "fixture 模式下没写明这是演练");
+  assert.match(plain, /不是审计记录/, "没写清本机轨迹不是审计记录");
+  assert.match(plain, /不跨班次/, "没写清它不跨班次");
+  // 渲染环境里没有 localStorage，必须照实说"刷新就会丢"，
+  // 而不是显示"已保存"。
+  assert.match(plain, /刷新就会丢/, "存不住时界面必须照实说");
+  assert.doesNotMatch(plain, /已保存/, "存不住还说已保存，是这一页最不该有的谎");
+});
+
+test("报告正文渲染：区块标记被吃掉，引用标记变成徽标", () => {
+  const seed = mod.fixtures.reportSeeds.find((d) => d.problems.length === 0);
+  assert.ok(seed, "fixture 里应当有一份干净的草稿");
+  const html = mod.renderReportBody(seed);
+  const plain = text(html);
+  assert.doesNotMatch(plain, /strict/, "区块标记漏进正文了");
+  assert.doesNotMatch(plain, /<!--/, "HTML 注释漏进正文了");
+  // 引用标记要渲染成徽标，而不是原样吐出 `[alarm:...]` 这一串
+  assert.doesNotMatch(plain, /\[alarm:/, "引用标记被当成普通文字渲染了");
+  assert.match(plain, /总体结论/, "正文标题没渲染出来");
 });

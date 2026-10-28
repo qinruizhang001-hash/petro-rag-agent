@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { dataSource } from "../../lib/api";
 import {
+  STAGE_LABEL,
   SUGGESTIONS,
-  ask,
+  askStream,
   clockNow,
   demoTranscript,
   nextId,
-  toMessage,
 } from "../../lib/chat";
-import type { ChatMessage, Citation } from "../../lib/chat";
+import type { AskStage, ChatMessage, Citation } from "../../lib/chat";
 import { groupCitations } from "../../lib/citations";
 import { fetchKbDocument } from "../../lib/kb";
 import { cn } from "../../lib/utils";
@@ -49,6 +49,8 @@ export function DialogPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  /** 当前真的在跑的那一步。`null` = 没在跑。文案直接取 `STAGE_LABEL`，不另编 */
+  const [stage, setStage] = useState<AskStage | null>(null);
   const [peek, setPeek] = useState<{ citation: Citation; siblings: number } | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -88,6 +90,7 @@ export function DialogPanel({
     setBusy(true);
     setInput("");
     setPeek(null);
+    setStage("condition");
 
     const userId = nextId("u");
     const pendingId = nextId("p");
@@ -105,9 +108,58 @@ export function DialogPanel({
     ]);
 
     try {
-      const outcome = await ask(q);
-      const message = toMessage(outcome);
-      setMessages((prev) => prev.map((m) => (m.id === pendingId ? message : m)));
+      /*
+       * 分段渲染，不是逐字打印。
+       *
+       * `answer` 一到就先把正文和数字依据渲染出来（这一步是模板计算，毫秒级），
+       * 出处还在检索（实测 ~21 秒）。原先两件事 await 在一起，于是数值回答
+       * 明明早就好了，界面还要陪着检索一起等 —— 那才是"只有一句正在取数与检索"。
+       */
+      await askStream(q, (event) => {
+        if (event.type === "stage") {
+          setStage(event.stage);
+          return;
+        }
+        if (event.type === "answer") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === pendingId
+                ? {
+                    id: pendingId,
+                    role: "assistant",
+                    kind: "answer",
+                    text: event.answer.text,
+                    at: clockNow(),
+                    demo: event.demo,
+                    facts: event.answer.facts,
+                    unresolved: event.answer.unresolved,
+                    unsourced: event.answer.unsourced_numbers,
+                    windowLabel: event.answer.window?.label,
+                    notes: event.notes,
+                    citations: [],
+                    retrievalNote: "",
+                    retrieving: true,
+                  }
+                : m,
+            ),
+          );
+          return;
+        }
+        if (event.type === "evidence") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === pendingId
+                ? {
+                    ...m,
+                    citations: event.citations,
+                    retrievalNote: event.retrievalNote,
+                    retrieving: false,
+                  }
+                : m,
+            ),
+          );
+        }
+      });
     } catch (e: unknown) {
       const text = e instanceof Error ? e.message : String(e);
       setMessages((prev) =>
@@ -125,6 +177,7 @@ export function DialogPanel({
       );
     } finally {
       setBusy(false);
+      setStage(null);
     }
   };
 
@@ -194,6 +247,7 @@ export function DialogPanel({
           <Bubble
             key={m.id}
             message={m}
+            stageLabel={m.pending && stage ? `${STAGE_LABEL[stage]}…` : undefined}
             onPeek={openPeek}
             onJump={onOpenCitation ?? openPeek}
           />
@@ -259,10 +313,13 @@ function Empty({ onPick }: { onPick: (q: string) => void }) {
 
 function Bubble({
   message,
+  stageLabel,
   onPeek,
   onJump,
 }: {
   message: ChatMessage;
+  /** 正在跑的那一步的人话说明。只有 `pending` 的气泡会用到 */
+  stageLabel?: string;
   /** 证据列表里的按钮：就地展开这一片 */
   onPeek: (c: Citation, siblings?: number) => void;
   /** 正文里的角标：跳到知识库详情 */
@@ -310,7 +367,7 @@ function Bubble({
       </header>
 
       {message.pending ? (
-        <p className="mt-1 text-ink-2">正在取数与检索…</p>
+        <p className="mt-1 text-ink-2">{stageLabel ?? "正在处理…"}</p>
       ) : (
         <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed text-ink-0">
           <CitationText
@@ -321,6 +378,31 @@ function Bubble({
           />
         </p>
       )}
+
+      {/*
+        正文已经能读了、出处还在路上。必须与 `pending` 分开写：
+        "整条还没好"和"只有引用还没好"会让读者做两件不同的事 ——
+        后者现在就可以读，前者只能等。
+      */}
+      {message.retrieving && (
+        <p className="mt-1 text-ink-2">{STAGE_LABEL.retrieval}…（这一步最慢，正文已可读）</p>
+      )}
+
+      {/*
+        无血缘角标为什么点不开，必须**写在正文下面**，不能只放在 tooltip 里。
+        tooltip 要悬浮才出现，而"点了没反应"才是读者实际遇到的现象 ——
+        那时他会先怀疑界面坏了。
+      */}
+      {(() => {
+        const orphan = citations.find((c) => !c.source);
+        if (!orphan) return null;
+        return (
+          <p className="mt-1 text-ink-2">
+            正文里虚线边框的角标（如 {orphan.reference_id}）没有文件级血缘，点不开 ——
+            它来自向量召回，只能说明库里有这段，说明不了出自哪一篇。
+          </p>
+        );
+      })()}
 
       {/*
         守卫触发必须显示，不能藏。`unsourced_numbers` 非空意味着模型措辞里

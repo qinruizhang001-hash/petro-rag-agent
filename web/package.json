@@ -5,14 +5,14 @@
   "type": "module",
   "description": "CCUS 全链运维控制台 — 第 1 周骨架（左栏告警卡 / 指标卡接真实 /api/ops/alarms）",
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=20.6.0"
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "node --test scripts/test-quality.mjs scripts/test-text.mjs scripts/test-citations.mjs scripts/test-copy.mjs scripts/test-labels.mjs scripts/test-render.mjs",
+    "test": "tsx --test scripts/test-quality.mjs scripts/test-text.mjs scripts/test-citations.mjs scripts/test-ack.mjs scripts/test-approval.mjs scripts/test-copy.mjs scripts/test-labels.mjs scripts/test-render.mjs",
     "licenses": "node scripts/audit-licenses.mjs",
     "licenses:self-test": "node scripts/audit-licenses.mjs --self-test",
     "perf": "node scripts/measure-fps.mjs",
@@ -34,6 +34,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vite": "^5.4.11"
   }

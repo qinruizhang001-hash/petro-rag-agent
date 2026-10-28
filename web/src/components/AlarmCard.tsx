@@ -104,7 +104,7 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
                   "shrink-0 rounded-panel border px-1 text-2xs",
                   ACK_CLASS[ack.state],
                 )}
-                title={`本页标记于 ${ack.at}：刷新即失效，没有写入后端审计`}
+                title={`本机标记于 ${ack.at}：存在浏览器里，刷新不丢，但没有写入后端审计`}
               >
                 {ACK_LABEL[ack.state]}
               </span>
@@ -160,7 +160,7 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
       */}
       <div
         className="flex items-center gap-2 border-t border-line px-2.5 py-0.5 text-2xs text-ink-2"
-        title="仅本页标记：刷新即失效，不写入后端审计。真正的处置要提交到 ops 侧。"
+        title="本机标记：存在浏览器里，刷新不丢，但不写入后端审计。真正的处置要提交到 ops 侧。"
       >
         <span>处置</span>
         {(["acknowledged", "ignored"] as const).map((state) => (
@@ -187,7 +187,7 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
           </button>
         )}
         <span className={cn("ml-auto", ack && ACK_TEXT_CLASS[ack.state])}>
-          {ack ? `${ACK_LABEL[ack.state]} ${ack.at} · 仅本页` : "未标记"}
+          {ack ? `${ACK_LABEL[ack.state]} ${ack.at} · 本机` : "未标记"}
         </span>
       </div>
 

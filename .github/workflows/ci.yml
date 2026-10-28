@@ -576,6 +576,19 @@ jobs:
           # 它就是在替没做的检查背书。
           python scripts/capture_kb_fixtures.py --check
 
+      # 中文注释：审批状态机的契约（web/src/fixtures/approval.json）与演示草稿
+      # （web/src/fixtures/reports.json）都是 scripts/export_approval_contract.py
+      # **在四个状态上逐个动作真跑一遍**导出来的，不是人写的。
+      #
+      # 这一步守的是一类特别安静的失效：后端给 reports.py 加了一条迁移
+      # （比如允许 approved → draft 做更正），前端那张表不会跟着变。
+      # 表现是按钮点不动、或者点下去 409 —— 两种情况都不报错，
+      # 只在真实审批时被发现，而那时已经有人在电话里说"我批了"。
+      #
+      # 需要 fastapi（用 TestClient 走真实端点产出草稿），已在上一步装过。
+      - name: Approval contract still matches ops/reports.py
+        run: python scripts/export_approval_contract.py --check
+
       - name: Install web dependencies
         working-directory: web
         run: npm ci --no-audit --no-fund
@@ -683,6 +696,21 @@ jobs:
             exit 1
           fi
           echo "search chunk: $(ls dist/assets/search-*.js | head -1)"
+
+      # 中文注释：审批面板（草稿正文 + 审批契约 + 正文解析器）约 58 KB，
+      # 它是**动态 import** 的，切到「报告」页签时才拉。改成静态 import
+      # 不会报错，只会让首屏 chunk 从 313 KB 涨到 371 KB —— 直接顶破上面
+      # 那条 320 KB 的线。所以这里守的是"它还在独立 chunk 里"，
+      # 而不是重复守体积（体积那条已经会红）。
+      - name: Approval panel is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/ApprovalPanel-*.js >/dev/null 2>&1; then
+            echo "::error::no separate ApprovalPanel chunk — the approval panel (and its 28 KB of draft fixtures) is being imported statically again, so the first paint waits for a page the operator has not opened"
+            exit 1
+          fi
+          echo "approval chunk: $(ls dist/assets/ApprovalPanel-*.js | head -1)"
 
       # 中文注释：许可证审查。这不是"文档里写一句 MIT"能解决的事 ——
       # GPL 的传染性判断看的是整个依赖树，而这个项目有 143 个包（直接依赖只有 13 个）。

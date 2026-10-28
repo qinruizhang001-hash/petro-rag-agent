@@ -325,6 +325,49 @@ class TestRunEndpoint(OpsApiTestBase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["status"], "draft")
 
+    def test_detail_carries_its_own_id_and_allowed_actions(self):
+        """详情必须自带草稿号与可执行动作。
+
+        两个都是**前端算不出来**的：
+
+        - 没有 `draft_id`，调用方只能"记住自己刚才问了哪个号"。详情响应
+          拿去做一次刷新，号就丢了，而后续每个审批请求都按号寻址。
+        - `allowed` 如果让前端自己抄一张表，就有了两份真值。后端将来加一条
+          迁移时前端不会跟着变，表现是按钮点不动或点下去 409 —— 都不报错。
+        """
+        draft_id = self._run(want_report=True, report_kind="daily").json()["draft_id"]
+        detail = self.client.get(f"/api/ops/reports/{draft_id}").json()
+        self.assertEqual(detail["draft_id"], draft_id)
+        self.assertEqual(detail["allowed"], ["submit"])
+
+        # 走完一次完整流转，`allowed` 必须跟着状态变 —— 否则前端会一直
+        # 显示"提交审批"，而它在待审批状态下必然失败。
+        self.client.post(f"/api/ops/reports/{draft_id}/submit", json={"actor": "早班"})
+        pending = self.client.get(f"/api/ops/reports/{draft_id}").json()
+        self.assertEqual(pending["status"], "pending_review")
+        self.assertEqual(sorted(pending["allowed"]), ["approve", "reject"])
+
+        self.client.post(
+            f"/api/ops/reports/{draft_id}/approve", json={"reviewer": "张工"}
+        )
+        approved = self.client.get(f"/api/ops/reports/{draft_id}").json()
+        self.assertEqual(approved["allowed"], [], "已批准是终态，不该还有可执行动作")
+
+    def test_post_endpoints_also_return_id_and_allowed(self):
+        """四个 POST 的返回值与 GET 详情同构。
+
+        不同构的话，前端每做完一个动作就得再发一次 GET 才知道新状态下的
+        按钮该长什么样 —— 而那一次 GET 失败时，界面会停在"刚点完但按钮没变"，
+        看起来像点击没生效。
+        """
+        draft_id = self._run(want_report=True, report_kind="daily").json()["draft_id"]
+        submitted = self.client.post(
+            f"/api/ops/reports/{draft_id}/submit", json={"actor": "早班"}
+        ).json()
+        self.assertEqual(submitted["draft_id"], draft_id)
+        self.assertEqual(sorted(submitted["allowed"]), ["approve", "reject"])
+        self.assertEqual(len(submitted["trail"]), 1)
+
     def test_report_without_permit_id_is_rejected(self):
         r = self._run(want_report=True, report_kind="regulatory")
         self.assertEqual(r.status_code, 400)

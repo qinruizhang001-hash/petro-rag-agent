@@ -13,10 +13,17 @@
 
 ## 跑起来
 
-需要 **Node ≥ 22.18**（写在 `package.json` 的 `engines` 里）。这不是偏好：`npm test`
-用 `node --test` 直接执行 `src/lib/*.ts`，靠的是 Node 22.18 起默认开启的类型剥离。
-CI 曾经钉在 Node 20，于是 `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"`
-—— 一个和逻辑毫无关系的红。
+需要 **Node ≥ 20.6**（写在 `package.json` 的 `engines` 里）。
+
+这里踩过一个坑：原先测试脚本是 `node --test` 直接跑 `scripts/*.mjs`，而其中三个
+（`test-quality` / `test-text` / `test-citations`）**直接 import `.ts`** —— 那要靠
+Node 22.18 起默认开启的类型剥离。于是 `engines` 被顶到 `>=22.18`，CI 钉在 Node 20
+就报 `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"`：一个和逻辑毫无
+关系的红，还顺带把"能不能在别人机器上跑起来"变成了一个运气问题。
+
+现在测试用 `tsx --test` 跑，类型剥离交给 tsx，`engines` 降到 `>=20.6`。
+**实测过，不是推断**：Node **20.20.2** 下 `npm test` 全过、`npm run build`
+正常产出（`dist/assets/geoscene-*.js` 仍独立分块）。
 
 ```bash
 cd web
@@ -209,10 +216,11 @@ src/
 │   │   ├── DialogPanel.tsx    # 历史、输入、三种消息、语音边界与"还没做"
 │   │   ├── CitationText.tsx   # 正文里的 `[1]` → 可点角标
 │   │   └── ChunkPeek.tsx      # 点角标之后的落点：一片原文
-│   ├── RightRail.tsx          # 右栏：知识库 / 对话两个 Tab
+│   ├── RightRail.tsx          # 右栏：知识库 / 对话 / 报告三个 Tab
 │   ├── PerfOverlay.tsx        # `?perf=1` 的渲染开销面板（每个指标带一句人话）
 │   └── StatusBar.tsx          # 底栏：六态计数 + 数据来源 + 后端可达性 + 推送
-├── fixtures/         # 真实响应快照，勿手改（readings.json 是 live 模式的输入样本）
+├── fixtures/         # 真实响应快照，勿手改（readings.json 是 live 模式的输入样本；
+│                     #   approval.json / reports.json 由 scripts/export_approval_contract.py 生成）
 ├── App.tsx
 └── index.css         # 令牌的唯一来源
 ```
@@ -485,12 +493,84 @@ fixture 模式下有一个必须守住的边界：检索快照固定是「盖层
 因为它把编造从模型搬到了界面上，而且没有任何地方会报错。所以问句对不上快照时
 引用一律为空，并把原因写出来。
 
+## 报告审批：一张表、两条路径、一句免责
+
+`draft → pending_review → approved / rejected → draft`。后端
+（`ops/reports.py`）早就实现了这套状态机与 sqlite 持久化，缺的一直是界面。
+
+### 那张表必须由后端下发
+
+界面上"哪个按钮能点"取决于当前状态允许哪些迁移。最省事的写法是在 TS 里
+再抄一张表 —— 而抄的那一刻起就有了两份真值。之后后端加一条迁移
+（比如允许 `approved → draft` 做更正），前端的表不会跟着变，表现是：
+**按钮点不动，或者点下去 409**。两种情况都不报错，只在真实审批时被发现，
+而那时已经有人在电话里说"我批了"。
+
+所以 `/api/ops/reports/{id}` 多下发两个字段，两个都是前端算不出来的：
+
+| 字段 | 为什么不能由前端算 |
+|---|---|
+| `draft_id` | `ReportDraft` 不知道自己叫什么（号由 `store` 分配）。没有它，调用方只能"记住自己刚才问了哪个号" |
+| `allowed` | 当前状态可执行的动作名（`submit` / `approve` / `reject` / `reopen`），就是端点末段 |
+
+fixture 模式没有后端可写，需要同一张表 —— 于是
+`scripts/export_approval_contract.py` **在四个状态上逐个动作真跑一遍**，
+把"从哪来、执行什么、落到哪"记进 `fixtures/approval.json`。导出的不是
+"我以为的规则"，是"它实际的行为"。CI 里 `--check` 比对：`ops/reports.py`
+一改而 fixture 没重新生成就红。
+
+`tests/test_ops_reports.py::ActionTargetTests` 用同样的探针锁住
+`ACTION_TARGETS` 这张**声明**：表里写的目标必须等于真跑一次之后落到的状态。
+
+### 演练与真审批的差别，写在脸上
+
+| | `fixture`（默认） | `live` |
+|---|---|---|
+| 草稿来源 | `fixtures/reports.json`（真实端点产出） | `/api/ops/reports` |
+| 迁移执行者 | 本机（`lib/approval.ts::applyAction`，纯函数） | 后端 |
+| 轨迹存放 | 这个浏览器的 `localStorage` | `ops_reports.db` |
+| 刷新 | 不丢 | 不丢 |
+| 跨班次 / 跨设备 | **不能** | 能 |
+
+面板顶部常驻一句话：**本机演练 · 轨迹存在这个浏览器里，刷新不丢；但不是
+审计记录，不跨班次、不跨设备。** 把这句话藏起来，等于让一次演练看起来像
+一次真实审批 —— 而审批的全部价值就在于它能被追溯。
+
+浏览器不允许本地存储时（Safari 无痕、企业策略），界面照实说"刷新就会丢"，
+不显示"已保存"。
+
+### 正文里不写审批状态
+
+原先报告模板最后一节是「状态：草稿」。`build_daily` / `build_weekly` /
+`build_regulatory` 全部在提交之前调用，所以那里的 `draft.status` **恒为草稿** ——
+每一份已批准的稿子都会印着「状态：草稿」。
+
+而正文是要归档的。读者在报告记录（已批准）和文件正文（草稿）上看到两个
+相反的说法时，会相信印在文件上的那一个，于是"审批"在档案里等于没发生过。
+
+现在那一节改成一句话说明状态去哪了，并有
+`BodyDoesNotFreezeStatusTests` 锁住（三种报告都查）。
+
+### 三条守卫，都不能只置灰
+
+| 守卫 | 拒绝时说什么 |
+|---|---|
+| 引用检查未过 | 逐条列出「第几行的哪个数字没有出处」，并说明"批准这样的稿子等于背书" |
+| 批准必须署名 | 不预填上次的名字 —— 批准人必须自己确认这次是谁在批 |
+| 驳回必须写意见 | 说明后果（下一稿会原样再来一遍），而不是只说"必填" |
+
+理由显示在按钮**下面**，不只塞进 `title`：触屏上没有 hover。文案逐字取自
+后端（`fixtures/approval.json` 的 `guards`），前端不另写一份。
+
+### 它不在首屏的 chunk 里
+
+审批面板连同 28 KB 的草稿 fixture 一起，是切到「报告」页签时才拉的独立
+chunk（`ApprovalPanel-*.js`）。首屏要看的是左栏告警与中央剖面 ——
+"要不要叫人"这件事不该等审批面板的代码。CI 有一条守卫断言它仍然分块。
+
 ## 还没做
 
 - 工程师模式的 16 测点全量表（虚拟滚动）：剖面之外，现场还需要一屏能扫完的纯表格
-- 审批状态机（draft → submitted → approved / rejected → reopened）：要落盘、要权限、
-  要审计三样同时在位。对话页里只做了"本页处置标记"，并明确写着它不落库
-- 对话的流式回答：现在是一次性返回，长回答期间只有一句"正在取数与检索"
 - 知识库的写入侧：现在只能看和查，入库仍走 `ingest_ccus_batch.py` 命令行
 - 语音输入：状态环只有三个形态，麦克风与 ASR 都还没接
 - shadcn/ui 组件库：目前是手写的 shadcn 风格原语（`cn()` + 令牌），
@@ -500,7 +580,7 @@ fixture 模式下有一个必须守住的边界：检索快照固定是「盖层
 
 ```bash
 npm run typecheck    # tsc -b --noEmit
-npm test             # 51 项：降档判定 / 文本清洗 / 角标解析 / 证据强度 / 文案守卫 / 标签避让 / 组件渲染冒烟
+npm test             # 90 项：降档判定 / 文本清洗 / 角标解析 / 证据强度 / 处置标记 / 审批状态机 / 文案守卫 / 标签避让 / 组件渲染冒烟
 npm run build        # 首屏 chunk 必须 < 320 KB（CI 有守卫）
 ```
 

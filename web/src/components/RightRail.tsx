@@ -1,21 +1,52 @@
-import { useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import type { Citation } from "../lib/chat";
 import type { FocusDoc } from "../lib/kb-types";
 import { cn } from "../lib/utils";
 import { DialogPanel } from "./dialog/DialogPanel";
 import { KnowledgePanel } from "./kb/KnowledgePanel";
 import { Panel } from "./Panel";
+/**
+ * 审批面板按需加载。
+ *
+ * 它是右栏三个页签里最重的一个：草稿正文、审批契约、正文解析器全在它
+ * 那一支依赖里。而它**不是首屏必需的** —— 首屏要看的是左栏告警与中央剖面，
+ * "要不要叫人"这件事不该等审批面板的代码。
+ *
+ * 与 `geoscene` 用同一个理由（3D 库不该阻塞告警），CI 有守卫断言它确实
+ * 落在一个独立 chunk 里。
+ */
+const ApprovalPanel = lazy(() =>
+  import("./reports/ApprovalPanel").then((m) => ({ default: m.ApprovalPanel })),
+);
 
-type Tab = "kb" | "dialog";
+type Tab = "kb" | "dialog" | "reports";
+
+const TABS: ReadonlyArray<readonly [Tab, string]> = [
+  ["kb", "知识库"],
+  ["dialog", "对话"],
+  ["reports", "报告"],
+];
+
+const TAB_TITLE: Record<Tab, string> = {
+  kb: "知识库",
+  dialog: "对话",
+  reports: "报告审批",
+};
 
 /**
- * 右栏：知识库 + 对话。
+ * 右栏：知识库 + 对话 + 报告审批。
  *
  * ## 为什么知识库放在右栏而不是中央
  *
  * 中央是**空间索引**（剖面回答"这件事发生在哪一层"），右栏是**查阅与对话**。
  * 知识库要回答的是"这条结论出自哪篇论文"，它天然是对话的支撑面 ——
  * 引用角标点开之后落在这里，读者不必把视线从结论上移开半个屏幕。
+ *
+ * ## 报告审批为什么也在右栏
+ *
+ * 审批要看的是同一批东西：告警、剖面、出处。把它做成一个独立页面，
+ * 审批人就得在两页之间来回切 —— 而"核一下这个数字对不对"是审批的
+ * 主要动作，每核一次切一次页，人会干脆不核，直接点批准。
  *
  * ## 它是引用跳转的中转站
  *
@@ -24,22 +55,33 @@ type Tab = "kb" | "dialog";
  * `KnowledgePanel` 是兄弟节点，一个要说话，另一个要听见，共同的父级
  * 就是这一层。再往上提到 `App` 会把"右栏内部怎么分页"变成全应用的事。
  *
- * ## 两个 Tab 都是整高、内部各自滚
+ * ## 三个 Tab 都是整高、内部各自滚
  *
  * 外层 `overflow-hidden` + 内部 `min-h-0 flex-1 overflow-auto`。
  * 让外层滚的话，输入框会跟着列表一起滚出视口 —— 而输入框是这一页
  * 唯一需要一直够得着的东西。
  */
 export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
-  // `?rail=dialog` 供截图与评审直接定位 —— 只能点两下才能到达的状态，
-  // 评审时总会有人截错图。
+  // `?rail=dialog|reports` 供截图与评审直接定位 —— 只能点两下才能到达的
+  // 状态，评审时总会有人截错图。
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "kb";
-    return new URLSearchParams(window.location.search).get("rail") === "dialog"
-      ? "dialog"
-      : "kb";
+    const v = new URLSearchParams(window.location.search).get("rail");
+    return v === "dialog" || v === "reports" ? v : "kb";
   });
   const [focusDoc, setFocusDoc] = useState<FocusDoc | null>(null);
+
+  /**
+   * 审批面板是否已经挂载过。
+   *
+   * 首次切到「报告」时才挂载，之后**一直留着** —— 与另外两个面板同样的理由：
+   * 写了一半的驳回意见，切一下标签就没了，而驳回意见是审计记录的一部分。
+   * 只在"从未打开过"时不加载，省掉首屏那几十 KB。
+   */
+  const [reportsMounted, setReportsMounted] = useState(tab === "reports");
+  useEffect(() => {
+    if (tab === "reports") setReportsMounted(true);
+  }, [tab]);
 
   /**
    * 对话角标 → 知识库详情。
@@ -60,17 +102,12 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
 
   return (
     <Panel
-      title={tab === "kb" ? "知识库" : "对话"}
+      title={TAB_TITLE[tab]}
       className="h-full"
       aside={
         <div className="flex items-center gap-1">
           <div className="flex rounded-panel border border-line p-0.5" role="tablist">
-            {(
-              [
-                ["kb", "知识库"],
-                ["dialog", "对话"],
-              ] as const
-            ).map(([value, label]) => (
+            {TABS.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -94,7 +131,7 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
             <button
               type="button"
               onClick={onCollapse}
-              title="收起右栏，把宽度让给剖面。顶部「知识库」按钮可以再展开。"
+              title="收起右栏，把宽度让给剖面。顶部「知识库 · 对话 · 报告」按钮可以再展开。"
               aria-label="收起右栏"
               className="rounded-panel border border-line px-1 text-2xs text-ink-2 hover:border-acc/40 hover:text-acc"
             >
@@ -106,16 +143,20 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
       bodyClassName="flex min-h-0 flex-col overflow-hidden p-2"
     >
       {/*
-        两个面板**都挂载**，用 `hidden` 切换。
+        三个面板**都挂载**，用 `hidden` 切换。
         
         这不是为了省一次重新加载，是为了别把对话弄丢：条件渲染时，
         点一个引用角标切到知识库，`DialogPanel` 会被卸载，它 `useState`
         里的对话历史随之消失 —— 读者为了核对一句出处，回来发现自己
         刚才问的话没了。而这个动作恰恰是这一页最主要的操作。
         
-        代价是两个面板同时活着：`KnowledgePanel` 挂载时会取概览与文档
-        清单，`DialogPanel` 会读演示快照。都是小请求，且都能被 `alive`
-        标记取消，比"核对一次出处就丢一次上下文"划算得多。
+        审批面板同理：写了一半的驳回意见，切一下标签就没了 ——
+        而驳回意见是审计记录的一部分，重打一遍往往就写得比第一次短。
+        
+        代价是三个面板同时活着：`KnowledgePanel` 挂载时会取概览与文档
+        清单，`DialogPanel` 会读演示快照，`ApprovalPanel` 会读草稿列表。
+        都是小请求，且都能被 `alive` 标记取消，比"核对一次出处就丢一次
+        上下文"划算得多。
       */}
       <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "kb" && "hidden")}>
         <KnowledgePanel focusDoc={focusDoc} />
@@ -123,6 +164,15 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
       <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "dialog" && "hidden")}>
         <DialogPanel onOpenCitation={jumpToCitation} />
       </div>
+      {reportsMounted && (
+        <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "reports" && "hidden")}>
+          <Suspense
+            fallback={<p className="text-2xs text-ink-2">载入审批面板…</p>}
+          >
+            <ApprovalPanel />
+          </Suspense>
+        </div>
+      )}
     </Panel>
   );
 }

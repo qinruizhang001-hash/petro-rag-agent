@@ -12,11 +12,15 @@ import { splitCitations } from "../../lib/citations";
  * 反过来（解析不到就染红）会在数学符号上造出一串假警报，
  * 而假警报的代价是真警报被忽略。
  *
- * ## 无文件血缘的角标不可点
+ * ## 两种角标必须**形状**不同，不能只靠颜色
  *
- * 那个落点会是一页没有标题的空白。做成按钮的后果是"点了没反应" ——
- * 读者会以为是界面坏了，而不是"这条证据本来就追不到文献"。
- * 所以它渲染成一个静态标记，颜色更淡，`title` 说明原因。
+ * 可点的：实线边框 + 末尾一个 `↗`（表示"会跳走"）+ 悬浮时背景变亮。
+ * 无血缘的：虚线边框 + 没有箭头 + `cursor-not-allowed`。
+ *
+ * 只改颜色是不够的 —— 色觉障碍、强光下的投影、以及灰度打印都会让
+ * "实线蓝"和"灰蓝"变成同一个东西。形状是唯一不会丢的那一维。
+ * 而"点了没反应"比"不能点"更像故障，所以不可点的那一个必须**看起来**
+ * 就不可点。
  *
  * ## 角标是可点按钮，不是 `<sup>`
  *
@@ -56,8 +60,10 @@ export function CitationText({
                 return (
                   <span
                     key={`${i}-${c!.reference_id}`}
-                    title="该证据没有文件级血缘，无法定位到具体文献（Chroma 向量召回不带出处）"
-                    className="mx-0.5 inline-flex translate-y-[-1px] items-center rounded-panel border border-line px-1 font-num text-ink-2"
+                    role="img"
+                    aria-label={`引用 ${c!.reference_id} 没有文件级血缘，无法打开`}
+                    title="该证据没有文件级血缘，无法定位到具体文献（Chroma 向量召回不带出处），所以点不开"
+                    className="mx-0.5 inline-flex translate-y-[-1px] cursor-not-allowed items-center rounded-panel border border-dashed border-line-strong px-1 font-num text-ink-2"
                   >
                     {c!.reference_id}
                   </span>
@@ -69,9 +75,14 @@ export function CitationText({
                   type="button"
                   onClick={() => onPick(c!)}
                   title={`${c!.source} · ${hint}`}
-                  className="mx-0.5 inline-flex translate-y-[-1px] items-center rounded-panel border border-acc/50 px-1 font-num text-acc hover:bg-acc/10"
+                  aria-label={`引用 ${c!.reference_id}：${c!.source}，${hint}`}
+                  className="mx-0.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-panel border border-acc/60 px-1 font-num text-acc hover:bg-acc/10"
                 >
                   {c!.reference_id}
+                  {/* `↗` 是"会跳走"的唯一非颜色信号 —— 见文件头 */}
+                  <span aria-hidden className="text-[0.9em] leading-none">
+                    ↗
+                  </span>
                 </button>
               );
             })}
