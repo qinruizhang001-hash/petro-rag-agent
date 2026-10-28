@@ -91,6 +91,26 @@ test("引用角标：无文件血缘时不渲染成可点按钮", () => {
   );
 });
 
+test("测点表的视图由 mode 收口，不是只把按钮藏起来", () => {
+  /*
+   * 只藏按钮会留下一个**回不去**的状态：工程师模式切到表格 → 切到指挥舱
+   * → 表格还在，而切回去的按钮已经不在了。这不是渲染错，是状态没收口，
+   * 静态渲染测试抓不到（它不点按钮），所以守源码。
+   */
+  const rail = read("src/components/LeftRail.tsx");
+  assert.match(
+    rail,
+    /const shownView = mode === "engineer" \? view : "cards"/,
+    "少了这行收口，指挥舱会停在表格上",
+  );
+  assert.match(rail, /shownView === "table" \?/, "渲染分支必须看 shownView");
+  assert.doesNotMatch(
+    rail,
+    /^\s*\{view === "table" \?/m,
+    "渲染分支直接看 view 时，mode 只影响按钮可见性，不影响显示什么",
+  );
+});
+
 test("live 模式：告警请求必须自带读数，不能抛错把整屏变成一行报错", () => {
   const api = read("src/lib/api.ts");
   // 这条守卫对应一次真实的白屏：`fetchAlarms()` 曾在 live 下直接

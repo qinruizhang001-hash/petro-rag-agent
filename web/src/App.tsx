@@ -215,7 +215,7 @@ export default function App() {
       >
         {report && thresholds ? (
           <>
-            <LeftRail report={report} thresholds={thresholds} />
+            <LeftRail report={report} thresholds={thresholds} mode={mode} />
             <GeoSection
               report={report}
               thresholds={thresholds}

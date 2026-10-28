@@ -55,6 +55,7 @@ import { DialogPanel } from "./src/components/dialog/DialogPanel";
 import { KbGapForm } from "./src/components/kb/KbGapForm";
 import { KbResultView } from "./src/components/kb/KbResultView";
 import { LeftRail } from "./src/components/LeftRail";
+import { SensorTable } from "./src/components/SensorTable";
 import { StatusBar } from "./src/components/StatusBar";
 import { clearAcks, setAck } from "./src/lib/ack";
 import { askStream } from "./src/lib/chat";
@@ -95,8 +96,11 @@ export const renderStatus = (props) => html(createElement(StatusBar, props));
 
 export const renderAlarm = (props) => html(createElement(AlarmCard, props));
 
-export const renderLeftRail = () =>
-  html(createElement(LeftRail, { report: alarms, thresholds }));
+export const renderLeftRail = (mode = "deck") =>
+  html(createElement(LeftRail, { report: alarms, thresholds, mode }));
+
+export const renderSensorTable = () =>
+  html(createElement(SensorTable, { alarms: alarms.alarms, thresholds }));
 
 export const renderDialog = () => html(createElement(DialogPanel));
 
@@ -239,6 +243,37 @@ test("LeftRail 在没有任何标记时不说「已标记」", () => {
   const plain = text(mod.renderLeftRail());
   assert.match(plain, /报警与关键指标/);
   assert.doesNotMatch(plain, /条已标记处置/);
+});
+
+test("卡片/表格切换只在工程师模式出现", () => {
+  /*
+   * 指挥舱是汇报用的：18 行小字在投影上什么也读不出来，而"要不要叫人"
+   * 这个判断卡片已经回答得更好。把切换放进去等于给一个用不上的选项。
+   */
+  const deck = text(mod.renderLeftRail("deck"));
+  assert.doesNotMatch(deck, /表格/, "指挥舱不该出现表格入口");
+
+  const engineer = text(mod.renderLeftRail("engineer"));
+  assert.match(engineer, /卡片/);
+  assert.match(engineer, /表格/);
+});
+
+test("测点表把「不可判定」与「正常」分开，并在底部说明区别", () => {
+  const plain = text(mod.renderSensorTable());
+
+  // 列名：距 warn 线的余量是一列，不是每张卡片里各说一遍
+  assert.match(plain, /距 warn 线/);
+  assert.match(plain, /状态/);
+
+  // 没有阈值的测点必须出现"不可判定"这个词，而不是留一个破折号了事
+  assert.match(
+    plain,
+    /不可判定/,
+    "fixture 里有未配阈值的测点；一个都没渲染出来说明它们被静默丢掉了",
+  );
+
+  // 底部那句解释：不写这一句，读者会把破折号读成"这三个没数"
+  assert.match(plain, /不是「没问题」/);
 });
 
 test("DialogPanel 空态给出可点的示例问题，而不是一片空白", () => {

@@ -1,16 +1,38 @@
-import { useMemo } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { useAckStorage, useAcks } from "../lib/ack";
 import { SEVERITY_META, sortAlarms, isIndeterminate } from "../lib/severity";
 import type { AlarmReport, Attribution, ThresholdStatus } from "../lib/types";
+import { cn } from "../lib/utils";
 import { AlarmCard } from "./AlarmCard";
 import { BlindSpotBanner } from "./BlindSpotBanner";
 import { CeilingCard } from "./CeilingCard";
 import { MetricCard } from "./MetricCard";
 import { Panel } from "./Panel";
 
+/**
+ * 测点全量表按需加载。
+ *
+ * 它只在工程师模式、且点了「表格」之后才出现 —— 与 `KbGapForm` /
+ * `ApprovalPanel` 同一套判断标准：**首屏看不见的东西不占首屏预算**。
+ *
+ * 静态 import 的代价是实测的：把它加进来时首屏从 316,879 涨到 321,021
+ * 字节，直接顶破 CI 那条 320,000 的线。而那条线的用途是"有没有大东西
+ * 被静态 import 进来"的警报，撞线时该拆，不该改数字。
+ */
+const SensorTable = lazy(() =>
+  import("./SensorTable").then((m) => ({ default: m.SensorTable })),
+);
+
 interface LeftRailProps {
   report: AlarmReport;
   thresholds: ThresholdStatus;
+  /**
+   * 模式只影响**这一栏的读法**，不影响数据。
+   *
+   * 表格视图只在工程师模式下给：指挥舱是汇报用的，18 行小字在投影上
+   * 什么也读不出来；而"要不要叫人"这个判断，卡片已经回答得更好。
+   */
+  mode: "deck" | "engineer";
 }
 
 /**
@@ -23,7 +45,7 @@ interface LeftRailProps {
  * 在同一个屏幕上出现两次。重复出现会让读者以为那是两个不同的测点，
  * 而"环空压力"和"环空压力"并排的界面，第一反应是系统出错了。
  */
-export function LeftRail({ report, thresholds }: LeftRailProps) {
+export function LeftRail({ report, thresholds, mode }: LeftRailProps) {
   const unitOf = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of thresholds.sensors) map[s.key] = s.unit;
@@ -66,6 +88,25 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
     }
     return map;
   }, [report.attribution]);
+
+  /**
+   * 同一份 18 行数据的第二种读法：卡片（按严重度）或表格（按距 warn 线）。
+   *
+   * 默认卡片。切到表格不改变任何数据 —— 它回答的是另一个问题
+   * （"哪几个离自己的线最近"），而卡片回答的是"我该先处理哪一条"。
+   */
+  const [view, setView] = useState<"cards" | "table">("cards");
+
+  /**
+   * 真正显示哪一种 —— **由 mode 收口，而不是只靠按钮藏起来**。
+   *
+   * 只藏按钮会留下一个回不去的状态：在工程师模式切到表格，再切到指挥舱，
+   * 表格还在（`view` 没变），而切回去的按钮已经不在了。读者会以为
+   * 指挥舱本来就是这么显示的。
+   *
+   * 记住 `view` 而不是重置它：从指挥舱切回工程师时，上一眼的读法还在。
+   */
+  const shownView = mode === "engineer" ? view : "cards";
 
   // 本机处置标记：存在浏览器里，刷新不丢，但不写后端（见 `lib/ack.ts`）。
   const acks = useAcks();
@@ -115,9 +156,36 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
        */
       className="min-h-[520px] lg:min-h-0"
       aside={
-        <span className="tnum">
-          {actionableCount} 需动作 · {indetCount} 不可判定
-          {ackCount > 0 && ` · ${ackCount} 已标记`} / 共 {ordered.length}
+        <span className="flex items-center gap-1.5">
+          <span className="tnum">
+            {actionableCount} 需动作 · {indetCount} 不可判定
+            {ackCount > 0 && ` · ${ackCount} 已标记`} / 共 {ordered.length}
+          </span>
+          {mode === "engineer" && (
+            <span className="flex gap-0.5">
+              {(
+                [
+                  ["cards", "卡片"],
+                  ["table", "表格"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setView(key)}
+                  aria-pressed={view === key}
+                  className={cn(
+                    "rounded border px-1",
+                    view === key
+                      ? "border-ink-2 text-ink-0"
+                      : "border-line text-ink-2 hover:text-ink-1",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+          )}
         </span>
       }
       bodyClassName="space-y-1.5"
@@ -154,28 +222,42 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
       */}
       <CeilingCard check={report.ceiling} className="mb-2" />
 
-      {ordered.map((alarm) => {
-        // 需要动作的用可展开的告警卡；其余用紧凑指标卡。
-        // 判断依据是"这一条是否要求人做点什么"，而不是"它是否 non-normal" ——
-        // notice 只要求下个班次复核，给它一张可展开的大卡片会淹没真正的告警。
-        const actionable = SEVERITY_META[alarm.severity].actionable;
-        return actionable ? (
-          <AlarmCard
-            key={alarm.alarm_id}
-            alarm={alarm}
-            unit={unitOf[alarm.sensor] ?? ""}
-            warnThreshold={warnOf[alarm.sensor] ?? null}
-            excluded={excludedBySensor[alarm.sensor] ?? []}
-          />
-        ) : (
-          <MetricCard
-            key={alarm.alarm_id}
-            alarm={alarm}
-            unit={unitOf[alarm.sensor] ?? ""}
-            warnThreshold={warnOf[alarm.sensor] ?? null}
-          />
-        );
-      })}
+      {shownView === "table" ? (
+        <Suspense
+          fallback={
+            /*
+             * 占位要说清"正在加载"，不能留白也不能写"没有数据"：
+             * 后者在点击后的一瞬间会被读成"这个场地没有测点"。
+             */
+            <p className="text-2xs text-ink-2">正在加载测点表…</p>
+          }
+        >
+          <SensorTable alarms={report.alarms} thresholds={thresholds} />
+        </Suspense>
+      ) : (
+        ordered.map((alarm) => {
+          // 需要动作的用可展开的告警卡；其余用紧凑指标卡。
+          // 判断依据是"这一条是否要求人做点什么"，而不是"它是否 non-normal" ——
+          // notice 只要求下个班次复核，给它一张可展开的大卡片会淹没真正的告警。
+          const actionable = SEVERITY_META[alarm.severity].actionable;
+          return actionable ? (
+            <AlarmCard
+              key={alarm.alarm_id}
+              alarm={alarm}
+              unit={unitOf[alarm.sensor] ?? ""}
+              warnThreshold={warnOf[alarm.sensor] ?? null}
+              excluded={excludedBySensor[alarm.sensor] ?? []}
+            />
+          ) : (
+            <MetricCard
+              key={alarm.alarm_id}
+              alarm={alarm}
+              unit={unitOf[alarm.sensor] ?? ""}
+              warnThreshold={warnOf[alarm.sensor] ?? null}
+            />
+          );
+        })
+      )}
     </Panel>
   );
 }

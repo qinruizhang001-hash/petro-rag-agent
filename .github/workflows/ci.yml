@@ -672,11 +672,14 @@ jobs:
       # 改成静态 import，首屏 chunk 会直接涨到 800 KB 以上。
       #
       # 体积线是 320 KB。**它是"有没有大东西被静态 import 进来"的警报，不是
-      # 一条需要贴着走的线** —— 当前首屏 316,879 字节（余量 3.1 KB），所以
+      # 一条需要贴着走的线** —— 当前首屏 317,615 字节（余量 2.4 KB），所以
       # 下一次小改动就可能撞线。撞线时先找原因（多半是某个重面板/大 JSON 被
       # 静态 import 了），**不要直接把数字改大**：改了之后 three 泄漏进来时
       # 它也不会再红。修法通常是 `React.lazy` + 首次激活才挂载，与
-      # `ApprovalPanel` / `geoscene` / `KbGapForm` 同一套。
+      # `ApprovalPanel` / `geoscene` / `KbGapForm` / `SensorTable` 同一套。
+      #
+      # 上面那个字节数只是"余量有多小"的量级提示，**不是断言**（每加一行
+      # 界面代码它就会变）。真正的断言是下面 `-gt 320000` 那一行。
       - name: 3D scene is still code-split
         working-directory: web
         run: |
@@ -726,6 +729,20 @@ jobs:
             exit 1
           fi
           echo "gap form chunk: $(ls dist/assets/KbGapForm-*.js | head -1)"
+
+      # 中文注释：测点全量表约 3.5 KB，**动态 import**，工程师模式点了「表格」
+      # 才拉。它本身小，守的不是体积而是"别把它挪回首屏"这个决定 ——
+      # 静态 import 时首屏从 317,588 涨到 321,021，直接顶破上面那条线。
+      # 与 `KbGapForm` 同一条道理：首屏看不见的东西不占首屏预算。
+      - name: Sensor table is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/SensorTable-*.js >/dev/null 2>&1; then
+            echo "::error::no separate SensorTable chunk — the sensor table is being imported statically again (first-paint chunk goes back over 320 KB)"
+            exit 1
+          fi
+          echo "sensor table chunk: $(ls dist/assets/SensorTable-*.js | head -1)"
 
       - name: Approval panel is still code-split
         working-directory: web
