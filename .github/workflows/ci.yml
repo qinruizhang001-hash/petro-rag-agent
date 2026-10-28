@@ -608,6 +608,44 @@ jobs:
           done
           echo "All six severity classes are in the stylesheet."
 
+      # 中文注释：窄屏下限必须活到产物里。
+      #
+      # 背景：单列布局下 grid 行是 `auto` 高度，而 Panel 的 body 是
+      # `flex-1 min-h-0` —— `flex: 1 1 0%` 会假设父级高度为 0，于是整块面板
+      # 缩成只剩一条标题栏。实测 900 px 宽下左栏 18 条告警、注入压力上限、
+      # 盲区提示全部消失，**控制台零报错、构建照样成功**。
+      # 唯一的防线就是每个 grid item 上的 `min-h-[420px] lg:min-h-0`。
+      #
+      # 为什么查 CSS 声明而不是查类名：产物里类名是 `.min-h-\[420px\]`，
+      # 反斜杠转义会让 `grep -F` 与肉眼都误判（本项目踩过：`grep -c -F
+      # "min-h-\[440px\]"` 返回 0，实际产物里有）。查 `min-height:420px`
+      # 这条声明没有转义，类名被删时它也一定跟着消失。
+      #
+      # 这条守卫锁的是"下限存在"，不是某个具体类名。若将来改用 CSS 变量或
+      # 别的写法实现同样效果，请同步改这里 —— 别直接删掉它。
+      - name: Narrow-screen floors survive the build
+        working-directory: web
+        run: |
+          set -e
+          for decl in \
+            "min-height:420px" \
+            "min-height:440px" \
+            "min-height:480px"
+          do
+            if ! grep -q -- "$decl" dist/assets/*.css; then
+              echo "::error::$decl missing from the built stylesheet — the narrow-screen floor is gone; below ~900 px the left rail collapses to its header and the alarms silently disappear"
+              exit 1
+            fi
+          done
+          # 三档栅格的 lg 行高与 xl 单行，靠 grid-template-rows 的两个表达式
+          for expr in "460px" "minmax(0,1fr)"; do
+            if ! grep -q -- "$expr" dist/assets/*.css; then
+              echo "::error::$expr missing from the built stylesheet — the three-tier layout grid is gone"
+              exit 1
+            fi
+          done
+          echo "Narrow-screen floors and the layout grid are in the stylesheet."
+
       # 中文注释：three 压缩后约 130 KB gzip。它被**动态 import** 时是一个独立
       # chunk，首屏先出左栏的告警卡，剖面随后补上；一旦有人把它改成静态 import，
       # 首屏 chunk 会从 71 KB 涨到 200 KB，而"左栏先亮"这个性质会静默消失 ——
