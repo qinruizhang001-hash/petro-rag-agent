@@ -1,4 +1,5 @@
 import type { Alarm, Direction, Severity, ThresholdStatus } from "./types";
+import { digitsForValue, fixedMargin } from "./severity";
 
 /**
  * 测点全量表的**判定**，与它的渲染分开。
@@ -200,21 +201,34 @@ export function bodyHeight(total: number, rowHeight: number = ROW_HEIGHT): numbe
   return Math.max(0, total) * Math.max(0, rowHeight);
 }
 
-/** 余量显示成给人看的一句话。 */
+/**
+ * 余量显示成给人看的一句话。
+ *
+ * 两处判据与指标卡保持一致，否则同一台机器在卡片和表格里显示两个数：
+ *
+ * - **动词跟方向走**：`high` 越限是「超」，`low` 越限是「低」。捕集率
+ *   读数 86.8 对警告线 88，写「超 1.2」会让人以为两个数里有一个错了。
+ * - **小数位跟读数走**（`digitsForValue`），不跟余量自己的量级走。
+ *   表格里读数、阈值、余量并排，读者会心算；余量按自己的量级取位，
+ *   那行算术就不成立（1.2 取两位变 1.20，而读数只有一位）。
+ */
 export function formatMargin(row: SensorRow): string {
   if (row.margin === null) return "—";
   const abs = Math.abs(row.margin);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
   /*
-   * 只有带小数点时才裁尾零。
+   * 取位与指标卡完全同一套（`fixedMargin`）：
    *
-   * 裸的 `toFixed(d).replace(/\.?0+$/, "")` 会把 `100` 变成 `1` —— 正则里的
-   * `\.?` 是可选的，`0+$` 于是能直接吃掉整数末尾的零。而 100 这个量级恰好
-   * 是最需要看清的那一档（余量 100 bar 与余量 1 bar 是两种工况）。
+   * - **跟读数走**：表格里读数、阈值、余量并排，读者会心算，三者必须同一
+   *   分辨率。余量按自己的量级取位，那行算术就不成立（读数 19.9 配余量
+   *   0.06，加不出阈值 20）。
+   * - **但不能变成零**：`0.0` 在这套界面里的含义是"就在线上"。一个非零的
+   *   余量显示成零，是这张表最不能犯的错，所以一路加位到能看见为止。
+   *
+   * 顺带修掉一处尾零问题：裸的 `toFixed(d).replace(/\.?0+$/, "")` 会把
+   * `100` 变成 `1` —— 正则里 `\.?` 是可选的，`0+$` 能直接吃掉整数末尾的零。
    */
-  const raw = abs.toFixed(digits);
-  const text = raw.includes(".") ? raw.replace(/\.?0+$/, "") : raw;
+  const text = fixedMargin(abs, digitsForValue(row.value));
   // 余量正好为 0 是"就在线上"，既不是余也不是超
   if (abs === 0) return "0（在线上）";
-  return row.margin > 0 ? `余 ${text}` : `超 ${text}`;
+  return row.margin > 0 ? `余 ${text}` : `${row.direction === "high" ? "超" : "低"} ${text}`;
 }

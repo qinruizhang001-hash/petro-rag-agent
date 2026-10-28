@@ -98,9 +98,13 @@ test("digitsForValue 跟着量级走", () => {
 // 二、读数 ± 余量 = 那条线（性质断言）
 // ══════════════════════════════════════════════════════════
 
-/** 把 "余量 3.6" / "超 1.2" 解析回**绝对值**。方向由 `breached` 与 `direction` 决定。 */
+/**
+ * 把 "余量 3.6" / "超 1.2" / "低 1.2" 解析回**绝对值**。
+ * 方向由 `breached` 与 `direction` 决定，不靠动词 —— 但动词本身另有一条
+ * 断言（见下面「动词必须跟方向走」），否则「低」被写成「超」也能过。
+ */
 function parseMagnitude(text) {
-  const m = text.match(/^(余量|超) ([\d.]+)$/);
+  const m = text.match(/^(余量|超|低) ([\d.]+)$/);
   assert.ok(m, `余量文案的格式变了：${text}`);
   return Number(m[2]);
 }
@@ -166,8 +170,47 @@ test("越限时基准换成被越过的那条线，算术同样成立", () => {
 
 test("low 方向的余量方向反过来，算术仍成立", () => {
   const m = describeMargin(85.2, 88, "", null, "low");
-  assert.equal(m.text, "超 2.8");
+  // 85.2 在 88 之下，而捕集率是"越低越坏" —— 所以是「低 2.8」，不是「超 2.8」。
+  // 这条断言原本写的就是「超 2.8」，与它上面那行算术自相矛盾了四轮。
+  assert.equal(m.text, "低 2.8");
   assert.equal(Number(formatValue(85.2)) + 2.8, 88);
+});
+
+test("动词必须跟方向走：high 越限说「超」，low 越限说「低」", () => {
+  /*
+   * 这条 bug 在 fixture 里只出现一次（18 个测点里只有捕集率是越限的 low
+   * 方向），所以四轮手查都没抓到 —— 抓它只能靠"把全部测点按方向分类再逐条
+   * 核对动词"，而不是再看一遍截图。
+   */
+  const byKey = new Map(M.thresholds.sensors.map((s) => [s.key, s]));
+  const seen = { high: 0, low: 0 };
+
+  for (const alarm of M.alarms.alarms) {
+    const spec = byKey.get(alarm.sensor);
+    const warn = spec?.threshold?.warn ?? null;
+    if (alarm.value === null || warn === null) continue;
+
+    const margin = describeMargin(
+      alarm.value,
+      warn,
+      alarm.threshold_level,
+      alarm.threshold_value,
+      spec.direction,
+    );
+    if (!margin.breached) continue;
+
+    seen[spec.direction] += 1;
+    const want = spec.direction === "high" ? "超" : "低";
+    assert.ok(
+      margin.text.startsWith(`${want} `),
+      `${alarm.label}（${spec.direction} 方向越限）应写「${want}」，实际是「${margin.text}」—— ` +
+        `读数 ${formatValue(alarm.value)}、${margin.referenceLabel} ${formatValue(margin.referenceValue)}`,
+    );
+  }
+
+  // 两种方向都要有样本，否则这条断言只是"零条通过"
+  assert.ok(seen.high > 0, "fixture 里没有 high 方向越限的测点，这条断言等于没跑");
+  assert.ok(seen.low > 0, "fixture 里没有 low 方向越限的测点，这条断言等于没跑");
 });
 
 // ══════════════════════════════════════════════════════════

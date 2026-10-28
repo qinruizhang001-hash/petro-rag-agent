@@ -361,7 +361,29 @@ test("算不出来的余量显示破折号，不显示 0", () => {
   assert.equal(T.formatMargin(one([alarm({ value: 18 })], catalog(spec({ threshold: null })))), "—");
 });
 
-test("小余量保留两位，不显示成 0", () => {
-  const text = T.formatMargin(one([alarm({ value: 19.94 })], catalog(spec())));
-  assert.equal(text, "余 0.06");
+test("小余量跟着读数的分辨率走，但绝不显示成 0", () => {
+  /*
+   * 两条判据合起来才对：
+   *
+   * 1. 读数显示 19.9、阈值 20，余量就该是 0.1 —— 表格里三个数并排，
+   *    读者会心算，余量按自己的量级取两位（0.06）会让那行算术对不上。
+   * 2. 但读数 19.999 时余量是 0.001，按读数取 1 位得到 `0.0`，而 `0.0`
+   *    在这套界面里读作"就在线上"。一个非零的余量显示成零，是这张表最
+   *    不能犯的错，所以一路加位到能看见为止。
+   */
+  assert.equal(T.formatMargin(one([alarm({ value: 19.94 })], catalog(spec()))), "余 0.1");
+  assert.equal(T.formatMargin(one([alarm({ value: 19.999 })], catalog(spec()))), "余 0.001");
+});
+
+test("越线的动词跟方向走：high 说「超」，low 说「低」", () => {
+  // 捕集率读数 86.8 对警告线 88 —— 写「超 1.2」会让人以为两个数里有一个错了
+  const low = one(
+    [alarm({ value: 86.8, direction: "low" })],
+    catalog(
+      spec({ direction: "low", threshold: { warn: 88, alert: 80, critical: 75, source: "x" } }),
+    ),
+  );
+  assert.equal(T.formatMargin(low), "低 1.2");
+  const high = one([alarm({ value: 23 })], catalog(spec()));
+  assert.equal(T.formatMargin(high), "超 3");
 });

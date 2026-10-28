@@ -159,6 +159,28 @@ function fixed(value: number, digits: number): string {
 }
 
 /**
+ * 余量的取位：先跟读数用同一把尺子，再保证"不是零"。
+ *
+ * 两件事分开看：
+ *
+ * 1. **跟读数走**。读数显示 19.9、阈值 20，余量就该是 0.1 —— 读者会心算，
+ *    三者必须用同一个分辨率。余量按自己的量级取两位（0.06）会让那行算术
+ *    对不上（19.9 + 0.06 ≠ 20）。
+ * 2. **但不能因此变成零**。读数 19.999 时余量是 0.001，按读数的 1 位取位
+ *    得到 `0.0`，而 `0.0` 在这套界面里的含义是"就在线上"。一个非零的余量
+ *    被显示成零，是这张卡最不能犯的错 —— 所以一路加位到能看见为止。
+ */
+export function fixedMargin(abs: number, digits: number): string {
+  let d = digits;
+  let raw = abs.toFixed(d);
+  while (Number(raw) === 0 && d < 6) {
+    d += 1;
+    raw = abs.toFixed(d);
+  }
+  return raw.includes(".") ? raw.replace(/\.?0+$/, "") : raw;
+}
+
+/**
  * 数值显示。
  *
  * `null` 一律渲染成破折号。**绝不能落成 `0`** ——
@@ -177,7 +199,7 @@ export function formatValue(value: number | null, digits = 2): string {
 }
 
 export interface MarginInfo {
-  /** 余量文本，例如 "余量 2.4" / "超 1.2" */
+  /** 余量文本，例如 "余量 2.4" / "超 1.2" / "低 1.2" */
   text: string;
   /** 距阈值的余量；`null` 表示算不出来（没有阈值 / 没有读数） */
   value: number | null;
@@ -225,6 +247,16 @@ const LEVEL_LABEL: Record<string, string> = {
  *
  * 越限之后显示"超出被越过那一级多少"，而不是"距 warn 多少"：
  * 一个 critical 的告警上写"超 warn 21.6"没有意义 —— 读者已经知道它越了 warn。
+ *
+ * ## 动词必须跟着方向走
+ *
+ * 「超」只在 `high`（越高越坏）上成立。捕集率是 `low`（越低越坏）：
+ * 读数 86.8 对警告线 88，界面原来写「超 1.2 %」—— 86.8 比 88 小，
+ * 凭什么是"超"？读者看到这句话的第一反应是"这两个数是不是有一个错了"，
+ * 而两个数都对，错的是动词。`low` 方向越过一条线意味着**低于**它，
+ * 所以动词是「低」。这个错误在数据集里只出现一次（18 个测点里只有
+ * 捕集率是越限的 low 方向），所以四轮手查都漏掉了 —— 判据只能是
+ * "动词由 `direction` 决定"，不能是"再查一遍截图"。
  */
 export function describeMargin(
   value: number | null,
@@ -255,13 +287,18 @@ export function describeMargin(
    * 反过来让余量自己决定精度（3.68），屏幕上那行算术就永远对不上。
    */
   const d = digitsForValue(value);
+  /*
+   * 越过线的方向：`high` 是"高于线"，`low` 是"低于线"。
+   * 一个动词错了，整句话就读成"这两个数有一个不对"。
+   */
+  const over = direction === "high" ? "超" : "低";
 
   // 已越限：基准换成被越过的那条线。notice 不算"越过"，它只是进了提示带。
   if (crossedLevel && crossedLevel !== "notice" && crossedValue !== null) {
     const past =
       direction === "high" ? value - crossedValue : crossedValue - value;
     return {
-      text: `超 ${fixed(Math.abs(past), d)}`,
+      text: `${over} ${fixedMargin(Math.abs(past), d)}`,
       value: past,
       breached: true,
       level: crossedLevel,
@@ -277,7 +314,10 @@ export function describeMargin(
   // 未越限：基准是 warn 线。notice 也走这条 —— 它还在 warn 之内。
   const gap = direction === "high" ? warnThreshold - value : value - warnThreshold;
   return {
-    text: gap >= 0 ? `余量 ${fixed(gap, d)}` : `超 ${fixed(-gap, d)}`,
+    text:
+      gap >= 0
+        ? `余量 ${fixedMargin(gap, d)}`
+        : `${over} ${fixedMargin(-gap, d)}`,
     value: gap,
     breached: gap < 0,
     level: gap < 0 ? "warn" : "",
