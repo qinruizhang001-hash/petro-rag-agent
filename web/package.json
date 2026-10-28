@@ -15,6 +15,8 @@
     "test": "tsx --test scripts/test-quality.mjs scripts/test-text.mjs scripts/test-citations.mjs scripts/test-ack.mjs scripts/test-approval.mjs scripts/test-gap.mjs scripts/test-sensors.mjs scripts/test-run.mjs scripts/test-numbers.mjs scripts/test-copy.mjs scripts/test-labels.mjs scripts/test-render.mjs",
     "licenses": "node scripts/audit-licenses.mjs",
     "licenses:self-test": "node scripts/audit-licenses.mjs --self-test",
+    "smoke": "node scripts/smoke-live.mjs",
+    "smoke:search": "node scripts/smoke-live.mjs --with-search",
     "perf": "node scripts/measure-fps.mjs",
     "shot": "node scripts/cdp-shot.mjs",
     "cdp-eval": "node scripts/cdp-eval.mjs"
