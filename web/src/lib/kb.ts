@@ -7,9 +7,7 @@ import type {
   KbOverview,
   KbSearchResult,
 } from "./kb-types";
-
-import documentsFixture from "../fixtures/documents.json";
-import overviewFixture from "../fixtures/overview.json";
+import { buildSource, choiceFromLocation } from "./source";
 
 /**
  * `/api/kb/*` 客户端。
@@ -29,7 +27,21 @@ import overviewFixture from "../fixtures/overview.json";
  */
 
 const BASE = import.meta.env.VITE_KB_BASE ?? "/api";
-const SOURCE = import.meta.env.VITE_KB_SOURCE ?? import.meta.env.VITE_OPS_SOURCE ?? "fixture";
+
+/**
+ * 数据源与 `api.ts` 同一套判定（见 `lib/source.ts`）。
+ *
+ * 顺序是：`VITE_KB_SOURCE` → `VITE_OPS_SOURCE` → `fixture`，**然后**才让
+ * `?source=` 覆盖。知识库单独有一个构建变量，是因为它可以指向另一个后端
+ * （`VITE_KB_BASE`）；但 `?source=` 是人在这一屏上做的显式选择，必须同时
+ * 管住两边 —— 否则底栏写着 `live`、知识库还是快照，同一屏两个数据源，
+ * 而两边各自都"看起来正常"。
+ */
+const BUILD_SOURCE = buildSource(
+  import.meta.env.VITE_KB_SOURCE ?? import.meta.env.VITE_OPS_SOURCE,
+);
+const CHOICE = choiceFromLocation(BUILD_SOURCE);
+const SOURCE = CHOICE.source;
 
 export const kbDataSource = SOURCE;
 
@@ -51,13 +63,31 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * 知识库总览与文献清单。
+ *
+ * **两份 fixture 都是动态 import 的**。原因不是它们大（13.9 KB + 1.4 KB），
+ * 而是它们只属于右栏的「知识库」页签 —— 而首屏是左栏的告警卡与中央剖面。
+ * 静态 import 时它们被算进首屏 chunk：`lib/kb.ts` 被 `DialogPanel` 引了
+ * 一个 `fetchKbDocument`，整份清单就跟着上了首屏。这与 `ApprovalPanel` /
+ * `KbGapForm` / `SensorTable` 是同一条道理：**首屏看不见的东西不占首屏预算**。
+ *
+ * 换成动态 import 之后，清单在页签被打开时才拉；首屏因此省下约 15 KB，
+ * 正好是后来新增界面文案要用的那点余量。
+ */
 export async function fetchKbOverview(): Promise<KbOverview> {
-  if (SOURCE === "fixture") return overviewFixture as unknown as KbOverview;
+  if (SOURCE === "fixture") {
+    const mod = await import("../fixtures/overview.json");
+    return mod.default as unknown as KbOverview;
+  }
   return getJson<KbOverview>("/kb/overview");
 }
 
 export async function fetchKbDocuments(): Promise<KbDocuments> {
-  if (SOURCE === "fixture") return documentsFixture as unknown as KbDocuments;
+  if (SOURCE === "fixture") {
+    const mod = await import("../fixtures/documents.json");
+    return mod.default as unknown as KbDocuments;
+  }
   return getJson<KbDocuments>("/kb/documents");
 }
 

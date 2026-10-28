@@ -127,12 +127,30 @@ test("live 模式：告警请求必须自带读数，不能抛错把整屏变成
   );
 });
 
+test("?source 必须同时管住 ops 与知识库", () => {
+  // 只改一边的后果：底栏写 live、知识库还是快照 —— 同一屏两个数据源，
+  // 而两边各自都"看起来正常"。所以两个模块都必须走同一个入口。
+  for (const f of ["src/lib/api.ts", "src/lib/kb.ts"]) {
+    const src = read(f);
+    assert.ok(src.includes("choiceFromLocation("), `${f} 必须走 lib/source.ts 的同一套判定`);
+    assert.ok(
+      !src.includes('typeof window === "undefined"'),
+      `${f} 不许自己判断 window（那份判断只该有一处）`,
+    );
+  }
+});
+
 test("live 模式：状态栏必须说清输入是回放而不是实时", () => {
-  const bar = read("src/components/StatusBar.tsx");
+  // 这句文案现在住在 `lib/source.ts`（数据源判定与措辞的唯一出处）。
+  const src = read("src/lib/source.ts");
   assert.ok(
-    bar.includes("读数采样回放"),
+    src.includes("读数采样回放"),
     "live 角标只写「live」会让读者以为读数是实时采集的",
   );
+  // 而且 StatusBar 不许自己再拼一份：两处各写一句，改一处就会露出另一处。
+  const bar = read("src/components/StatusBar.tsx");
+  assert.ok(bar.includes("sourceLabel("), "底栏必须用 sourceLabel() 出这行字");
+  assert.ok(!bar.includes("读数采样回放"), "底栏不许内联这句文案（会与 source.ts 分家）");
 });
 
 test("live 模式：读数采样文件存在且非空", () => {

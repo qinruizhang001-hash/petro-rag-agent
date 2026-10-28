@@ -5,7 +5,13 @@ import { LeftRail } from "./components/LeftRail";
 import { PerfOverlay } from "./components/PerfOverlay";
 import { RightRail } from "./components/RightRail";
 import { StatusBar } from "./components/StatusBar";
-import { dataSource, fetchAlarms, fetchThresholds } from "./lib/api";
+import {
+  buildDataSource,
+  dataSource,
+  dataSourceOverridden,
+  fetchAlarms,
+  fetchThresholds,
+} from "./lib/api";
 import { HEALTH_INITIAL, probeBackend } from "./lib/health";
 import type { BackendHealth } from "./lib/health";
 import { createPushClient, pushUrl } from "./lib/push";
@@ -256,7 +262,8 @@ export default function App() {
       {report && (
         <StatusBar
           counts={report.counts}
-          source={dataSource}
+          choice={{ source: dataSource, overridden: dataSourceOverridden }}
+          buildSource={buildDataSource}
           period={report.period}
           push={push}
           health={health}

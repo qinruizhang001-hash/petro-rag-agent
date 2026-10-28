@@ -1,5 +1,6 @@
 import type { AlarmReport, ConditionAnswer, ThresholdStatus } from "./types";
 import type { OpsRunResult, ReportKind } from "./run";
+import { buildSource, choiceFromLocation } from "./source";
 
 import alarmsFixture from "../fixtures/alarms.json";
 import conditionFixture from "../fixtures/condition.json";
@@ -16,13 +17,29 @@ import thresholdsFixture from "../fixtures/thresholds.json";
  *
  * 为什么默认是 fixture：这套界面在头两周是给人看设计的，
  * 而一个"必须先起后端 + 起 Ollama + 建图谱"才能打开的界面，
- * 会让每次评审都卡在环境上。等第 3 周接对话时再默认切 live。
+ * 会让每次评审都卡在环境上。
+ *
+ * **构建默认之外还能用 `?source=live` / `?source=fixture` 临时覆盖** ——
+ * 一份产物同时服务"放快照"和"接后端"两种场景，见 `lib/source.ts`。
  */
 
 const BASE = import.meta.env.VITE_OPS_BASE ?? "/api";
-const SOURCE = import.meta.env.VITE_OPS_SOURCE ?? "fixture";
+const BUILD_SOURCE = buildSource(import.meta.env.VITE_OPS_SOURCE);
+
+/**
+ * 模块顶层求值一次：URL 参数只在**加载时**读，改了要刷新 —— 这不是限制，
+ * 是让"这一屏用的是哪个后端"在整屏生命周期里恒定。中途切换会让已经渲染
+ * 出来的告警卡和之后的请求来自两个数据源，那种混搭没有任何界面能解释。
+ */
+const CHOICE = choiceFromLocation(BUILD_SOURCE);
+
+const SOURCE = CHOICE.source;
 
 export const dataSource = SOURCE;
+/** 构建默认值 —— 底栏要说清"这次是什么、这份产物默认是什么"。 */
+export const buildDataSource = BUILD_SOURCE;
+/** 这次是不是由 `?source=` 覆盖来的。 */
+export const dataSourceOverridden = CHOICE.overridden;
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

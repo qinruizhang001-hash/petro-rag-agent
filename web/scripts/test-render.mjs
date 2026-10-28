@@ -191,7 +191,8 @@ test("StatusBar 把数据来源与后端可达性分开显示", () => {
   const plain = text(
     mod.renderStatus({
       counts: { normal: 10, notice: 1, warn: 1, alert: 2, critical: 1, indeterminate: 3 },
-      source: "fixture",
+      choice: { source: "fixture", overridden: false },
+      buildSource: "fixture",
       period: ["2026-10-27T06:00:00", "2026-10-27T10:00:00"],
       health: mod.fixtures.health,
     }),
@@ -200,6 +201,25 @@ test("StatusBar 把数据来源与后端可达性分开显示", () => {
   // 还没探过时既不能写"可达"，也不能写"不可达"
   assert.match(plain, /后端未探测/);
   assert.doesNotMatch(plain, /后端可达/);
+  // 没覆盖时不提 ?source：底栏已经够挤，这句话只在真覆盖时才有信息量
+  assert.doesNotMatch(plain, /\?source/);
+});
+
+test("StatusBar 在 ?source 覆盖时说清「这次不是这份产物的默认行为」", () => {
+  const html = mod.renderStatus({
+    counts: { normal: 10, notice: 1, warn: 1, alert: 2, critical: 1, indeterminate: 3 },
+    choice: { source: "live", overridden: true },
+    buildSource: "fixture",
+    period: ["2026-10-27T06:00:00", "2026-10-27T10:00:00"],
+    health: mod.fixtures.health,
+  });
+  const plain = text(html);
+  assert.match(plain, /live/);
+  assert.match(plain, /\?source/);
+  // 悬停说明里要点明构建默认值 —— 否则「这份 dist 到底能不能直接拿去演示」无从判断
+  assert.match(html, /默认是 fixture/);
+  // 覆盖态描虚线：底栏 12px 字，光靠末尾几个字在截图里会被裁掉
+  assert.match(html, /border-dashed/);
 });
 
 test("AlarmCard 的处置标记常驻，且自称「本机」而不是「已提交」", () => {

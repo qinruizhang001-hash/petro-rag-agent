@@ -2,12 +2,23 @@ import { BACKEND_LABEL } from "../lib/health";
 import type { BackendHealth, BackendState } from "../lib/health";
 import type { PushStatus } from "../lib/push";
 import { SEVERITY_CLASS, SEVERITY_META } from "../lib/severity";
+import { sourceHint, sourceLabel } from "../lib/source";
+import type { DataSource, SourceChoice } from "../lib/source";
 import type { AlarmCounts } from "../lib/types";
 import { cn } from "../lib/utils";
 
 interface StatusBarProps {
   counts: AlarmCounts;
-  source: string;
+  /**
+   * 实际生效的数据源与"是不是 URL 覆盖来的"。
+   *
+   * 两者必须一起传：只传 `source` 的话，"构建默认是 fixture、这次被
+   * `?source=live` 覆盖"这件事在界面上无法区分 —— 而它决定了这张截图
+   * 能不能当"接了后端"的证据。
+   */
+  choice: SourceChoice;
+  /** 这份产物构建时的默认值。悬停说明里要写出来。 */
+  buildSource: DataSource;
   period: [string, string];
   /**
    * 实时推送状态。`idle` 表示**没有配置**推送地址 —— 此时不渲染任何角标。
@@ -65,7 +76,8 @@ const ORDER = [
  */
 export function StatusBar({
   counts,
-  source,
+  choice,
+  buildSource,
   period,
   push = "idle",
   health,
@@ -101,17 +113,17 @@ export function StatusBar({
         <span
           className={cn(
             "rounded-panel border px-1.5 py-0.5",
-            source === "fixture"
+            choice.source === "fixture"
               ? "border-line-strong text-ink-2"
               : "border-acc/40 text-acc",
+            // 被 URL 覆盖时描一道虚线：它说明"这一屏不是这份产物的默认行为"。
+            // 只靠文案区分不够 —— 底栏 12px 字，`· ?source 覆盖` 是全文最末尾
+            // 的六个字，截图上常常被裁掉。
+            choice.overridden && "border-dashed",
           )}
-          title={
-            source === "fixture"
-              ? "数据来自 scripts/capture_ops_fixtures.py 抓取的真实响应，不是手写样例。注意：它不代表后端此刻可达。"
-              : "告警与归因由运行中的后端实算。输入是抓 fixture 时录下的那批读数（回放），不是实时时序 —— 后端 /api/ops/* 是无状态的，读数必须由调用方送进去。"
-          }
+          title={sourceHint(choice, buildSource)}
         >
-          {source === "fixture" ? "fixture（真实响应快照）" : "live · 读数采样回放"}
+          {sourceLabel(choice)}
         </span>
 
         {/*

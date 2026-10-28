@@ -12,7 +12,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "tsx --test scripts/test-quality.mjs scripts/test-text.mjs scripts/test-citations.mjs scripts/test-ack.mjs scripts/test-approval.mjs scripts/test-gap.mjs scripts/test-sensors.mjs scripts/test-run.mjs scripts/test-numbers.mjs scripts/test-copy.mjs scripts/test-labels.mjs scripts/test-render.mjs",
+    "test": "tsx --test scripts/test-quality.mjs scripts/test-text.mjs scripts/test-citations.mjs scripts/test-ack.mjs scripts/test-approval.mjs scripts/test-gap.mjs scripts/test-sensors.mjs scripts/test-run.mjs scripts/test-numbers.mjs scripts/test-source.mjs scripts/test-copy.mjs scripts/test-labels.mjs scripts/test-render.mjs",
     "licenses": "node scripts/audit-licenses.mjs",
     "licenses:self-test": "node scripts/audit-licenses.mjs --self-test",
     "smoke": "node scripts/smoke-live.mjs",

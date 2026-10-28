@@ -672,11 +672,12 @@ jobs:
       # 改成静态 import，首屏 chunk 会直接涨到 800 KB 以上。
       #
       # 体积线是 320 KB。**它是"有没有大东西被静态 import 进来"的警报，不是
-      # 一条需要贴着走的线** —— 当前首屏 318,216 字节（余量 1.8 KB），所以
-      # 下一次小改动就可能撞线。撞线时先找原因（多半是某个重面板/大 JSON 被
+      # 一条需要贴着走的线** —— 当前首屏 310,049 字节（余量 9.9 KB），所以
+      # 下一次小改动不至于撞线。撞线时先找原因（多半是某个重面板/大 JSON 被
       # 静态 import 了），**不要直接把数字改大**：改了之后 three 泄漏进来时
-      # 它也不会再红。修法通常是 `React.lazy` + 首次激活才挂载，与
-      # `ApprovalPanel` / `geoscene` / `KbGapForm` / `SensorTable` 同一套。
+      # 它也不会再红。修法通常是 `React.lazy` + 首次激活才挂载，或把只在某个
+      # 页签里用的 fixture 改成动态 import，与 `ApprovalPanel` / `geoscene` /
+      # `KbGapForm` / `SensorTable` / `documents` 同一套。
       #
       # 上面那个字节数只是"余量有多小"的量级提示，**不是断言**（每加一行
       # 界面代码它就会变）。真正的断言是下面 `-gt 320000` 那一行。
@@ -709,6 +710,22 @@ jobs:
             exit 1
           fi
           echo "search chunk: $(ls dist/assets/search-*.js | head -1)"
+
+      # 中文注释：知识库的文献清单（9.2 KB）与总览（0.9 KB）是**动态 import** 的，
+      # 切到「知识库」页签才拉。它们原本是静态 import：`lib/kb.ts` 被
+      # `DialogPanel` 引了一个 `fetchKbDocument`，整份清单就跟着上了首屏。
+      # 改回静态不会报错，只会让首屏从 310,049 涨到 319,899 —— 余量从 9.9 KB
+      # 缩到 101 字节，那条 320 KB 的线随即变成"任何改动都红"。
+      # 与 `KbGapForm` / `SensorTable` 同一条道理：首屏看不见的东西不占首屏预算。
+      - name: KB document list is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/documents-*.js >/dev/null 2>&1; then
+            echo "::error::no separate documents chunk — the KB document list fixture is imported statically again (first-paint chunk goes back to ~320 KB, leaving no room for the next change)"
+            exit 1
+          fi
+          echo "documents chunk: $(ls dist/assets/documents-*.js | head -1)"
 
       # 中文注释：审批面板（草稿正文 + 审批契约 + 正文解析器）约 58 KB，
       # 它是**动态 import** 的，切到「报告」页签时才拉。改成静态 import
