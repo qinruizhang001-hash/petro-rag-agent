@@ -328,3 +328,287 @@ def build_evidence(data: Dict[str, Any], *, with_graph: bool = True) -> Dict[str
             "low_quality_chunks": low_quality,
         },
     }
+
+
+# ══════════════════════════════════════════════════════════
+# 反方向：把一份**已经构建好**的证据包按构建规则重新推导一遍
+# ══════════════════════════════════════════════════════════
+
+#: ``audit_evidence`` 认定的证据包顶层字段。多一个少一个都要报 ——
+#: 与 ``stats`` 同理：字段集合变化是契约变化，不是"实现细节"。
+EVIDENCE_KEYS = ("chunks", "entities", "relationships", "references", "stats")
+
+#: ``stats`` 的完整字段集。多出来的键同样算问题：前端不认识的键意味着
+#: 有人在别处加了计数而没同步界面，那个数字就永远不会被看见。
+STATS_KEYS = (
+    "chunks",
+    "entities",
+    "relationships",
+    "sources",
+    "unsourced",
+    "traceable",
+    "low_quality_chunks",
+)
+
+
+def _audit_chunk(index: int, card: Dict[str, Any], seen_ids: set) -> List[str]:
+    """单张切片卡的自洽性。返回问题描述列表（空 = 没问题）。"""
+    tag = f"chunks[{index}]"
+    problems: List[str] = []
+
+    if card.get("kind") != "chunk":
+        problems.append(f"{tag}.kind 应为 'chunk'，实际是 {card.get('kind')!r}")
+
+    ref_id = str(card.get("reference_id") or "")
+    if not ref_id:
+        # 没有编号的切片在界面上仍然会显示，只是正文里那句 [n] 再也回不到它。
+        problems.append(f"{tag}.reference_id 为空 —— 正文角标无法回代到这条证据")
+
+    chunk_id = str(card.get("chunk_id") or "")
+    if not chunk_id:
+        problems.append(f"{tag}.chunk_id 为空 —— 引用跳转找不到落点")
+    elif chunk_id in seen_ids:
+        problems.append(f"{tag}.chunk_id 重复（{chunk_id}）—— 同一片证据被算了两次")
+    else:
+        seen_ids.add(chunk_id)
+
+    body = str(card.get("content") or "")
+    if not body.strip():
+        problems.append(f"{tag}.content 为空 —— build_chunks 本该跳过空切片")
+
+    source = str(card.get("source") or "")
+    if GRAPH_SEP in source:
+        # 切片只属于一篇文档。出现分隔符说明有人把实体的多值血缘
+        # （``split_sources`` 的输入）用在了切片上。
+        problems.append(
+            f"{tag}.source 里含 {GRAPH_SEP} —— 一个切片只属于一篇文档，"
+            "出现分隔符说明多值血缘被当成单值用了"
+        )
+
+    chars = card.get("chars")
+    truncated = bool(card.get("truncated"))
+    if not isinstance(chars, int):
+        problems.append(f"{tag}.chars 应是整数，实际是 {type(chars).__name__}")
+    elif truncated:
+        if chars <= CONTENT_LIMIT:
+            problems.append(
+                f"{tag} 标了 truncated 但 chars={chars} 没有超过上限 {CONTENT_LIMIT}"
+            )
+        if not body.endswith("…"):
+            # 截断必须看得见。没有省略号时读者会以为这就是全文，
+            # 而"这条证据其实还有后半段"这个信息就丢了。
+            problems.append(f"{tag} 标了 truncated 但正文没有以省略号结尾")
+    else:
+        if chars != len(body):
+            problems.append(
+                f"{tag}.chars={chars} 与正文长度 {len(body)} 不一致"
+                "（未截断时两者必须相等）"
+            )
+        # 质量分只在**未截断**时能重算：它是按完整正文算的，
+        # 截断之后后半段散文没了，重算必然对不上。这不是遗漏，是信息不足。
+        want_quality = text_quality(body)
+        got_quality = card.get("text_quality")
+        if got_quality != want_quality:
+            problems.append(
+                f"{tag}.text_quality 与正文重算结果不一致："
+                f"存盘 {got_quality} / 重算 {want_quality}"
+            )
+    return problems
+
+
+def _audit_graph_card(
+    index: int, card: Dict[str, Any], kind: str, seen_names: set
+) -> List[str]:
+    """实体卡 / 关系卡的共同部分：``kind``、``sources``、``truncated``。"""
+    tag = f"{'entities' if kind == 'entity' else 'relationships'}[{index}]"
+    problems: List[str] = []
+
+    if card.get("kind") != kind:
+        problems.append(f"{tag}.kind 应为 {kind!r}，实际是 {card.get('kind')!r}")
+
+    if kind == "entity":
+        name = str(card.get("name") or "").strip()
+        if not name:
+            problems.append(f"{tag}.name 为空 —— 界面上会是一张没有标题的卡")
+        elif name in seen_names:
+            problems.append(
+                f"{tag}.name 重复（{name}）—— 列表 key 冲突，界面只会渲染一条"
+            )
+        else:
+            seen_names.add(name)
+        if not str(card.get("entity_type") or "").strip():
+            problems.append(f"{tag}.entity_type 为空")
+        if not isinstance(card.get("chunk_ids"), list):
+            problems.append(f"{tag}.chunk_ids 必须是列表（存储里是 <SEP> 拼的字符串）")
+    else:
+        keywords = card.get("keywords")
+        if not isinstance(keywords, list):
+            problems.append(f"{tag}.keywords 必须是列表")
+        elif any(not str(k).strip() for k in keywords):
+            problems.append(f"{tag}.keywords 里有空串 —— 界面上会是一个空标签")
+
+    sources = card.get("sources")
+    if not isinstance(sources, list):
+        problems.append(
+            f"{tag}.sources 必须是列表 —— 实体/关系的 file_path 天然是多值的"
+        )
+    else:
+        if any(GRAPH_SEP in str(s) for s in sources):
+            problems.append(f"{tag}.sources 里含 {GRAPH_SEP} —— 多值字段没切开")
+        if len(set(map(str, sources))) != len(sources):
+            problems.append(f"{tag}.sources 有重复项")
+
+    desc = str(card.get("description") or "")
+    if card.get("truncated"):
+        if not desc.endswith("…"):
+            problems.append(f"{tag} 标了 truncated 但描述没有以省略号结尾")
+    elif len(desc) > DESC_LIMIT:
+        problems.append(
+            f"{tag} 没标 truncated 但描述有 {len(desc)} 字，超过上限 {DESC_LIMIT}"
+        )
+    return problems
+
+
+def audit_evidence(evidence: Dict[str, Any]) -> List[str]:
+    """把一份**已经构建好**的证据包按构建规则重算一遍，返回所有对不上的地方。
+
+    为什么需要这个函数
+    ------------------
+    前端 fixture ``web/src/fixtures/search.json`` 必须由真实检索产出，而真实
+    检索要 Ollama —— CI 里没有。于是这份 fixture 长期只有"开发机上重抓"这一
+    条更新路径，CI 里既不比对也没人看。
+
+    但证据包的一大半是**纯函数**：来源表由切片按首次出现顺序去重得来，
+    ``stats`` 是切片/实体/关系的计数，``text_quality`` 由正文算出。
+    这些都不需要模型。所以 CI 能查的不是"内容对不对"，而是
+    **"这份文件自己跟自己一致吗"**。
+
+    两者都不是小事。手改一个 ``reference_id``、删一条切片而忘了改 ``stats``、
+    把 ``low`` 改成 ``false`` —— 界面会照样渲染，只是每一处引用都指错，
+    或者那个"以公式为主"的提示凭空消失。这类损坏比"内容过期"更难发现：
+    过期的内容至少和当时的后端是一致的，而被手改过的文件只和自己不一致。
+
+    查不到的那一半要说清楚：这份证据**是不是当前后端会返回的那一份**，
+    只有重跑检索才知道。调用方必须把这句话打印出来，不能拿本函数的
+    "没问题"去顶替一次真正的比对。
+    """
+    problems: List[str] = []
+    if not isinstance(evidence, dict):
+        return [f"证据包应是对象，实际是 {type(evidence).__name__}"]
+
+    missing = [k for k in EVIDENCE_KEYS if k not in evidence]
+    if missing:
+        # 缺字段时后面的重算全部无意义，直接返回。
+        return ["evidence 缺少字段：" + "、".join(missing)]
+    extra = [k for k in evidence if k not in EVIDENCE_KEYS]
+    if extra:
+        problems.append("evidence 多出字段：" + "、".join(sorted(extra)))
+
+    for key in EVIDENCE_KEYS:
+        if not isinstance(evidence[key], list) and key != "stats":
+            return problems + [f"evidence.{key} 应是列表"]
+    if not isinstance(evidence["stats"], dict):
+        return problems + ["evidence.stats 应是对象"]
+
+    chunks: List[Dict[str, Any]] = [c for c in evidence["chunks"] if isinstance(c, dict)]
+    if len(chunks) != len(evidence["chunks"]):
+        problems.append("evidence.chunks 里有不是对象的条目")
+
+    seen_ids: set = set()
+    for i, card in enumerate(chunks):
+        problems.extend(_audit_chunk(i, card, seen_ids))
+
+    seen_names: set = set()
+    for i, card in enumerate(evidence["entities"]):
+        if isinstance(card, dict):
+            problems.extend(_audit_graph_card(i, card, "entity", seen_names))
+        else:
+            problems.append(f"entities[{i}] 不是对象")
+    for i, card in enumerate(evidence["relationships"]):
+        if isinstance(card, dict):
+            problems.extend(_audit_graph_card(i, card, "relationship", seen_names))
+        else:
+            problems.append(f"relationships[{i}] 不是对象")
+
+    problems.extend(_audit_references(evidence["references"], chunks))
+    problems.extend(_audit_stats(evidence["stats"], chunks, evidence))
+    return problems
+
+
+def _audit_references(
+    references: List[Dict[str, Any]], chunks: List[Dict[str, Any]]
+) -> List[str]:
+    """来源表必须**等于**切片按首次出现顺序去重的结果。
+
+    这张表是 ``build_references`` 的纯函数输出，所以它没有任何"合理但不一致"
+    的空间：编号、文件名、顺序三者都必须对得上。顺序也算，因为
+    ``[3]`` 的语义是"本次检索的第 3 个来源"，重排会让正文里的角标指错行。
+    """
+    problems: List[str] = []
+    for i, row in enumerate(references):
+        if not isinstance(row, dict):
+            problems.append(f"references[{i}] 不是对象")
+            return problems
+
+    want = build_references(chunks)
+    have_ids = [str(r.get("reference_id") or "") for r in references]
+    want_ids = [str(r["reference_id"]) for r in want]
+
+    have_map = {str(r.get("reference_id") or ""): str(r.get("source") or "") for r in references}
+    want_map = {str(r["reference_id"]): str(r["source"]) for r in want}
+
+    for rid in want_ids:
+        if rid not in have_map:
+            problems.append(
+                f"来源表缺少 reference_id={rid} —— 有切片挂着这个编号，正文里的 [{rid}] 无处可去"
+            )
+        elif have_map[rid] != want_map[rid]:
+            problems.append(
+                f"reference_id={rid} 指向 {have_map[rid]!r}，而切片里是 {want_map[rid]!r}"
+            )
+    used = {str(c.get("reference_id") or "") for c in chunks}
+    for rid in have_ids:
+        if rid not in used:
+            problems.append(
+                f"来源表里的 reference_id={rid} 没有任何切片使用 —— 死条目"
+            )
+    if set(have_ids) == set(want_ids) and have_ids != want_ids:
+        problems.append(
+            "来源表顺序不是切片首次出现顺序："
+            f"存盘 {have_ids} / 应为 {want_ids}"
+        )
+    return problems
+
+
+def _audit_stats(
+    stats: Dict[str, Any],
+    chunks: List[Dict[str, Any]],
+    evidence: Dict[str, Any],
+) -> List[str]:
+    """``stats`` 的每一项都能从卡片数出来，所以逐项重算。
+
+    ``sources`` 用 ``build_references(chunks)`` 重算，**不用**存盘的那张来源表 ——
+    否则一处错会同时污染"被检查的对象"和"检查用的尺子"，两个错正好抵消。
+    """
+    problems: List[str] = []
+    unsourced = sum(1 for c in chunks if not str(c.get("source") or ""))
+    low = sum(1 for c in chunks if (c.get("text_quality") or {}).get("low") is True)
+    want = {
+        "chunks": len(chunks),
+        "entities": len(evidence["entities"]),
+        "relationships": len(evidence["relationships"]),
+        "sources": len(
+            {r["source"] for r in build_references(chunks) if r["source"]}
+        ),
+        "unsourced": unsourced,
+        "traceable": len(chunks) - unsourced,
+        "low_quality_chunks": low,
+    }
+    for key in STATS_KEYS:
+        got = stats.get(key)
+        if got != want[key]:
+            problems.append(f"stats.{key}={got!r}，按卡片重算是 {want[key]}")
+    extra = [k for k in stats if k not in STATS_KEYS]
+    if extra:
+        problems.append("stats 多出字段：" + "、".join(sorted(extra)))
+    return problems

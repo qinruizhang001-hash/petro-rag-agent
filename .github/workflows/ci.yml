@@ -565,15 +565,19 @@ jobs:
         run: |
           python -m pip install --quiet "fastapi>=0.110.0" httpx
           python scripts/capture_ops_fixtures.py --check
-          # 中文注释：知识库 fixture 分三层，脚本自己判断这一台机器能做到哪一层 ——
-          #   search.json  需要 Ollama，CI 没有 → 跳过并打印原因
-          #   overview/documents  内容来自 ccus_docs/ 与 lightrag_storage/，
+          # 中文注释：知识库 fixture 分四层，脚本自己判断这一台机器能做到哪一层 ——
+          #   search.json 逐字节  需要 Ollama，CI 没有 → 跳过并打印原因
+          #   search.json 结构与自洽  不需要模型（来源表由切片重算、stats 是计数、
+          #     text_quality 由正文算出）→ **CI 里真跑的那一层**。手改一个
+          #     reference_id、删一条切片忘了改 stats，界面都照样渲染，只是每处
+          #     引用都指错 —— 这一层查的就是这个
+          #   overview/documents 逐字节  内容来自 ccus_docs/ 与 lightrag_storage/，
           #     而 ccus_docs/*.pdf 与图谱**按设计不入仓库**（PDF 有版权、图谱 GB 级），
           #     所以 CI 里的语料只有 1 篇。逐字节比对在这种环境注定失败，
           #     而永远红的检查会训练人忽略整个 job → 跳过并打印原因
-          #   字段集合  与语料无关，任何时候都比对 → CI 里真正会跑的那一层
-          # 三种情形都必须说出来。一个笼统的绿灯如果让人以为检索与语料都校验了，
-          # 它就是在替没做的检查背书。
+          #   字段集合  与语料无关，任何时候都比对
+          # 每一种情形都必须说出来。只说"未比对"会抹掉真做过的检查，
+          # 只说"已比对"会替没做的检查背书。
           python scripts/capture_kb_fixtures.py --check
 
       # 中文注释：审批状态机的契约（web/src/fixtures/approval.json）与演示草稿

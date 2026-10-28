@@ -530,5 +530,178 @@ class FixtureCorpusGateTests(unittest.TestCase):
         self.assertTrue(any("chunk_count" in d for d in drift))
 
 
+class SearchFixtureLayerTests(unittest.TestCase):
+    """``search.json`` 在 CI 里到底被查了**哪一层**。
+
+    这条链路的失败模式特别安静，两个方向都安静：
+
+    * 少说一句「未比对（逐字节）」→ 本机开发一切照旧，CI 绿灯，而那份
+      fixture 从此没人比对过。绿灯替没做的检查背了书。
+    * 少说一句「已比对（结构与自洽）」→ 真做过的检查被抹掉。下一次有人想
+      删掉这段代码时不会有任何阻力，因为看起来它什么也没干。
+
+    所以这两句话本身要被测。测试直接喂 payload 给 ``_check_payloads``，
+    不跑 ``capture()`` —— 后者会真的去连 Ollama（本机 21 秒，CI 里没有）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import pathlib
+
+        cls.mod = _load_capture_script()
+        cls.fx = pathlib.Path(__file__).resolve().parent.parent / "web" / "src" / "fixtures"
+        cls.search = json.loads((cls.fx / "search.json").read_text(encoding="utf-8"))
+        cls.corpus = json.loads(
+            (cls.fx / "documents.json").read_text(encoding="utf-8")
+        )
+
+    def _ci_lines(self):
+        """CI 的分支：没有 Ollama，所以 payloads 里没有 search。"""
+        return self.mod._check_payloads(
+            {
+                "overview.json": json.loads(
+                    (self.fx / "overview.json").read_text(encoding="utf-8")
+                ),
+                "documents.json": self.corpus,
+            }
+        )
+
+    def _dev_lines(self):
+        """开发机的分支：search 是刚重建的，走逐字节。"""
+        payloads = {
+            "overview.json": json.loads(
+                (self.fx / "overview.json").read_text(encoding="utf-8")
+            ),
+            "documents.json": self.corpus,
+            "search.json": self.search,
+        }
+        return self.mod._check_payloads(payloads)
+
+    # ── 两层都要说 ──
+
+    def test_ci_branch_says_byte_comparison_did_not_happen(self):
+        text = "\n".join(self._ci_lines())
+        self.assertIn(
+            "未比对（逐字节）search.json",
+            text,
+            "没有 Ollama 时逐字节比对确实没做 —— 不说出来，绿灯就在替它背书",
+        )
+
+    def test_ci_branch_says_what_was_still_checked(self):
+        text = "\n".join(self._ci_lines())
+        self.assertIn(
+            "已比对（结构与自洽）search.json",
+            text,
+            "结构与自洽这一层不需要模型，CI 里真跑了 —— 不说出来，"
+            "下次有人删掉这段代码时不会有任何阻力",
+        )
+
+    def test_ci_branch_states_the_boundary(self):
+        """说清"查不到什么"，比说清"查了什么"更难被写对。"""
+        text = "\n".join(self._ci_lines())
+        self.assertIn("当前后端会返回的那一份", text)
+
+    def test_dev_branch_does_not_claim_it_was_skipped(self):
+        text = "\n".join(self._dev_lines())
+        self.assertNotIn("未比对（逐字节）search.json", text)
+        self.assertIn("search.json", text)
+
+    # ── 这一层真的能查出东西 ──
+
+    def test_repo_fixture_is_self_consistent(self):
+        problems = self.mod._audit_search(self.search, self.mod._fixture_corpus())
+        self.assertEqual(problems, [], "仓库里的 search.json 自己跟自己不一致")
+
+    def test_hand_edited_stats_is_caught(self):
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["evidence"]["stats"]["chunks"] += 1
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("stats.chunks" in p for p in problems), problems)
+
+    def test_changed_query_is_caught(self):
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["query"] = "另一个问题"
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("query" in p for p in problems), problems)
+
+    def test_unzeroed_elapsed_is_caught(self):
+        """``elapsed_ms`` 非零说明这份文件不是 capture 写的 —— 它是每次跑都变的。"""
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["elapsed_ms"] = 21034
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("elapsed_ms" in p for p in problems), problems)
+
+    def test_chunk_source_outside_corpus_is_caught(self):
+        """出处不在语料清单里 → 界面上点开就是 404。两个文件都在仓库里，CI 可查。"""
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["evidence"]["chunks"][0]["source"] = "not_in_corpus.pdf"
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("404" in p for p in problems), problems)
+
+    def test_ok_without_content_is_caught(self):
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["evidence"]["chunks"] = []
+        payload["evidence"]["entities"] = []
+        payload["evidence"]["relationships"] = []
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("ok" in p for p in problems), problems)
+
+    def test_empty_without_reason_is_caught(self):
+        import copy
+
+        payload = copy.deepcopy(self.search)
+        payload["status"] = "unavailable"
+        payload["reason"] = ""
+        problems = self.mod._audit_search(payload, self.mod._fixture_corpus())
+        self.assertTrue(any("原因" in p for p in problems), problems)
+
+    # ── 写入路径：自相矛盾的证据包不许落盘 ──
+
+    def test_write_path_refuses_to_persist_an_inconsistent_payload(self):
+        """审了不等于接上了 —— 这条断言的是 ``main`` 里真的调了审计。
+
+        把 ``capture()`` 换成一个返回坏 payload 的桩，然后要求 ``main``
+        抛错**并且**没动磁盘上的文件。如果哪天有人为了"先写进去再看"
+        把那行审计删掉，这条会红。
+        """
+        import copy
+        import json
+        import unittest.mock as mock
+
+        target = self.fx / "search.json"
+        before = target.read_text(encoding="utf-8")
+
+        bad = copy.deepcopy(self.search)
+        bad["evidence"]["stats"]["chunks"] += 1
+        payloads = {
+            "overview.json": json.loads(
+                (self.fx / "overview.json").read_text(encoding="utf-8")
+            ),
+            "documents.json": self.corpus,
+            "search.json": bad,
+        }
+        with mock.patch.object(self.mod, "capture", return_value=(payloads, "")):
+            with self.assertRaises(SystemExit) as ctx:
+                self.mod.main(["capture_kb_fixtures.py"])
+
+        self.assertIn("不一致", str(ctx.exception))
+        self.assertEqual(
+            target.read_text(encoding="utf-8"),
+            before,
+            "审计没过就不该落盘 —— 写进去之后它就是前端唯一的数据来源",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

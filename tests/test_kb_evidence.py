@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kb_evidence import (
     DESC_LIMIT,
     GRAPH_SEP,
+    audit_evidence,
     build_entities,
     build_evidence,
     build_references,
@@ -275,6 +276,117 @@ class TestTextQuality(unittest.TestCase):
             self.assertIn("text_quality", card)
             self.assertIn("low", card["text_quality"])
 
+
+class AuditEvidenceTests(unittest.TestCase):
+    """``audit_evidence``：把构建好的证据包按构建规则**反推**一遍。
+
+    这组测试的存在理由是一个具体缺口：``web/src/fixtures/search.json`` 要
+    Ollama 才能重建，所以 CI 里既没比对也没人看它。但证据包的一大半是纯函数
+    —— 来源表由切片按首次出现顺序去重得来，``stats`` 是计数，``text_quality``
+    由正文算出 —— 这些都能离线重算。
+
+    所以这里守的不是"内容对不对"，而是"这份文件自己跟自己一致吗"。
+    每一例都是**手改 fixture 会造成的真实损坏**：界面照样渲染，只是引用指错、
+    或者那个「以公式为主」的提示凭空消失。
+    """
+
+    def _evidence(self):
+        return build_evidence(_data())
+
+    def test_untouched_evidence_is_clean(self):
+        self.assertEqual(audit_evidence(self._evidence()), [])
+
+    def test_empty_evidence_is_clean(self):
+        # 空结果是"没有内容"，不是"结构坏了"。端点靠它判 empty。
+        self.assertEqual(audit_evidence(build_evidence({})), [])
+
+    def test_renumbered_reference_is_caught(self):
+        ev = self._evidence()
+        ev["chunks"][0]["reference_id"] = "9"
+        problems = audit_evidence(ev)
+        self.assertTrue(problems, "改了编号却没人发现 —— 正文里的 [9] 无处可去")
+        self.assertTrue(any("reference_id=9" in p for p in problems))
+
+    def test_dropping_a_chunk_without_fixing_stats_is_caught(self):
+        ev = self._evidence()
+        ev["chunks"].pop()
+        problems = audit_evidence(ev)
+        self.assertTrue(any("stats.chunks" in p for p in problems), problems)
+
+    def test_flipping_low_flag_is_caught(self):
+        ev = build_evidence(
+            _data(
+                chunks=[
+                    {
+                        "reference_id": "1",
+                        "chunk_id": "c1",
+                        "file_path": "a.pdf",
+                        "content": _FORMULA_CHUNK,
+                    }
+                ]
+            )
+        )
+        self.assertTrue(ev["chunks"][0]["text_quality"]["low"])
+        ev["chunks"][0]["text_quality"]["low"] = False
+        problems = audit_evidence(ev)
+        self.assertTrue(any("text_quality" in p for p in problems), problems)
+
+    def test_reordered_reference_table_is_caught(self):
+        """顺序也算：``[3]`` 的语义是"本次检索的第 3 个来源"。"""
+        ev = self._evidence()
+        ev["references"].append({"reference_id": "7", "source": "z.pdf"})
+        ev["references"].reverse()
+        problems = audit_evidence(ev)
+        self.assertTrue(
+            any("顺序" in p or "死条目" in p for p in problems), problems
+        )
+
+    def test_duplicate_entity_name_is_caught(self):
+        ev = self._evidence()
+        ev["entities"].append(dict(ev["entities"][0]))
+        problems = audit_evidence(ev)
+        self.assertTrue(any("name 重复" in p for p in problems), problems)
+
+    def test_multi_value_source_leaking_into_a_chunk_is_caught(self):
+        ev = self._evidence()
+        ev["chunks"][0]["source"] = f"a.pdf{GRAPH_SEP}b.pdf"
+        problems = audit_evidence(ev)
+        self.assertTrue(any(GRAPH_SEP in p for p in problems), problems)
+
+    def test_extra_stats_key_is_caught(self):
+        ev = self._evidence()
+        ev["stats"]["pages"] = 3
+        self.assertTrue(any("多出字段" in p for p in audit_evidence(ev)))
+
+    def test_missing_stats_key_is_caught(self):
+        ev = self._evidence()
+        ev["stats"].pop("unsourced")
+        self.assertTrue(any("unsourced" in p for p in audit_evidence(ev)))
+
+    def test_truncated_card_must_end_with_ellipsis(self):
+        ev = self._evidence()
+        ev["entities"][0]["description"] = "长" * (DESC_LIMIT + 100)
+        self.assertTrue(audit_evidence(ev), "没标 truncated 却超了上限")
+        ev["entities"][0]["truncated"] = True
+        ev["entities"][0]["description"] = "长" * (DESC_LIMIT + 100)
+        problems = audit_evidence(ev)
+        self.assertTrue(any("省略号" in p for p in problems), problems)
+
+    def test_truncated_chunk_skips_quality_recompute(self):
+        """截断的切片**不能**重算质量分：它是按完整正文算的。
+
+        重算必然对不上，而那会造出一条永远红的检查 —— 于是它被忽略，
+        连同里面那些真能发现的损坏。这里断言"跳过"是**有意的**。
+        """
+        data = _data()
+        data["chunks"][0]["content"] = _FORMULA_CHUNK * 3 + _PROSE_CHUNK * 60
+        ev = build_evidence(data)
+        self.assertTrue(ev["chunks"][0]["truncated"])
+        self.assertEqual(audit_evidence(ev), [])
+
+    def test_non_object_payload_is_reported_not_raised(self):
+        self.assertTrue(audit_evidence([]))  # type: ignore[arg-type]
+        self.assertTrue(audit_evidence({"chunks": []}))
 
 
 if __name__ == "__main__":
