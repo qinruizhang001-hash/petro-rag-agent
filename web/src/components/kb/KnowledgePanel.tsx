@@ -28,6 +28,8 @@ import { KbSearch } from "./KbSearch";
  * | `KbResultView.tsx` | 三种检索状态 | 无（纯展示） |
  * | `KbChunkCard.tsx` | 一条原文证据 | `expanded` |
  * | `KbDocDetail.tsx` | 引用跳转落点 | 无（纯展示） |
+ * | `KbGapForm.tsx` | 缺口登记表单（`React.lazy`，点了才拉） | `note` / 提交态 |
+ * | `KbGapQueue.tsx` | 已登记的缺口（证明它落地了） | `data` |
  *
  * 概览数据在**外壳**加载而不是 `KbOverview` 内部：它是"要不要显示缺口提示"
  * 的依据，而未来若要在页签上标一个缺口角标，那个数字必须在外壳手里。

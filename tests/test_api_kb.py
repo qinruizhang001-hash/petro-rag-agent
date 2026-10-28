@@ -438,6 +438,177 @@ class TestSearchStates(KBApiTestBase):
         self.assertEqual(r.status_code, 422)
 
 
+class GapReportTests(KBApiTestBase):
+    """缺口反馈：唯一会写盘的知识库端点。
+
+    这里守的不是"能不能写文件"，而是三件会静默出错的事：
+
+    1. **写不进去不能说写进去了**。落盘失败必须 5xx，返回 200 会让提交者
+       以为记下了，而队列里没有 —— 那比没有反馈更糟，因为他不会再提。
+    2. **读不到不能说"没人反馈"**。``available`` 与 ``total`` 是两个字段：
+       读坏了的时候 ``total`` 也会是 0，而 0 条与读不到在界面上必须不同。
+    3. **空反馈一律拒收**。一条什么都不说的记录进队列后只会变成一句需要
+       回头追问的条目，比没有反馈更费时间。
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.gaps = Path(self._tmp) / "history" / "kb_gaps.jsonl"
+        patcher = mock.patch.dict(os.environ, {"KB_GAPS_PATH": str(self.gaps)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _post(self, **body):
+        return self.client.post("/api/kb/gaps", json=body)
+
+    def test_empty_queue_is_available_and_empty(self):
+        body = self.client.get("/api/kb/gaps").json()
+        self.assertTrue(body["available"])
+        self.assertEqual(body["total"], 0)
+        self.assertEqual(body["records"], [])
+
+    def test_report_is_appended_and_echoed(self):
+        r = self._post(kind="not_in_graph", target="missing.md", note="图谱里没有它")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertTrue(body["id"].startswith("gap-"))
+        self.assertEqual(body["kind"], "not_in_graph")
+        self.assertEqual(body["target"], "missing.md")
+        # 一行一条，且真的只有一行（不是重写整个文件）
+        lines = self.gaps.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0])["id"], body["id"])
+
+    def test_two_reports_do_not_overwrite(self):
+        self._post(kind="unanswered", query="盖层完整性")
+        self._post(kind="other", note="随便记一笔")
+        body = self.client.get("/api/kb/gaps").json()
+        self.assertEqual(body["total"], 2)
+        self.assertEqual(body["by_kind"], {"unanswered": 1, "other": 1})
+
+    def test_newest_first(self):
+        first = self._post(kind="unanswered", query="第一个问题").json()["id"]
+        second = self._post(kind="unanswered", query="第二个问题").json()["id"]
+        ids = [r["id"] for r in self.client.get("/api/kb/gaps").json()["records"]]
+        self.assertEqual(ids, [second, first], "队列视图要新的在前")
+
+    def test_next_step_says_it_will_not_rebuild_the_index(self):
+        """界面不许自己编一句"已提交，稍后自动处理"。"""
+        step = self._post(kind="other", note="x").json()["next_step"]
+        self.assertIn("不会自动", step)
+        self.assertIn("ingest_ccus_batch.py", step)
+
+    def test_silent_report_is_rejected(self):
+        r = self._post(kind="other")
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(self.gaps.exists(), "拒收的反馈不该留下文件")
+
+    def test_kind_that_names_a_document_requires_one(self):
+        r = self._post(kind="not_in_graph", note="忘记说是哪篇")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("哪一篇", r.json()["detail"])
+
+    def test_wrong_evidence_requires_the_question(self):
+        r = self._post(kind="wrong_evidence", note="引的原文不对")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("问题", r.json()["detail"])
+
+    def test_target_must_be_a_bare_filename(self):
+        r = self._post(kind="other", target="../../.env")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("路径", r.json()["detail"])
+
+    def test_unknown_kind_is_422_not_500(self):
+        r = self._post(kind="whatever", note="x")
+        self.assertEqual(r.status_code, 422)
+
+    def test_unreadable_queue_is_not_reported_as_zero(self):
+        """把"读不到"渲染成"没人反馈"，是唯一不会报错的失败。"""
+        self.gaps.mkdir(parents=True)  # 让它是个目录，读就会失败
+        body = self.client.get("/api/kb/gaps").json()
+        self.assertFalse(body["available"])
+        self.assertTrue(body["reason"])
+        self.assertEqual(body["total"], 0)
+
+    def test_broken_lines_are_counted_not_swallowed(self):
+        self.gaps.parent.mkdir(parents=True, exist_ok=True)
+        self.gaps.write_text(
+            '{"id":"gap-1","kind":"other"}\n'
+            "{ 这不是 JSON\n"
+            '{"id":"gap-2","kind":"unanswered"}\n',
+            encoding="utf-8",
+        )
+        body = self.client.get("/api/kb/gaps").json()
+        self.assertEqual(body["total"], 2, "好的记录仍要交出去")
+        self.assertEqual(body["unreadable_lines"], 1, "坏行要数出来，不能悄悄跳过")
+
+    def test_write_failure_is_a_5xx_not_a_silent_200(self):
+        with mock.patch.object(api_kb, "_append_gap", side_effect=OSError("磁盘满")):
+            r = self._post(kind="other", note="x")
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("没有写进去", r.json()["detail"])
+
+
+class GapKindContractTests(unittest.TestCase):
+    """缺口种类的清单有三份：模块常量、pydantic 的 ``Literal``、前端的措辞表。
+
+    三份都必须一致，而它们各自的失效方式都不报错：
+
+    * 常量与 ``Literal`` 分家 → 注释里写着一种谁也用不了的值；
+    * 后端多一种而前端没加措辞 → 队列里出现一个英文枚举名；
+    * 前端多一种而后端没有 → 提交直接被 422，而用户会以为是网络问题。
+
+    所以三边各有一条断言。这条锁后两份（常量 ↔ Literal），
+    ``web/scripts/test-gap.mjs`` 锁前端那一份。
+    """
+
+    #: 与 ``web/scripts/test-gap.mjs`` 的 ``KINDS`` 是同一份清单。
+    #: 改这里要同时改那里 —— 两边的断言都会红，这正是目的。
+    EXPECTED = (
+        "missing_document",
+        "not_in_graph",
+        "unanswered",
+        "wrong_evidence",
+        "other",
+    )
+
+    def test_module_constant_matches_the_agreed_list(self):
+        self.assertEqual(api_kb.GAP_KINDS, self.EXPECTED)
+
+    def test_literal_matches_the_module_constant(self):
+        from typing import get_args
+
+        allowed = get_args(api_kb.KBGapReport.model_fields["kind"].annotation)
+        self.assertEqual(
+            tuple(sorted(allowed)),
+            tuple(sorted(api_kb.GAP_KINDS)),
+            "Literal 与 GAP_KINDS 分家了 —— 常量里写着的值可能根本提交不了",
+        )
+
+    def test_every_kind_is_accepted_by_the_endpoint(self):
+        """常量里列的每一种都必须真能提交，不能只是写在注释里。"""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(
+                os.environ, {"KB_GAPS_PATH": str(Path(tmp) / "gaps.jsonl")}
+            ):
+                app = FastAPI()
+                app.include_router(api_kb.router)
+                client = TestClient(app)
+                for kind in self.EXPECTED:
+                    # 三种可选字段全带上：每一种 kind 的"必填"都能被满足，
+                    # 于是这条测的是"种类被接受"，不是"必填规则"。
+                    body = {
+                        "kind": kind,
+                        "target": "ccus4.pdf",
+                        "query": "盖层完整性",
+                        "note": f"测试 {kind}",
+                    }
+                    r = client.post("/api/kb/gaps", json=body)
+                    self.assertEqual(r.status_code, 200, f"{kind}: {r.text}")
+
+
 def _load_capture_script():
     """按路径加载 ``scripts/capture_kb_fixtures.py``。
 

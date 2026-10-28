@@ -1,8 +1,13 @@
+import { Suspense, lazy, useState } from "react";
 import { summarize } from "../../lib/evidence";
 import { kbDataSource } from "../../lib/kb";
 import type { KbSearchResult } from "../../lib/kb-types";
 import { readable } from "../../lib/text";
 import { KbChunkCard } from "./KbChunkCard";
+// 与 `KbOverview` 同一个理由：表单只在点击后出现，不该占首屏体积。
+const KbGapForm = lazy(() =>
+  import("./KbGapForm").then((m) => ({ default: m.KbGapForm })),
+);
 import { RefBadge } from "./RefBadge";
 import { StrengthChip } from "./StrengthChip";
 
@@ -20,6 +25,13 @@ import { StrengthChip } from "./StrengthChip";
  * `empty` 与 `unavailable` 如果都渲染成"没有结果"，操作员会去补文献，
  * 而真实原因只是 Ollama 没启动。把"我不知道"渲染成"没有"，
  * 是唯一一种不会报错的失败。
+ *
+ * ## 三种状态各自有一个"登记"入口，但只有两种该给
+ *
+ * * `empty` → 登记「检索没答到」。这是关于**语料**的事实，反馈有意义。
+ * * `ok`    → 登记「引的原文不对」。检索跑对了但证据不相关，反馈有意义。
+ * * `unavailable` → **不给**。这时检索根本没跑，登记一条"没答到"会把
+ *   一次服务故障记成一次语料缺口，而队列里那个数字会被当成"该补文献了"。
  */
 export function KbResultView({
   result,
@@ -28,6 +40,13 @@ export function KbResultView({
   result: KbSearchResult;
   onOpenDoc: (name: string, focus?: string) => void;
 }) {
+  /*
+   * 表单开在这里而不是 `KbSearch`：一次检索的结果只属于这一个视图，
+   * 而"哪一次检索要反馈"就是 `result` 本身。带着 `result.query` 下去，
+   * 后端就能复现这次检索 —— `wrong_evidence` 强制要求这个字段。
+   */
+  const [form, setForm] = useState<"unanswered" | "wrong_evidence" | null>(null);
+
   if (result.status === "unavailable") {
     return (
       <section className="rounded-panel border border-sev-notice/50 bg-sev-notice/5 px-2 py-1.5">
@@ -46,6 +65,23 @@ export function KbResultView({
       <section className="rounded-panel border border-line px-2 py-1.5">
         <h3 className="text-ink-1">图谱里没有相关内容</h3>
         <p className="mt-0.5 text-ink-2">{result.reason}</p>
+        {form === "unanswered" ? (
+          <Suspense fallback={null}>
+            <KbGapForm
+              kind="unanswered"
+              query={result.query}
+              onClose={() => setForm(null)}
+            />
+          </Suspense>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setForm("unanswered")}
+            className="mt-1 rounded border border-line px-2 py-0.5 text-ink-1 hover:border-ink-2 hover:text-ink-0"
+          >
+            登记「这个问题该有答案」
+          </button>
+        )}
       </section>
     );
   }
@@ -56,6 +92,23 @@ export function KbResultView({
       <References result={result} onOpenDoc={onOpenDoc} />
       <Chunks result={result} onOpenDoc={onOpenDoc} />
       <GraphHits result={result} />
+      {form === "wrong_evidence" ? (
+        <Suspense fallback={null}>
+          <KbGapForm
+            kind="wrong_evidence"
+            query={result.query}
+            onClose={() => setForm(null)}
+          />
+        </Suspense>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setForm("wrong_evidence")}
+          className="rounded border border-line px-2 py-0.5 text-ink-2 hover:border-ink-2 hover:text-ink-0"
+        >
+          登记「引的原文不对」
+        </button>
+      )}
       <p className="text-ink-2">
         耗时 <span className="font-num">{result.elapsed_ms > 0 ? result.elapsed_ms : "—"}</span>
         {result.elapsed_ms > 0 ? " ms" : ""} · 模式 {result.mode}

@@ -48,8 +48,10 @@ import json
 import os
 import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -547,4 +549,213 @@ def kb_search(request: KBSearchRequest):
         "reason": "图谱中没有与该问题相关的内容" if empty else "",
         "evidence": evidence,
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
+    }
+
+
+# ══════════════════════════════════════════════════════════
+# POST / GET /api/kb/gaps —— 缺口反馈（唯一会写盘的知识库端点）
+# ══════════════════════════════════════════════════════════
+
+#: 缺口的种类。**这是分类，不是优先级** —— 排序靠人工，机器不知道
+#: 哪篇论文对下一个决策更重要。
+#:
+#: 每多一种就要多一条"必填字段"的判断（见 ``_REQUIRED_FIELD``）：一个
+#: 说不出对象的反馈，处理它的人第一步只能来问反馈的人。
+GAP_KINDS = (
+    "missing_document",  # 盘上根本没有这篇
+    "not_in_graph",      # 盘上有，图谱里没有 → 检索不到
+    "unanswered",        # 检索跑了，没答到这个问题
+    "wrong_evidence",    # 答到了，但引的原文不对/不相关
+    "other",
+)
+
+#: 某些种类**必须**带上对象，否则这条反馈无法处理。
+_REQUIRED_FIELD = {
+    "missing_document": (
+        "target",
+        "登记「缺某篇文献」必须说是哪一篇 —— 不说的话，处理的人只能来问你",
+    ),
+    "not_in_graph": (
+        "target",
+        "登记「某篇没进图谱」必须说是哪一篇 —— 这个种类就是关于某一篇的",
+    ),
+    "wrong_evidence": (
+        "query",
+        "登记「证据不对」必须带上当时的问题 —— 没有它无法复现这次检索",
+    ),
+}
+
+#: 提交后**会发生什么**。这句话必须由后端给，不能让前端各写一份：
+#: 它是一个承诺，而承诺分散在三个组件里时，总有一份会说成"将自动重建索引"。
+GAP_NEXT_STEP = (
+    "进的是人工队列，不会自动重建索引 —— 入库要跑 ingest_ccus_batch.py，"
+    "而它要占满一张显卡，不能由一次点击触发。"
+)
+
+#: 队列文件的行数上限（读侧）。反馈队列是**流水**，不是数据库：超过这个数
+#: 说明没人处理，那时该看的是"积压了多少"，而不是把 2000 行全下发。
+GAP_READ_LIMIT = 200
+
+
+class KBGapReport(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    kind: Literal[
+        "missing_document",
+        "not_in_graph",
+        "unanswered",
+        "wrong_evidence",
+        "other",
+    ] = Field(description="缺口种类；决定哪些字段必填")
+    target: str = Field(
+        default="", max_length=200, description="相关文件名；不知道就留空"
+    )
+    query: str = Field(default="", max_length=2000, description="当时问的问题")
+    note: str = Field(default="", max_length=2000, description="补充说明")
+
+
+def _gaps_path() -> Path:
+    """缺口队列的落盘位置。
+
+    每次调用都读环境变量，**不在 import 时定值** —— 否则测试只能靠
+    ``importlib.reload`` 换路径，而 reload 会连带重建 router，得不偿失。
+
+    默认放 ``history/``：那里已经是运行时产物的约定位置（经验流水、
+    反思标记），而且整目录不进仓库。缺口反馈是**本机运行数据**，
+    提交上去等于把别人的语料缺口当成自己的。
+    """
+    raw = os.environ.get("KB_GAPS_PATH")
+    return Path(raw) if raw else ROOT / "history" / "kb_gaps.jsonl"
+
+
+def _append_gap(record: Dict[str, Any]) -> None:
+    """追加一行。
+
+    一次 ``write`` 写完一整行（不是 ``json.dump`` 流式写）：``O_APPEND``
+    下小于 PIPE_BUF 的整行追加不会与别的进程交错，而 ``json.dump`` 会
+    分多次写，两个进程同时提交时就可能拼出一行半 JSON。
+    """
+    path = _gaps_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _read_gaps() -> tuple[List[Dict[str, Any]], Optional[str], int]:
+    """返回 ``(记录, 读失败原因, 坏行数)``。
+
+    三种情形必须分开，与 ``/overview`` 的 Chroma 段同一条理由：
+
+    * 文件不存在 → 队列是空的（``([], None, 0)``）
+    * 文件存在但读不动 → ``reason`` 非空，调用方必须报"读不到"，不能报 0 条
+    * 有坏行 → 跳过它们，但把条数交出去
+
+    坏行不吞掉是因为它可能是**唯一**的证据：如果所有行都坏了，界面上
+    看起来就是"队列是空的"，而真相是"队列读坏了"。
+    """
+    path = _gaps_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [], None, 0
+    except OSError as exc:
+        return [], f"{type(exc).__name__}: {exc}"[:300], 0
+
+    records: List[Dict[str, Any]] = []
+    broken = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            broken += 1
+            continue
+        if isinstance(obj, dict):
+            records.append(obj)
+        else:
+            broken += 1
+    return records, None, broken
+
+
+@router.post("/api/kb/gaps")
+def kb_report_gap(report: KBGapReport):
+    """登记一条缺口反馈。
+
+    **这不是"修好它"**。本端点只做一件事：把一句人能看懂的话写进队列。
+    入库要跑 ``ingest_ccus_batch.py``（占满一张显卡、几十分钟），不能由
+    一次点击触发；建图更慢。所以回应里必须写清 ``next_step``，
+    而不是让界面自己编一句"已提交，稍后自动处理"。
+
+    空反馈一律拒收（400）。一条什么都不说的记录不是反馈：它会让队列
+    里多一行需要人来追问的条目，而那比没有反馈更费时间。
+    """
+    target = report.target.strip()
+    query = report.query.strip()
+    note = report.note.strip()
+
+    if not (target or query or note):
+        raise HTTPException(
+            status_code=400,
+            detail="这条反馈什么都没说（文件名、问题、说明都是空的）—— "
+            "它进队列后只会变成一句需要回头追问的条目",
+        )
+
+    # 文件名只允许裸名字。``target`` 会进队列、之后被人拿去拼路径。
+    if target and Path(target).name != target:
+        raise HTTPException(status_code=400, detail="文件名不合法（不要带路径）")
+
+    required = _REQUIRED_FIELD.get(report.kind)
+    if required:
+        field, message = required
+        if not {"target": target, "query": query}[field]:
+            raise HTTPException(status_code=400, detail=message)
+
+    now = datetime.now(timezone.utc)
+    record = {
+        "id": f"gap-{now.strftime('%Y%m%dT%H%M%S')}-{uuid4().hex[:6]}",
+        "recorded_at": now.isoformat(timespec="seconds"),
+        "kind": report.kind,
+        "target": target,
+        "query": query,
+        "note": note,
+    }
+    try:
+        _append_gap(record)
+    except OSError as exc:
+        # 写不进去必须说"没写进去"。返回 200 会让提交者以为记下了。
+        log.warning(f"[KB] 缺口反馈落盘失败：{type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"反馈没有写进去：{type(exc).__name__}: {exc}"[:300],
+        ) from exc
+
+    log.info(f"[KB] 缺口反馈 {record['id']} kind={report.kind} target={target!r}")
+    return {**record, "next_step": GAP_NEXT_STEP}
+
+
+@router.get("/api/kb/gaps")
+def kb_gaps(limit: int = Query(default=20, ge=1, le=GAP_READ_LIMIT)):
+    """缺口队列：按种类计数 + 最近若干条（新的在前）。
+
+    ``available`` 与 ``total`` 是两个字段而不是一个：读不到文件时
+    ``total`` 会是 0，而 0 条与读不到在界面上必须长得不一样 —— 否则
+    维护者会以为"没人反馈"，实际上是"读不出来"。
+    """
+    records, reason, broken = _read_gaps()
+    by_kind: Dict[str, int] = {}
+    for r in records:
+        kind = str(r.get("kind") or "unknown")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+    newest = list(reversed(records))[:limit]
+    return {
+        "available": reason is None,
+        "reason": reason or "",
+        "total": len(records),
+        "unreadable_lines": broken,
+        "by_kind": by_kind,
+        "records": newest,
+        "next_step": GAP_NEXT_STEP,
     }

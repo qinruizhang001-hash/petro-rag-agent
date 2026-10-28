@@ -206,3 +206,64 @@ export interface FocusDoc {
     content: string;
   };
 }
+
+/**
+ * 缺口反馈（`POST /api/kb/gaps`）。
+ *
+ * ## 为什么种类是枚举而不是自由文本
+ *
+ * 队列是给**人**看的。自由文本的后果是同一个意思有十种写法，而分类的
+ * 全部价值在于"一眼看出积压的是哪一类" —— 那需要能计数。
+ *
+ * ## 为什么有的种类必须带对象
+ *
+ * `not_in_graph` 不说哪一篇、`wrong_evidence` 不带当时的问题，处理这条
+ * 反馈的人第一步就只能回来问反馈的人。**说不出对象的反馈不是反馈**，
+ * 所以那几种缺字段时后端直接 400（见 `api_kb._REQUIRED_FIELD`）。
+ */
+export type KbGapKind =
+  | "missing_document"
+  | "not_in_graph"
+  | "unanswered"
+  | "wrong_evidence"
+  | "other";
+
+export interface KbGapInput {
+  kind: KbGapKind;
+  /** 相关文件名。只允许裸名字 —— 带路径会被后端拒（400） */
+  target?: string;
+  /** 当时问的问题。`wrong_evidence` 必填 */
+  query?: string;
+  /** 补充说明。与 target / query 至少有一个非空，否则后端 400 */
+  note?: string;
+}
+
+export interface KbGapRecord extends KbGapInput {
+  id: string;
+  /** ISO 8601，UTC */
+  recorded_at: string;
+  /**
+   * 提交后会发生什么。**由后端给**，前端不自己编 ——
+   * 承诺分散在几个组件里时，总有一份会说成"将自动重建索引"。
+   */
+  next_step?: string;
+}
+
+export interface KbGapsPayload {
+  /**
+   * 队列文件是否读得出来。
+   *
+   * 与 `total` 分开是因为读不到时 `total` 也是 0 —— 而"没人反馈"和
+   * "读不出来"在界面上必须长得不一样。把前者显示成后者是唯一
+   * 不会报错的失败。
+   */
+  available: boolean;
+  reason: string;
+  total: number;
+  /** 坏行的条数。不吞掉：全坏的时候界面上会像"队列是空的" */
+  unreadable_lines: number;
+  by_kind: Record<string, number>;
+  /** 新的在前 */
+  records: KbGapRecord[];
+  next_step?: string;
+}

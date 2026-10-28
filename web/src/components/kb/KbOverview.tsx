@@ -1,6 +1,23 @@
-import type { KbDocuments, KbOverview as KbOverviewData } from "../../lib/kb-types";
+import { Suspense, lazy, useState } from "react";
+import type {
+  KbDocuments,
+  KbGapKind,
+  KbOverview as KbOverviewData,
+} from "../../lib/kb-types";
 import { cn } from "../../lib/utils";
 import { formatHours } from "./format";
+import { KbGapQueue } from "./KbGapQueue";
+
+/*
+ * 登记表单按需加载。理由与 `ApprovalPanel` / `geoscene` 相同：它只在
+ * **点了「登记」之后**才可能出现，而首屏 chunk 有一条 320 KB 的守卫线
+ * （防 three 泄漏）。表单加进来时首屏从 313 KB 涨到 318.6 KB，余量只剩
+ * 1.3 KB —— 下一个功能就会撞线，而撞线之后最省事的做法是"把数字改大"。
+ * 拆出去就没有这个问题，代价是一次点击时多拉 3 KB。
+ */
+const KbGapForm = lazy(() =>
+  import("./KbGapForm").then((m) => ({ default: m.KbGapForm })),
+);
 
 /**
  * 概览页。
@@ -15,6 +32,13 @@ import { formatHours } from "./format";
  *    而它其实漏了 2 篇，且没有任何地方会提示）
  * 3. **可引用性**（只有图谱切片带 `file_path` 血缘；向量库那 1,982 条
  *    没有文件级血缘。这件事必须写在界面上，否则用户会以为每条结论都能溯源）
+ *
+ * ## 缺口可以"登记"，但不能"修复"
+ *
+ * 每条缺口旁边有一个「登记」按钮，把"这篇没进图谱"变成一条**有对象**的
+ * 记录写进队列。它**不触发入库** —— 入库要占满一张显卡、建图要几十分钟，
+ * 不能由一次点击触发。界面上写清这一点（文案由后端给），因为一个看起来
+ * 能一键修复的按钮，点了没反应比没有按钮更糟。
  */
 export function KbOverview({
   overview,
@@ -74,6 +98,16 @@ function Stat({
 }
 
 function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) {
+  /*
+   * 登记表单挂在**这一层**而不是 `GapList` 里：一次只开一个表单，
+   * 而"开的是哪一条"只有父级知道。挂在列表项里会让每行各有一份状态，
+   * 点开两行时两个表单同时存在 —— 而它们写的是同一个队列。
+   */
+  const [form, setForm] = useState<{ kind: KbGapKind; target: string } | null>(
+    null,
+  );
+  const [refreshKey, setRefreshKey] = useState(0);
+
   return (
     <section className="rounded-panel border border-sev-notice/40 bg-sev-notice/5 px-2 py-1.5">
       <h3 className="text-sev-notice">有 {count} 处缺口 · 检索覆盖不到</h3>
@@ -83,7 +117,20 @@ function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) 
           items={gaps.not_ingested}
           note="这些文件没有切片，检索不到它们的内容。"
           advice="先看该文档的入库状态：卡在 processing 会阻塞后续插入，用 scripts/repair_partial_ingest.py 清掉再重跑入库。"
+          onReport={(name) => setForm({ kind: "not_in_graph", target: name })}
         />
+      )}
+      {form && (
+        <Suspense fallback={null}>
+          <KbGapForm
+            kind={form.kind}
+            target={form.target}
+            onClose={() => {
+              setForm(null);
+              setRefreshKey((k) => k + 1);
+            }}
+          />
+        </Suspense>
       )}
       {gaps.unknown_source.length > 0 && (
         <GapList
@@ -140,6 +187,12 @@ function Gaps({ gaps, count }: { gaps: KbOverviewData["gaps"]; count: number }) 
           读者无法判断它是不是同一篇。
         </p>
       </details>
+
+      {/*
+        队列要显示，因为"提交成功"三个字没法区分"记下了"和"按钮点了没反应"。
+        演示模式下它显示"读不到"而不是"0 条" —— 队列在维护者的机器上。
+      */}
+      <KbGapQueue refreshKey={refreshKey} />
     </section>
   );
 }
@@ -149,12 +202,19 @@ function GapList({
   items,
   note,
   advice,
+  onReport,
 }: {
   label: string;
   items: string[];
   note: string;
   /** 这一类的处置建议。缺口列表只报问题的话，读者下一步只能靠猜 */
   advice?: string;
+  /**
+   * 逐条登记。**只有"盘上有、图谱里没有"这一类给**：另外三类
+   * （来源无法识别 / 图谱里有盘上已删 / 建图未完成）都能在本机直接处置，
+   * 登记进队列反而绕远 —— 反馈是给"这台机器上解决不了的事"用的。
+   */
+  onReport?: (item: string) => void;
 }) {
   return (
     <div className="mt-1">
@@ -163,8 +223,20 @@ function GapList({
       </div>
       <ul className="mt-0.5 space-y-px text-ink-2">
         {items.map((n) => (
-          <li key={n} className="truncate" title={n}>
-            · {n}
+          <li key={n} className="flex items-baseline gap-1">
+            <span className="truncate" title={n}>
+              · {n}
+            </span>
+            {onReport && (
+              <button
+                type="button"
+                onClick={() => onReport(n)}
+                className="shrink-0 rounded border border-line px-1 text-ink-2 hover:border-ink-2 hover:text-ink-0"
+                title="登记这条缺口 —— 它会进人工队列，不会自动重新入库"
+              >
+                登记
+              </button>
+            )}
           </li>
         ))}
       </ul>

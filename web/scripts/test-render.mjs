@@ -52,6 +52,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AlarmCard } from "./src/components/AlarmCard";
 import { DialogPanel } from "./src/components/dialog/DialogPanel";
+import { KbGapForm } from "./src/components/kb/KbGapForm";
 import { KbResultView } from "./src/components/kb/KbResultView";
 import { LeftRail } from "./src/components/LeftRail";
 import { StatusBar } from "./src/components/StatusBar";
@@ -80,6 +81,15 @@ export const fixtureQuery = FIXTURE_QUERY;
 
 export const renderKb = (result) =>
   html(createElement(KbResultView, { result, onOpenDoc: () => {} }));
+
+export const renderGapForm = () =>
+  html(
+    createElement(KbGapForm, {
+      kind: "not_in_graph",
+      target: "ccus4.pdf",
+      onClose: () => {},
+    }),
+  );
 
 export const renderStatus = (props) => html(createElement(StatusBar, props));
 
@@ -301,4 +311,31 @@ test("报告正文渲染：区块标记被吃掉，引用标记变成徽标", ()
   // 引用标记要渲染成徽标，而不是原样吐出 `[alarm:...]` 这一串
   assert.doesNotMatch(plain, /\[alarm:/, "引用标记被当成普通文字渲染了");
   assert.match(plain, /总体结论/, "正文标题没渲染出来");
+});
+
+test("缺口登记表单在演示模式下说清「不会发出去」，而不是让人白填", () => {
+  const plain = text(mod.renderGapForm());
+  assert.match(plain, /登记：这篇没进图谱/, "种类措辞没渲染出来");
+  assert.match(plain, /ccus4\.pdf/, "登记的对象没显示 —— 用户不知道这条是关于什么的");
+  assert.match(plain, /演示模式不落盘/, "没在后端的情况下必须说清楚");
+  assert.match(plain, /等于没写/, "要说清后果，不能只说「不可用」");
+});
+
+test("检索结果按状态给不同的登记入口，unavailable 一个都不给", () => {
+  const ok = text(mod.renderKb(mod.fixtures.search));
+  assert.match(ok, /登记「引的原文不对」/, "ok 时没有反馈入口");
+
+  const empty = text(
+    mod.renderKb({ ...mod.fixtures.search, status: "empty", reason: "图谱中没有相关内容" }),
+  );
+  assert.match(empty, /登记「这个问题该有答案」/, "empty 时没有反馈入口");
+
+  /*
+   * unavailable 时检索根本没跑起来。给一个「登记没答到」的入口，会把一次
+   * 服务故障记成语料缺口，而队列里那个数字随后会被当成「该补文献了」。
+   */
+  const down = text(
+    mod.renderKb({ ...mod.fixtures.search, status: "unavailable", reason: "Ollama 未启动" }),
+  );
+  assert.doesNotMatch(down, /登记/, "检索没跑起来时不该给登记入口");
 });

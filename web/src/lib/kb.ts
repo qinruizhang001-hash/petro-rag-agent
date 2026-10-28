@@ -1,6 +1,9 @@
 import type {
   KbDocDetail,
   KbDocuments,
+  KbGapInput,
+  KbGapRecord,
+  KbGapsPayload,
   KbOverview,
   KbSearchResult,
 } from "./kb-types";
@@ -106,4 +109,63 @@ export async function searchKb(
     throw new Error(`${res.status} /kb/search`);
   }
   return (await res.json()) as KbSearchResult;
+}
+
+/**
+ * 缺口反馈：**唯一会写盘的知识库端点**，也是唯一"只读 → 可记录"的入口。
+ *
+ * ## fixture 模式下为什么直接拒绝，而不是存在 localStorage
+ *
+ * 审批轨迹（`draftStore.ts`）存本机是对的：那是**你自己的**演练，刷新不丢
+ * 就有意义。缺口反馈不一样 —— 它的全部价值在于**送到维护语料的人手上**。
+ * 存在浏览器里等于没写，而且提交者会以为已经提过了，于是不再提。
+ *
+ * 所以这里抛错，界面把这句话显示出来，并且**在用户动手之前**就把按钮
+ * 标成不可用（见 `KbGapForm`）。让他打完一百字再告诉他"这个不会发出去"
+ * 是同一类欺骗的另一种形式。
+ */
+export async function submitKbGap(input: KbGapInput): Promise<KbGapRecord> {
+  if (SOURCE === "fixture") {
+    throw new Error(
+      "演示模式不落盘：缺口反馈要送到维护语料的人手上，存在浏览器里等于没写。",
+    );
+  }
+  const res = await fetch(`${BASE}/kb/gaps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    // 后端的 400 文案是**能直接给人看**的（"必须说是哪一篇"），
+    // 不要换成"提交失败"。用户能据此改，而"提交失败"只能让他重试。
+    let detail = `${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* 保留状态码 */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as KbGapRecord;
+}
+
+/**
+ * 缺口队列（最近若干条，新的在前）。
+ *
+ * fixture 模式下返回 `available: false` 而不是"0 条" —— 队列在后端，
+ * 演示模式根本读不到它。显示成"0 条"会让读者以为没人反馈过。
+ */
+export async function fetchKbGaps(limit = 20): Promise<KbGapsPayload> {
+  if (SOURCE === "fixture") {
+    return {
+      available: false,
+      reason: "演示模式读不到队列：它写在维护者那台机器的 history/ 下。",
+      total: 0,
+      unreadable_lines: 0,
+      by_kind: {},
+      records: [],
+    };
+  }
+  return getJson<KbGapsPayload>(`/kb/gaps?limit=${limit}`);
 }

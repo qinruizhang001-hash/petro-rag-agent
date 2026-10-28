@@ -667,10 +667,16 @@ jobs:
           fi
           echo "Narrow-screen floors and the layout grid are in the stylesheet."
 
-      # 中文注释：three 压缩后约 130 KB gzip。它被**动态 import** 时是一个独立
-      # chunk，首屏先出左栏的告警卡，剖面随后补上；一旦有人把它改成静态 import，
-      # 首屏 chunk 会从 71 KB 涨到 200 KB，而"左栏先亮"这个性质会静默消失 ——
-      # 没有报错，只是工控机上要多等一秒，而这正好是这块屏最不该慢的地方。
+      # 中文注释：three 压缩后约 130 KB gzip / 508 KB 未压缩。它被**动态 import**
+      # 时是一个独立 chunk，首屏先出左栏的告警卡，剖面随后补上；一旦有人把它
+      # 改成静态 import，首屏 chunk 会直接涨到 800 KB 以上。
+      #
+      # 体积线是 320 KB。**它是"有没有大东西被静态 import 进来"的警报，不是
+      # 一条需要贴着走的线** —— 当前首屏 316,879 字节（余量 3.1 KB），所以
+      # 下一次小改动就可能撞线。撞线时先找原因（多半是某个重面板/大 JSON 被
+      # 静态 import 了），**不要直接把数字改大**：改了之后 three 泄漏进来时
+      # 它也不会再红。修法通常是 `React.lazy` + 首次激活才挂载，与
+      # `ApprovalPanel` / `geoscene` / `KbGapForm` 同一套。
       - name: 3D scene is still code-split
         working-directory: web
         run: |
@@ -683,7 +689,7 @@ jobs:
           size=$(stat -c%s "$main")
           echo "first-paint chunk: $main ($size bytes)"
           if [ "$size" -gt 320000 ]; then
-            echo "::error::first-paint chunk is $size bytes — three has leaked into the main bundle"
+            echo "::error::first-paint chunk is $size bytes — something large is being imported statically again (three is the usual suspect; a three leak lands above 800 KB). Do not raise this number: code-split the new panel with React.lazy instead."
             exit 1
           fi
 
@@ -706,6 +712,21 @@ jobs:
       # 不会报错，只会让首屏 chunk 从 313 KB 涨到 371 KB —— 直接顶破上面
       # 那条 320 KB 的线。所以这里守的是"它还在独立 chunk 里"，
       # 而不是重复守体积（体积那条已经会红）。
+      # 中文注释：缺口登记表单约 2 KB，**动态 import**，点了「登记」才拉。
+      # 它本身很小，守的不是体积而是"别把它挪回首屏"这个决定 ——
+      # 加进首屏时 chunk 从 313,364 涨到 318,649，余量只剩 1.3 KB；
+      # 拆出来是 316,879（余量 3.1 KB）。差别不大，但方向要对：
+      # 一个只在点击后才出现的表单不该占首屏的预算。
+      - name: Gap report form is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/KbGapForm-*.js >/dev/null 2>&1; then
+            echo "::error::no separate KbGapForm chunk — the gap report form is being imported statically again"
+            exit 1
+          fi
+          echo "gap form chunk: $(ls dist/assets/KbGapForm-*.js | head -1)"
+
       - name: Approval panel is still code-split
         working-directory: web
         run: |
