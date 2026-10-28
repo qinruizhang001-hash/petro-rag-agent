@@ -628,7 +628,7 @@ jobs:
         run: |
           set -e
           for decl in \
-            "min-height:420px" \
+            "min-height:520px" \
             "min-height:440px" \
             "min-height:480px"
           do

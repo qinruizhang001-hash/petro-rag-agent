@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { placeLabels } from "../lib/labels";
+import type { LabelBox } from "../lib/labels";
 import { SEVERITY_META, formatValue, isIndeterminate } from "../lib/severity";
 import { RULER_DEPTHS } from "../lib/section";
 import type { SectionData } from "../lib/section";
@@ -94,6 +96,15 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle", onFailed 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<GeoScene | null>(null);
   const labelRefs = useRef(new Map<string, HTMLElement>());
+  /**
+   * 标签尺寸缓存。
+   *
+   * 每帧读 `offsetWidth` 会强制同步布局（layout thrash），而标签尺寸
+   * 只在两种情况下变：字号（`--type-scale` 随模式变）与字体加载完成。
+   * 所以每 30 帧重测一次，其余帧用缓存 —— 1 s 内必然跟上，肉眼看不到。
+   */
+  const labelSizeRef = useRef(new Map<string, { w: number; h: number }>());
+  const measureTickRef = useRef(0);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -168,6 +179,15 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle", onFailed 
     return out;
   }, [data]);
 
+  /*
+   * `onAfterRender` 在下面那个只跑一次的 effect 里定义，它闭包捕获的是
+   * 首次渲染时的 `labels`。数据刷新后 `labels` 会变（测点数量、读数都变），
+   * 所以必须经过 ref 读最新的一份 —— 否则新增的测点永远拿不到尺寸，
+   * 也就永远不参与避让，而界面上看不出任何异常。
+   */
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
+
   useEffect(() => {
     let cancelled = false;
     let instance: GeoScene | null = null;
@@ -193,7 +213,41 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle", onFailed 
         // 相机每帧都在漂移（指挥舱），标签必须跟着投影，
         // 否则数字会慢慢从圆点上滑走 —— 而且不会报错
         scene.onAfterRender = () => {
-          for (const a of scene.screenAnchors()) {
+          /*
+           * 避让前先补一次尺寸缓存。
+           *
+           * 首帧时 `offsetWidth` 可能还是 0（字体没就绪），0 宽的矩形永远
+           * 不相交 —— 避让会"成功"但什么也没做。所以宽度为 0 的标签直接
+           * 不参与这一帧的排布（它仍然是障碍物吗？不是：尺寸未知时把任何
+           * 东西当成障碍都会误推别人）。
+           */
+          if (measureTickRef.current++ % 30 === 0) {
+            for (const [id, el] of labelRefs.current) {
+              const inner = el.firstElementChild as HTMLElement | null;
+              if (!inner) continue;
+              const w = inner.offsetWidth;
+              const h = inner.offsetHeight;
+              if (w > 0 && h > 0) labelSizeRef.current.set(id, { w, h });
+            }
+          }
+
+          const boxes = new Map<string, LabelBox>();
+          for (const l of labelsRef.current) {
+            const size = labelSizeRef.current.get(l.id);
+            if (!size) continue;
+            boxes.set(l.id, {
+              dx: l.dx,
+              dy: l.dy ?? 0,
+              align: l.align,
+              w: size.w,
+              h: size.h,
+              // 层名要贴在自己那条边界线上，深度尺要对准自己的刻度 ——
+              // 推开它们等于让标签标注一条错误的线
+              movable: l.id.startsWith("monitor:"),
+            });
+          }
+
+          for (const a of placeLabels(scene.screenAnchors(), boxes)) {
             const el = labelRefs.current.get(a.id);
             if (!el) continue;
             el.style.opacity = a.visible ? "1" : "0";

@@ -104,9 +104,15 @@ export function LeftRail({ report, thresholds }: LeftRailProps) {
        * 上限校核、盲区全都被裁掉，而控制台里没有任何报错。
        * 这正是"关键信息被挤掉"最典型的样子。
        *
+       * 520 而不是 420：420 时只能完整显示"盲区 + 上限 + 1 张告警"，
+       * 第二张卡正好被切在分割线上，看起来像渲染坏了（其实是内部滚）。
+       * 520 能放下三张，代价是单列页面更长 —— 而单列本来就要滚，
+       * "多滚一屏"比"关键告警要滚才能看见"划算。
+       *
        * `lg` 起行高被钉死（`minmax(0,1fr)`），面板自己滚，不再需要 min-h。
+       * 改这个数要同步改 CI 里 `Narrow-screen floors survive the build`。
        */
-      className="min-h-[420px] lg:min-h-0"
+      className="min-h-[520px] lg:min-h-0"
       aside={
         <span className="tnum">
           {actionableCount} 需动作 · {indetCount} 不可判定
