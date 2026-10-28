@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { runOpsReport } from "../../lib/api";
 import {
   ACTION_HINT,
   ACTION_LABEL,
@@ -22,6 +23,16 @@ import {
   rehearsal,
   resetLocalDrafts,
 } from "../../lib/reports";
+import {
+  RUN_KIND_LABEL,
+  conflictLines,
+  failedAgents,
+  generateBlocked,
+  replayNote,
+  runHeadline,
+  runSuccessNote,
+} from "../../lib/run";
+import type { OpsRunResult, ReportKind } from "../../lib/run";
 import { cn } from "../../lib/utils";
 import { ReportBody } from "./ReportBody";
 
@@ -61,6 +72,13 @@ export function ApprovalPanel() {
   const [busy, setBusy] = useState<ApprovalAction | null>(null);
   const [reviewer, setReviewer] = useState("");
   const [note, setNote] = useState("");
+
+  /** 生成动作自己的状态，与审批动作分开 —— 两者的失败含义完全不同。 */
+  const [running, setRunning] = useState(false);
+  const [kind, setKind] = useState<ReportKind>("daily");
+  const [permitId, setPermitId] = useState("");
+  const [runResult, setRunResult] = useState<OpsRunResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const storageOk = useState(() => draftStorageAvailable())[0];
   const [dropped] = useState(() => (rehearsal ? localDropReason() : null));
@@ -103,6 +121,34 @@ export function ApprovalPanel() {
     };
   }, [selected]);
 
+  /**
+   * 生成一份草稿。
+   *
+   * 三件事必须一起发生，否则读者会以为它成功了：拿到 `draft_id`、
+   * 列表刷新、新草稿被选中。少最后一步时界面上什么也没变 —— 而草稿其实
+   * 已经落盘了，下一次刷新会突然多出一条，看起来像别人写的。
+   */
+  const generate = async () => {
+    setRunning(true);
+    setRunError(null);
+    setRunResult(null);
+    setFlash(null);
+    setError(null);
+    try {
+      const result = await runOpsReport(kind, permitId.trim());
+      setRunResult(result);
+      setFlash(runSuccessNote(result));
+      await refreshList();
+      if (result.draft_id) setSelected(result.draft_id);
+    } catch (e) {
+      // 后端的 400 文案原样透出：`permit_id` 缺失那一条讲的是"没有许可证号
+      // 的监管材料无法归档"，换成「生成失败」用户只能重试，而他需要的是补信息。
+      setRunError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const act = async (action: ApprovalAction) => {
     if (!draft) return;
     setBusy(action);
@@ -132,6 +178,28 @@ export function ApprovalPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5">
       <ModeBanner storageOk={storageOk} dropped={dropped} />
+
+      <GenerateBar
+        kind={kind}
+        permitId={permitId}
+        running={running}
+        blocked={generateBlocked(rehearsal)}
+        onKind={(k) => {
+          setKind(k);
+          setRunResult(null);
+          setRunError(null);
+        }}
+        onPermitId={setPermitId}
+        onGenerate={() => void generate()}
+      />
+
+      {runError && (
+        <p className="shrink-0 rounded-panel border border-sev-critical/60 bg-sev-critical/10 px-2 py-1 text-2xs leading-relaxed text-sev-critical">
+          {runError}
+        </p>
+      )}
+
+      {runResult && <RunResult result={runResult} />}
 
       {error && (
         <p className="shrink-0 rounded-panel border border-sev-critical/60 bg-sev-critical/10 px-2 py-1 text-2xs text-sev-critical">
@@ -174,6 +242,161 @@ export function ApprovalPanel() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * 生成栏：唯一会新建记录的动作。
+ *
+ * ## 为什么按钮旁边必须写清"它要跑什么"
+ *
+ * 「生成报告」四个字让人以为是导出，而它实际上要现场跑两个 agent 再做一次
+ * 跨 agent 冲突检测。不知道这件事的人，会在等的时候以为卡住了，或者更糟：
+ * 以为它只是把已有的数字排版一下，于是不核对结论。
+ *
+ * ## 为什么监管材料要多一个许可证号
+ *
+ * 后端硬性要求（`permit_id` 为空直接 400）。界面上先在**动手之前**拦住，
+ * 并把原因写在按钮旁边 —— 让用户打完字点一下、看到一句 400 的 JSON，
+ * 是同一件事的更差版本。
+ */
+function GenerateBar({
+  kind,
+  permitId,
+  running,
+  blocked,
+  onKind,
+  onPermitId,
+  onGenerate,
+}: {
+  kind: ReportKind;
+  permitId: string;
+  running: boolean;
+  blocked: string | null;
+  onKind: (k: ReportKind) => void;
+  onPermitId: (v: string) => void;
+  onGenerate: () => void;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0);
+      return;
+    }
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 500);
+    return () => clearInterval(id);
+  }, [running]);
+
+  const needsPermit = kind === "regulatory";
+  const permitMissing = needsPermit && !permitId.trim();
+  const disabled = blocked !== null || running || permitMissing;
+
+  return (
+    <section className="shrink-0 rounded-panel border border-line px-1.5 py-1">
+      <div className="flex items-center gap-1">
+        <select
+          value={kind}
+          onChange={(e) => onKind(e.target.value as ReportKind)}
+          aria-label="报告种类"
+          className="rounded-panel border border-line bg-surface-2 px-1 py-0.5 text-2xs text-ink-1"
+        >
+          {(Object.keys(RUN_KIND_LABEL) as ReportKind[]).map((k) => (
+            <option key={k} value={k}>
+              {RUN_KIND_LABEL[k]}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onGenerate}
+          className={cn(
+            "ml-auto rounded-panel border px-2 py-0.5 text-2xs",
+            disabled
+              ? "cursor-not-allowed border-line text-ink-2 opacity-60"
+              : "border-acc/50 text-acc hover:bg-acc/10",
+          )}
+        >
+          {running ? `生成中… ${elapsed}s` : "生成草稿"}
+        </button>
+      </div>
+
+      {needsPermit && (
+        <input
+          value={permitId}
+          onChange={(e) => onPermitId(e.target.value)}
+          placeholder="许可证号（监管材料必填）"
+          aria-label="许可证号"
+          className="mt-1 w-full rounded-panel border border-line bg-surface-0 px-1.5 py-0.5 text-2xs text-ink-0 placeholder:text-ink-2 focus:border-acc/60 focus:outline-none"
+        />
+      )}
+
+      {/* 灰按钮旁边必须写字：触屏上没有 hover */}
+      <p className="mt-0.5 text-[0.65rem] leading-snug text-ink-2">
+        {blocked
+          ? blocked
+          : running
+            ? "主管 agent 正在跑「告警判定 → 报告撰写 → 冲突检测」。不调模型，通常一两秒。"
+            : permitMissing
+              ? "监管材料必须填许可证号 —— 没有许可证号的监管材料无法归档，也核不清对应哪个场地。"
+              : "会现场跑一遍 agent 并落盘成草稿；读数取回放样本，不是当期实测。"}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * 这一趟跑成了什么样。
+ *
+ * 三样东西一起显示，缺一样都会让"已生成"变成一句无法核对的话：
+ * 哪几个 agent 跑了（及各自耗时）、有没有失败、有没有阻断性冲突。
+ */
+function RunResult({ result }: { result: OpsRunResult }) {
+  const failures = failedAgents(result);
+  const conflicts = conflictLines(result);
+  const blocking = result.conflicts.some((c) => c.blocking);
+
+  return (
+    <section className="shrink-0 space-y-0.5 rounded-panel border border-line px-2 py-1">
+      <p className="text-2xs text-ink-1">{runHeadline(result)}</p>
+      <ul className="space-y-0.5">
+        {result.runs.map((r) => (
+          <li key={r.agent} className="text-[0.65rem] leading-snug text-ink-2">
+            <span className={r.ok ? "text-ink-1" : "text-sev-critical"}>
+              {r.ok ? "✓" : "✕"} {r.agent}
+            </span>{" "}
+            · {r.elapsed_s.toFixed(2)}s · {r.reason}
+          </li>
+        ))}
+      </ul>
+      {failures.length > 0 && (
+        <ul className="space-y-0.5">
+          {failures.map((f, i) => (
+            <li key={i} className="text-[0.65rem] leading-snug text-sev-critical">
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      {conflicts.length > 0 && (
+        <ul className="space-y-0.5 border-t border-line pt-0.5">
+          {conflicts.map((c, i) => (
+            <li key={i} className="text-[0.65rem] leading-snug text-ink-2">
+              {c}
+            </li>
+          ))}
+        </ul>
+      )}
+      {blocking && (
+        <p className="text-[0.65rem] leading-snug text-sev-warn">
+          有阻断性冲突：这份稿子不能提交，先按冲突里的建议处理。
+        </p>
+      )}
+      <p className="text-[0.65rem] leading-snug text-ink-2">
+        {replayNote(result.period)}
+      </p>
+    </section>
   );
 }
 

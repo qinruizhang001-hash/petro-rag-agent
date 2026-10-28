@@ -336,8 +336,27 @@ test("审批面板首屏就把「本机演练 / 不是审计记录」写在脸�
   assert.doesNotMatch(plain, /已保存/, "存不住还说已保存，是这一页最不该有的谎");
 });
 
-test("报告正文渲染：区块标记被吃掉，引用标记变成徽标", () => {
-  const seed = mod.fixtures.reportSeeds.find((d) => d.problems.length === 0);
+test("生成栏在演示模式下禁用，并说清它要跑什么", () => {
+  /*
+   * 「生成报告」四个字让人以为是导出，而它实际上要现场跑两个 agent 再做一次
+   * 冲突检测。不知道这件事的人会以为卡住了，或者更糟：以为它只是把已有数字
+   * 排版一下，于是不核对结论。
+   */
+  const html = mod.renderApproval();
+  const plain = text(html);
+
+  assert.match(plain, /生成草稿/, "没有生成入口，报告页永远只能是空的");
+  assert.match(html, /<select/, "报告种类要能选，否则周报只能靠改代码");
+  assert.match(plain, /演示模式/, "演示模式下必须说明为什么不能生成");
+  assert.match(plain, /没有可复用的快照/, "要说清后果，不能只说「不可用」");
+  assert.match(
+    html,
+    /<button[^>]*disabled/,
+    "演示模式下按钮必须真的禁用，不能只是文案警告",
+  );
+});
+
+test("报告正文渲染：区块标记被吃掉，引用标记变成徽标", () => {  const seed = mod.fixtures.reportSeeds.find((d) => d.problems.length === 0);
   assert.ok(seed, "fixture 里应当有一份干净的草稿");
   const html = mod.renderReportBody(seed);
   const plain = text(html);

@@ -1,4 +1,5 @@
 import type { AlarmReport, ConditionAnswer, ThresholdStatus } from "./types";
+import type { OpsRunResult, ReportKind } from "./run";
 
 import alarmsFixture from "../fixtures/alarms.json";
 import conditionFixture from "../fixtures/condition.json";
@@ -117,5 +118,36 @@ export async function fetchCondition(question: string): Promise<ConditionAnswer>
   return post<ConditionAnswer>("/ops/condition", {
     question,
     readings: await sampledReadings(),
+  });
+}
+
+/**
+ * 让 ops 主管 agent 现场跑一遍：告警判定 → 报告撰写 → 跨 agent 冲突检测。
+ *
+ * 这是界面上唯一**会新建一条记录**的接口（草稿落进 `ops_reports.db`，
+ * 后续 `/submit` `/approve` 都按返回的 `draft_id` 操作）。
+ *
+ * 演示模式下直接抛错而不是返回一份假草稿：这个动作的价值全在「新记录真的
+ * 进了审批队列」，编一份出来等于让人以为自己的操作被记下了 —— 比没有
+ * 按钮糟得多。面板会在点击**之前**就禁用（见 `lib/run.ts::generateBlocked`），
+ * 这里的抛错是第二道闸。
+ *
+ * `want_condition: false`：工况问答要一个问句，而这里没有人在提问；
+ * 让它跑会得到一句"没有读数"的空回答，白占一次窗口。
+ */
+export async function runOpsReport(
+  kind: ReportKind,
+  permitId = "",
+): Promise<OpsRunResult> {
+  if (SOURCE === "fixture") {
+    throw new Error("演示模式没有后端，报告无法现场生成（不会编一份给你）");
+  }
+  return post<OpsRunResult>("/ops/run", {
+    readings: await sampledReadings(),
+    report_kind: kind,
+    permit_id: permitId,
+    want_alarms: true,
+    want_report: true,
+    want_condition: false,
   });
 }
