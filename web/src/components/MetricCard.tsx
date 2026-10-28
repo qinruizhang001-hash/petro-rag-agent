@@ -1,6 +1,7 @@
 import { SEVERITY_CLASS, describeMargin, formatValue, isIndeterminate } from "../lib/severity";
 import { STAGE_SHORT } from "../lib/stages";
 import type { Alarm } from "../lib/types";
+import { unitLabel } from "../lib/units";
 import { cn } from "../lib/utils";
 import { SeverityChip } from "./SeverityChip";
 
@@ -64,7 +65,9 @@ export function MetricCard({ alarm, unit, warnThreshold }: MetricCardProps) {
         */}
         <span className={cn("tnum text-lg leading-none", cls.text)}>
           {indet ? "—" : formatValue(alarm.value)}
-          {!indet && <span className="ml-0.5 text-2xs text-ink-2">{unit}</span>}
+          {!indet && unitLabel(unit) && (
+            <span className="ml-0.5 text-2xs text-ink-2">{unitLabel(unit)}</span>
+          )}
         </span>
         <span className="text-2xs text-ink-2">{STAGE_SHORT[alarm.stage]}</span>
       </div>

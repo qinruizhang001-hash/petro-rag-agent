@@ -1,5 +1,6 @@
 import { SEVERITY_META, formatValue, isIndeterminate } from "../lib/severity";
 import { DEPTH_MAX, HALF_WIDTH_M, RULER_DEPTHS, SEAL_BASE, plumeRadiusM } from "../lib/section";
+import { withUnit } from "../lib/units";
 import type { SectionData } from "../lib/section";
 
 /**
@@ -184,7 +185,7 @@ export function GeoSectionFallback({ data }: { data: SectionData }) {
               fontSize="11"
               fill="rgb(var(--txt-2))"
             >
-              {unknown ? m.caveat || "不可判定" : `${formatValue(m.value)} ${m.unit}`}
+              {unknown ? m.caveat || "不可判定" : withUnit(formatValue(m.value), m.unit)}
             </text>
           </g>
         );

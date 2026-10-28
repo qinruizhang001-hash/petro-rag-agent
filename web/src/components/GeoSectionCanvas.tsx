@@ -3,6 +3,7 @@ import { placeLabels } from "../lib/labels";
 import type { LabelBox } from "../lib/labels";
 import { SEVERITY_META, formatValue, isIndeterminate } from "../lib/severity";
 import { RULER_DEPTHS } from "../lib/section";
+import { withUnit } from "../lib/units";
 import type { SectionData } from "../lib/section";
 import type { GeoScene } from "../three/geoscene";
 import { isQuality } from "../three/quality";
@@ -135,7 +136,7 @@ export default function GeoSectionCanvas({ data, mode, voice = "idle", onFailed 
       out.push({
         id: `monitor:${m.id}`,
         text: m.label,
-        sub: unknown ? m.caveat || "不可判定" : `${formatValue(m.value)} ${m.unit}`,
+        sub: unknown ? m.caveat || "不可判定" : withUnit(formatValue(m.value), m.unit),
         tone,
         dx: align === "right" ? -14 : 14,
         dy: m.dy ?? (m.depth <= 0 ? -12 : 0),

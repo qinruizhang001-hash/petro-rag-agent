@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { SEVERITY_CLASS, SEVERITY_META } from "../lib/severity";
+import { SEVERITY_CLASS, SEVERITY_META, formatValue } from "../lib/severity";
 import {
   ROW_HEIGHT,
   bodyHeight,
@@ -8,6 +8,7 @@ import {
   visibleRange,
 } from "../lib/sensorTable";
 import type { Alarm, ThresholdStatus } from "../lib/types";
+import { unitLabel } from "../lib/units";
 import { cn } from "../lib/utils";
 
 /**
@@ -62,7 +63,7 @@ export function SensorTable({
       {/* 表头在滚动区外面：滚的时候列名不该跟着走 */}
       <div className="flex items-center gap-1 border-b border-line px-1 pb-0.5 text-ink-2">
         <span className="min-w-0 flex-1">测点</span>
-        <span className="w-14 shrink-0 text-right">读数</span>
+        <span className="w-[4.5rem] shrink-0 text-right">读数</span>
         <span className="w-16 shrink-0 text-right" title="到 warn 线的余量，负值表示已越线">
           距 warn 线
         </span>
@@ -87,7 +88,7 @@ export function SensorTable({
                 title={
                   row.undecidable
                     ? `${row.label}：${row.undecidableReason}`
-                    : `${row.label} · ${row.direction === "high" ? "上限" : "下限"} warn=${row.warn}${row.unit}`
+                    : `${row.label} · ${row.direction === "high" ? "上限" : "下限"} warn=${row.warn} ${unitLabel(row.unit)}`.trim()
                 }
               >
                 <span className="min-w-0 flex-1 truncate">
@@ -96,8 +97,14 @@ export function SensorTable({
                     <span className="ml-1 text-ink-2">{row.stageLabel}</span>
                   )}
                 </span>
-                <span className="w-14 shrink-0 text-right font-num text-ink-0">
-                  {row.value === null ? "—" : `${row.value}${row.unit}`}
+                <span className="flex w-[4.5rem] shrink-0 items-baseline justify-end gap-0.5 font-num text-ink-0">
+                  {/* 数字永不截断，单位可以 —— 截断单位比截断数字更可接受 */}
+                  <span className="shrink-0">
+                    {row.value === null ? "—" : formatValue(row.value)}
+                  </span>
+                  {unitLabel(row.unit) && (
+                    <span className="min-w-0 truncate text-ink-2">{unitLabel(row.unit)}</span>
+                  )}
                 </span>
                 <span
                   className={cn(

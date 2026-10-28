@@ -8,6 +8,7 @@ import {
 } from "../lib/severity";
 import { STAGE_SHORT } from "../lib/stages";
 import type { Alarm, Attribution } from "../lib/types";
+import { unitLabel, withUnit } from "../lib/units";
 import { cn } from "../lib/utils";
 import { SeverityChip } from "./SeverityChip";
 
@@ -120,8 +121,8 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
                 <>
                   {/* 越限时基准换成被越过的那条线，否则"阈值 20 · 超 1.6"自相矛盾 */}
                   {margin.referenceLabel}{" "}
-                  <span className="tnum">{formatValue(margin.referenceValue)}</span>{" "}
-                  {unit}
+                  <span className="tnum">{formatValue(margin.referenceValue)}</span>
+                  {unitLabel(unit) && <> {unitLabel(unit)}</>}
                 </>
               )}
             </span>
@@ -147,7 +148,7 @@ export function AlarmCard({ alarm, unit, warnThreshold, excluded }: AlarmCardPro
             {indet ? "—" : formatValue(alarm.value)}
           </div>
           <div className="mt-1 text-2xs text-ink-2">
-            {indet ? "无判定依据" : `${margin.text} ${unit}`}
+            {indet ? "无判定依据" : withUnit(margin.text, unit)}
           </div>
         </div>
       </button>

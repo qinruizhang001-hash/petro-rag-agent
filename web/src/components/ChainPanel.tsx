@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { SEVERITY_CLASS, formatValue, isIndeterminate, worstOf } from "../lib/severity";
 import { STAGE_HINT, STAGE_LABELS, STAGE_ORDER } from "../lib/stages";
 import type { Alarm, AlarmReport, Stage, ThresholdStatus } from "../lib/types";
+import { unitLabel } from "../lib/units";
 import { cn } from "../lib/utils";
 import { Panel } from "./Panel";
 import { SeverityChip } from "./SeverityChip";
@@ -110,7 +111,7 @@ export function ChainPanel({ report, thresholds, bare = false }: ChainPanelProps
                       <span className={cn("tnum", ac.text)}>
                         {indet ? "—" : formatValue(a.value)}
                       </span>
-                      <span className="text-ink-2">{unitOf[a.sensor] ?? ""}</span>
+                      <span className="text-ink-2">{unitLabel(unitOf[a.sensor])}</span>
                     </span>
                   );
                 })}

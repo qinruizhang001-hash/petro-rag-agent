@@ -125,18 +125,55 @@ export function sortKey(severity: Severity): number {
 }
 
 /**
+ * 显示用的小数位数 —— **由读数的量级决定，读数与余量共用这一把尺子**。
+ *
+ * 为什么必须共用：卡片上并排放着三个数
+ *
+ * ```
+ * 储层监测压力   296bar
+ * 阈值 300 · 余量 3.68
+ * ```
+ *
+ * 读者会（也应该）心算 `296 + 3.68 = 299.68 ≠ 300`。这两个数都没错，但
+ * **放在一起就是错的**：一个按 0 位小数显示，另一个按 2 位。审计的人看到
+ * 的第一件事就是"这三个数对不上"，然后开始怀疑别的数字。
+ *
+ * 所以余量按读数的小数位取整。代价是 3.68 显示成 4（在 300 的尺度上是
+ * 0.1%），换来的是屏幕上那行算术真的成立。
+ */
+export function digitsForValue(value: number | null): number {
+  if (value === null || !Number.isFinite(value) || value === 0) return 2;
+  const abs = Math.abs(value);
+  if (abs >= 100) return 0;
+  if (abs >= 10) return 1;
+  // 小量级要留到第一位有效数字，否则 0.004 会显示成 0
+  if (abs < 0.01) return Math.min(6, -Math.floor(Math.log10(abs)) + 1);
+  return 2;
+}
+
+/** `toFixed` + 裁尾零。`296.30` → `296.3`，`40.00` → `40`。 */
+function fixed(value: number, digits: number): string {
+  const text = value.toFixed(digits);
+  if (!text.includes(".")) return text;
+  return text.replace(/\.?0+$/, "");
+}
+
+/**
  * 数值显示。
  *
  * `null` 一律渲染成破折号。**绝不能落成 `0`** ——
  * 一个 0 会被读成"读数是零"，而实际是"没有可信读数"。
+ *
+ * `digits` 是**小量级的**小数位（默认 2）；大数按量级自动减少，
+ * 见 `digitsForValue`。
  */
 export function formatValue(value: number | null, digits = 2): string {
   if (value === null || !Number.isFinite(value)) return "—";
-  // 中文注释：大数不保留两位小数（380.00 bar 的 .00 是噪音），
-  // 小数则至少保留一位有效数字，避免 0.00 把 0.004 显示成零。
-  if (Math.abs(value) >= 100) return value.toFixed(0);
-  if (Math.abs(value) >= 10) return value.toFixed(1);
-  return value.toFixed(digits).replace(/\.?0+$/, "") || "0";
+  if (value === 0) return "0";
+  const abs = Math.abs(value);
+  // 大数不保留两位小数（380.00 bar 的 .00 是噪音）；小数至少留到第一位有效数字
+  const d = abs >= 100 ? 0 : abs >= 10 ? 1 : abs < 0.01 ? digitsForValue(value) : digits;
+  return fixed(value, d);
 }
 
 export interface MarginInfo {
@@ -210,12 +247,21 @@ export function describeMargin(
 
   if (value === null) return none;
 
+  /*
+   * 余量的小数位跟**读数**走，不跟余量自己的量级走。
+   *
+   * 余量是"两个显示出来的数之差"，所以它必须和那两个数在同一把尺子上：
+   * 读数 296（0 位）、阈值 300（0 位），余量就该是 4 —— 而不是 3.68。
+   * 反过来让余量自己决定精度（3.68），屏幕上那行算术就永远对不上。
+   */
+  const d = digitsForValue(value);
+
   // 已越限：基准换成被越过的那条线。notice 不算"越过"，它只是进了提示带。
   if (crossedLevel && crossedLevel !== "notice" && crossedValue !== null) {
     const past =
       direction === "high" ? value - crossedValue : crossedValue - value;
     return {
-      text: `超 ${formatValue(Math.abs(past))}`,
+      text: `超 ${fixed(Math.abs(past), d)}`,
       value: past,
       breached: true,
       level: crossedLevel,
@@ -231,7 +277,7 @@ export function describeMargin(
   // 未越限：基准是 warn 线。notice 也走这条 —— 它还在 warn 之内。
   const gap = direction === "high" ? warnThreshold - value : value - warnThreshold;
   return {
-    text: gap >= 0 ? `余量 ${formatValue(gap)}` : `超 ${formatValue(-gap)}`,
+    text: gap >= 0 ? `余量 ${fixed(gap, d)}` : `超 ${fixed(-gap, d)}`,
     value: gap,
     breached: gap < 0,
     level: gap < 0 ? "warn" : "",
