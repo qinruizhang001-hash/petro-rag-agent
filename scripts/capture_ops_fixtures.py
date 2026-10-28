@@ -252,6 +252,13 @@ def capture() -> dict[str, object]:
             "thresholds.json": _strip_volatile(thresholds.json()),
             "alarms.json": _strip_volatile(alarms.json()),
             "condition.json": _strip_volatile(condition.json()),
+            # 读数本身也要落盘。`/api/ops/*` 是**无状态**的：它不会自己去找
+            # 时序数据，所有判定都必须由调用方把 `readings` 送进去。于是
+            # `VITE_OPS_SOURCE=live` 的界面临一个尴尬问题 —— 它有接口地址，
+            # 却没有读数可送，`fetchAlarms()` 只能抛错，整屏变成一行
+            # 「数据加载失败」。这一份是**抓取时录下的输入样本**，让 live
+            # 分支真的能跑通（界面文案会如实写成「读数采样回放」，不假装实时）。
+            "readings.json": readings,
         }
     finally:
         if old is None:

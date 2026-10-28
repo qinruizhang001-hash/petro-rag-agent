@@ -108,10 +108,10 @@ export function StatusBar({
           title={
             source === "fixture"
               ? "数据来自 scripts/capture_ops_fixtures.py 抓取的真实响应，不是手写样例。注意：它不代表后端此刻可达。"
-              : "数据来自运行中的后端"
+              : "告警与归因由运行中的后端实算。输入是抓 fixture 时录下的那批读数（回放），不是实时时序 —— 后端 /api/ops/* 是无状态的，读数必须由调用方送进去。"
           }
         >
-          {source === "fixture" ? "fixture（真实响应快照）" : "live"}
+          {source === "fixture" ? "fixture（真实响应快照）" : "live · 读数采样回放"}
         </span>
 
         {/*

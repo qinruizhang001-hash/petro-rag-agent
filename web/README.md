@@ -212,7 +212,7 @@ src/
 │   ├── RightRail.tsx          # 右栏：知识库 / 对话两个 Tab
 │   ├── PerfOverlay.tsx        # `?perf=1` 的渲染开销面板（每个指标带一句人话）
 │   └── StatusBar.tsx          # 底栏：六态计数 + 数据来源 + 后端可达性 + 推送
-├── fixtures/         # 真实响应快照，勿手改
+├── fixtures/         # 真实响应快照，勿手改（readings.json 是 live 模式的输入样本）
 ├── App.tsx
 └── index.css         # 令牌的唯一来源
 ```
@@ -399,7 +399,7 @@ FrontSide   → 30 draw calls, 5,164 triangles
 | 档位 | 触发 | 说明 |
 |---|---|---|
 | `fixture` | 默认 | 读 `src/fixtures/*.json`，那是真实接口响应的快照 |
-| `live` | `VITE_OPS_SOURCE=live` | 打到 `VITE_OPS_BASE`（默认同源 `/api`） |
+| `live` | `VITE_OPS_SOURCE=live` | 打到 `VITE_OPS_BASE`（默认同源 `/api`），读数用回放样本 |
 | `push` | `VITE_OPS_WS` 或 `?ws=` | WebSocket 推送，带退避重连 |
 
 **后门是接上的，不是留了个注释。** 未配置推送地址时不建立任何连接（不是
@@ -416,13 +416,36 @@ node scripts/cdp-eval.mjs --url "http://127.0.0.1:4173/?ws=ws://127.0.0.1:8787/"
   --expr "document.body.innerText.includes('推送已连接')"
 ```
 
+### live 模式需要有人把读数送进去
+
+`/api/ops/*` 是**无状态**的：它不自己去找时序数据，判定所需的 `readings`
+必须由调用方送进去。这个设计是对的（后端不必持有历史库），但它把一个
+问题留给了界面 —— live 模式有接口地址，却没有读数可送。
+
+这里踩过一次：`fetchAlarms()` 当时直接 `throw new Error("live 模式下必须
+提供 readings")`，而 `App` 的 `Promise.all` 一挂，整个控制台只剩一行
+「数据加载失败」—— 左栏 0 张告警、剖面 0 个 canvas、右栏 0 个面板。
+`VITE_OPS_SOURCE=live` 这个写在文档里的模式，**一次都没启动成功过**；
+fixture 模式一切正常，所以谁也不会发现。
+
+现在 `src/fixtures/readings.json`（`capture_ops_fixtures.py` 生成，非手写）
+作为**输入样本**送过去：live 分支跑的是真接口、真计算，只是输入是回放的。
+底栏角标因此写的是「live · 读数采样回放」，不写「live」——**输入是录的、
+结果是算的，这两件事必须分开说**。接上真实时序采集后，这一行才应该改成
+「live · 实时」。
+
+`web/scripts/test-copy.mjs` 里有四条守卫盯着它：live 分支必须存在读数来源、
+不能回到那句无人能满足的 `throw`、角标必须写清"采样回放"、`readings.json`
+必须非空且字段齐全（删掉它不会让 `tsc` 红，只会让 live 模式打开时炸在一个
+运行期的 `Cannot find module` 上）。
+
 ### 数据来源 ≠ 后端可达
 
 底栏有两个**分开**的指示器：
 
 | 指示器 | 回答的问题 | 取值 |
 |---|---|---|
-| 数据来源 | 这份数字从哪来 | `fixture（真实响应快照）` / `live` |
+| 数据来源 | 这份数字从哪来 | `fixture（真实响应快照）` / `live · 读数采样回放` |
 | 后端可达性 | 那台机器还活着吗 | 未探测 / 探测中 / 可达 / 降级（几项）/ 不可达 |
 
 `fixture` 模式下界面读本地快照，后端在不在都不影响显示 —— 于是"界面全绿、
@@ -477,7 +500,7 @@ fixture 模式下有一个必须守住的边界：检索快照固定是「盖层
 
 ```bash
 npm run typecheck    # tsc -b --noEmit
-npm test             # 48 项：降档判定 / 文本清洗 / 角标解析 / 证据强度 / 文案守卫 / 标签避让 / 组件渲染冒烟
+npm test             # 51 项：降档判定 / 文本清洗 / 角标解析 / 证据强度 / 文案守卫 / 标签避让 / 组件渲染冒烟
 npm run build        # 首屏 chunk 必须 < 320 KB（CI 有守卫）
 ```
 

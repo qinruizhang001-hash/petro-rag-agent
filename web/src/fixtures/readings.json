@@ -1,0 +1,2558 @@
+[
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.599,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6095,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.62,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6305,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.641,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.599,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6095,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.62,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6305,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.641,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.599,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6095,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.62,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6305,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.641,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.599,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6095,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.62,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6305,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.641,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.599,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6095,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.62,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.6305,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "regenerator_duty",
+    "value": 2.641,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9325,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9362,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.94,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9438,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9475,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9325,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9362,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.94,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9438,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9475,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9325,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9362,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.94,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9438,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9475,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9325,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9362,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.94,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9438,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9475,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9325,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9362,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.94,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9438,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "solvent_loss",
+    "value": 0.9475,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 78.5,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 79.1,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 79.8,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 80.6,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 81.5,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 82.4,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 83.4,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 84.5,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 85.6,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 86.8,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 88.0,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 89.3,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 90.6,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 91.9,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 93.2,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 94.6,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 96.0,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 97.4,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 98.8,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 100.2,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 101.6,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 103.0,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 104.5,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 110.0,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_outlet_p",
+    "value": 115.4,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 97.8112,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.2056,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.6,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.9944,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 99.3888,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 97.8112,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.2056,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.6,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.9944,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 99.3888,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 97.8112,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.2056,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.6,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.9944,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 99.3888,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 97.8112,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.2056,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.6,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.9944,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 99.3888,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 97.8112,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.2056,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.6,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 98.9944,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "co2_purity",
+    "value": 99.3888,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 4.6,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "h2o_dewpoint",
+    "value": 5.4,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.6064,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.9032,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.2,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.4968,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.7936,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.6064,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.9032,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.2,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.4968,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.7936,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.6064,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.9032,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.2,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.4968,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.7936,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.6064,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.9032,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.2,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.4968,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.7936,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.6064,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 73.9032,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.2,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.4968,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "wellhead_p",
+    "value": 74.7936,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 234.112,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 235.056,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.0,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.944,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 237.888,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 234.112,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 235.056,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.0,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.944,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 237.888,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 234.112,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 235.056,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.0,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.944,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 237.888,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 234.112,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 235.056,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.0,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.944,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 237.888,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 234.112,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 235.056,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.0,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 236.944,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injection_rate",
+    "value": 237.888,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8528,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8764,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9236,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9472,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8528,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8764,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9236,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9472,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8528,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8764,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9236,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9472,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8528,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8764,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9236,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9472,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8528,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.8764,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9236,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "injectivity_index",
+    "value": 5.9472,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 268.0,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 269.18,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 270.36,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 271.54,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 272.72,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 273.9,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 275.08,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 276.26,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 277.44,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 278.62,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 279.8,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 280.98,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 282.16,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 283.34,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 284.52,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 285.7,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 286.88,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 288.06,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 289.24,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 290.42,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 291.6,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 292.78,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 293.96,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 295.14,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "reservoir_p",
+    "value": 296.32,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3392,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3446,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.35,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3554,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3608,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3392,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3446,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.35,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3554,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3608,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3392,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3446,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.35,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3554,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3608,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3392,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3446,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.35,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3554,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3608,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3392,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3446,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.35,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3554,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "soil_co2_flux",
+    "value": 1.3608,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.063,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.0915,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.12,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.1485,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.177,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.063,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.0915,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.12,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.1485,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.177,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.063,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.0915,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.12,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.1485,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.177,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.063,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.0915,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.12,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.1485,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.177,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.063,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.0915,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.12,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.1485,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_ph",
+    "value": 7.177,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 408.704,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 410.352,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 412.0,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 413.648,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 415.296,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 408.704,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 410.352,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 412.0,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 413.648,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 415.296,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 408.704,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 410.352,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 412.0,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 413.648,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 415.296,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 408.704,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 410.352,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 412.0,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 413.648,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 415.296,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 408.704,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 410.352,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 412.0,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 413.648,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "gw_conductivity",
+    "value": 415.296,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7856,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7928,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8072,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8144,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7856,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7928,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8072,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8144,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7856,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7928,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8072,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8144,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7856,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7928,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8072,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8144,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7856,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.7928,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8072,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "surface_heave",
+    "value": 1.8144,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 20.2,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 20.4,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 20.6,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 21.0,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 21.6,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 22.4,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 23.5,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 24.8,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 26.3,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 28.0,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 29.8,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 31.5,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 33.0,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 34.2,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 35.2,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 36.0,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 36.8,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 37.5,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 38.2,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 38.8,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 39.4,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 40.0,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 40.6,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 41.2,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "annulus_p",
+    "value": 41.6,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.4,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.41,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.42,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.44,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.45,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.46,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.48,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.5,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.51,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.52,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.54,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.55,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.56,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.58,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.6,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.61,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.62,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.64,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.65,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.66,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.68,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.7,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.71,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.72,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "pipeline_dp",
+    "value": 12.74,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 93.2,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 93.1,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 93.0,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 92.9,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 92.7,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 92.5,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 92.3,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 92.0,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 91.7,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 91.4,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 91.1,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 90.7,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 90.3,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 89.9,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 89.6,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 89.3,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 89.0,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 88.7,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 88.4,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 88.2,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 87.9,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 87.6,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 87.3,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 87.0,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "capture_rate",
+    "value": 86.8,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 308.0,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 309.18,
+    "ts": "2026-10-27T06:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 310.36,
+    "ts": "2026-10-27T06:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 311.54,
+    "ts": "2026-10-27T06:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 312.72,
+    "ts": "2026-10-27T06:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 313.9,
+    "ts": "2026-10-27T06:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 315.08,
+    "ts": "2026-10-27T07:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 316.26,
+    "ts": "2026-10-27T07:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 317.44,
+    "ts": "2026-10-27T07:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 318.62,
+    "ts": "2026-10-27T07:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 319.8,
+    "ts": "2026-10-27T07:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 320.98,
+    "ts": "2026-10-27T07:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 322.16,
+    "ts": "2026-10-27T08:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 323.34,
+    "ts": "2026-10-27T08:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 324.52,
+    "ts": "2026-10-27T08:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 325.7,
+    "ts": "2026-10-27T08:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 326.88,
+    "ts": "2026-10-27T08:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 328.06,
+    "ts": "2026-10-27T08:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 329.24,
+    "ts": "2026-10-27T09:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 330.42,
+    "ts": "2026-10-27T09:10:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 331.6,
+    "ts": "2026-10-27T09:20:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 332.78,
+    "ts": "2026-10-27T09:30:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 333.96,
+    "ts": "2026-10-27T09:40:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 335.14,
+    "ts": "2026-10-27T09:50:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "bhp",
+    "value": 336.32,
+    "ts": "2026-10-27T10:00:00",
+    "quality": "good"
+  },
+  {
+    "sensor": "frac_p",
+    "value": 452.0,
+    "ts": "2026-10-27T06:00:00",
+    "quality": "good"
+  }
+]

@@ -52,3 +52,38 @@ test("引用角标：无文件血缘时不渲染成可点按钮", () => {
     "无血缘的引用又变成可点按钮了 —— 点了没反应比不能点更像故障",
   );
 });
+
+test("live 模式：告警请求必须自带读数，不能抛错把整屏变成一行报错", () => {
+  const api = read("src/lib/api.ts");
+  // 这条守卫对应一次真实的白屏：`fetchAlarms()` 曾在 live 下直接
+  // `throw new Error("live 模式下必须提供 readings")`，而 App 的
+  // `Promise.all` 一挂，左栏 / 剖面 / 右栏全部消失，只剩一行
+  // 「数据加载失败」。fixture 模式下永远复现不了。
+  assert.ok(
+    api.includes("sampledReadings"),
+    "live 分支没有读数来源了 —— VITE_OPS_SOURCE=live 会重新变成白屏",
+  );
+  assert.ok(
+    !api.includes("必须提供 readings"),
+    "又回到了「live 模式下必须提供 readings」：这句话没有任何调用方能满足",
+  );
+});
+
+test("live 模式：状态栏必须说清输入是回放而不是实时", () => {
+  const bar = read("src/components/StatusBar.tsx");
+  assert.ok(
+    bar.includes("读数采样回放"),
+    "live 角标只写「live」会让读者以为读数是实时采集的",
+  );
+});
+
+test("live 模式：读数采样文件存在且非空", () => {
+  // 删掉它不会让 `tsc` 红（动态 import 只在运行期解析），
+  // 只会让 live 模式在打开时炸在一个 `Cannot find module` 上。
+  const raw = JSON.parse(read("src/fixtures/readings.json"));
+  assert.ok(Array.isArray(raw), "readings.json 必须是读数数组");
+  assert.ok(raw.length > 0, "readings.json 是空的：后端会回 400，界面还是白屏");
+  for (const key of ["sensor", "value", "ts"]) {
+    assert.ok(key in raw[0], `读数缺少 ${key} 字段`);
+  }
+});
