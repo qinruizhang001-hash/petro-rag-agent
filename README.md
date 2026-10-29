@@ -292,6 +292,28 @@ is why the numeric fallback is not optional.
 
 ## Quick start
 
+> **只想打开界面看看？不用 Docker，一条命令。**
+>
+> ```bash
+> ./start-local.sh            # Git Bash / WSL
+> start-local.bat             # Windows：双击
+> ```
+>
+> 它依次起 Ollama → 后端（`:8000`）→ 前端（`:4173`），每一步都等到**能验证的
+> 状态**（`/health` 返回 `ok`、`4173` 返回 200）才往下走 —— 后端冷启动要加载
+> 3.95 GB 的 reranker，凭感觉猜"起好了没有"每次都会猜错，而猜错的后果是界面
+> 显示"后端不可达"、人以为是后端挂了。最后它打印地址：
+>
+> ```
+> http://127.0.0.1:4173/?source=live
+> ```
+>
+> `./start-local.sh --status` 只看状态（不动任何东西），`--stop` 停。
+> 这条路线不需要 Docker、不需要 `.env.docker`、不需要 `API_TOKEN`
+> （鉴权默认关闭，只监听回环地址）。**下面的 Docker 栈是完整形态**
+> （四容器 + nginx + Bearer 鉴权 + 对外端口），两者互不冲突，只是用途不同：
+> 自己看界面用上面这条，给别人访问用下面这条。
+
 ### 中文
 
 **前提**（三个，缺一个起不来）：Docker Desktop；宿主机上的 **Ollama** 且已 `ollama pull qwen2.5 nomic-embed-text`，并监听 `0.0.0.0:11434`（`setx OLLAMA_HOST 0.0.0.0:11434` 后重启 Ollama）；`./models/bge-reranker-v2-m3`（2.2 GB）**不在 git 里**，缺了后端根本起不来 —— 它不是降级，是 import 时崩。细节见 [Deployment](#deployment-docker)；16 GB 机器的**最小配置与内存账**见 `docs/deploy-minimal.md`。
