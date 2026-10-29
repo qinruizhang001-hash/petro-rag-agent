@@ -16,6 +16,7 @@ import { HEALTH_INITIAL, probeBackend } from "./lib/health";
 import type { BackendHealth } from "./lib/health";
 import { createPushClient, pushUrl } from "./lib/push";
 import type { PushStatus } from "./lib/push";
+import { describeThresholds } from "./lib/thresholds";
 import type { AlarmReport, ThresholdStatus } from "./lib/types";
 import { cn } from "./lib/utils";
 
@@ -268,6 +269,7 @@ export default function App() {
           push={push}
           health={health}
           onProbe={() => void probe()}
+          thresholdOrigin={describeThresholds(thresholds)}
         />
       )}
 

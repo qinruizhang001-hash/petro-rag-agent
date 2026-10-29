@@ -4,6 +4,7 @@ import type { PushStatus } from "../lib/push";
 import { SEVERITY_CLASS, SEVERITY_META } from "../lib/severity";
 import { sourceHint, sourceLabel } from "../lib/source";
 import type { DataSource, SourceChoice } from "../lib/source";
+import type { ThresholdOrigin } from "../lib/thresholds";
 import type { AlarmCounts } from "../lib/types";
 import { cn } from "../lib/utils";
 
@@ -39,6 +40,16 @@ interface StatusBarProps {
   health: BackendHealth;
   /** 点一下重探。缺省时不渲染成按钮（只显示状态） */
   onProbe?: () => void;
+  /**
+   * 阈值从哪来、可不可信。
+   *
+   * 这是底栏里**唯一**说明"判据本身是不是真的"的一格。没有它，读者会
+   * 默认每条读数旁边那条线是本项目的设计限值 —— 而本地跑的时候它是
+   * 示例文件里的【替换】占位值。读数、余量、分级全部算得对，判据是假的。
+   *
+   * 传 `describeThresholds()` 的结果，判定逻辑在 `lib/thresholds.ts`。
+   */
+  thresholdOrigin?: ThresholdOrigin;
 }
 
 /** 后端状态 → 配色。字面量，理由同 `severity.ts`。 */
@@ -82,6 +93,7 @@ export function StatusBar({
   push = "idle",
   health,
   onProbe,
+  thresholdOrigin,
 }: StatusBarProps) {
   return (
     <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line bg-surface-1 px-3 py-1.5 text-2xs text-ink-2">
@@ -110,6 +122,28 @@ export function StatusBar({
         <span className="tnum">
           {period[0].slice(5, 16).replace("T", " ")} – {period[1].slice(11, 16)}
         </span>
+
+        {/*
+          阈值出处。占位值时描虚线 + 警示色 —— 与"数据源被覆盖"同一套视觉：
+          虚线在这块底栏里的含义固定为"这一屏有某个前提不是你以为什么"。
+
+          只在 needsAttention 时描虚线。`label` 有值但不需警告（文件名仍叫
+          example 但内容已填过）就普通样式 —— 把一份填好的模板也喊成"假的"，
+          下次真出问题时没人会看。
+        */}
+        {thresholdOrigin?.label ? (
+          <span
+            className={cn(
+              "rounded-panel border px-1.5 py-0.5",
+              thresholdOrigin.needsAttention
+                ? "border-sev-warn/60 text-sev-warn border-dashed"
+                : "border-line-strong text-ink-2",
+            )}
+            title={thresholdOrigin.hint}
+          >
+            {thresholdOrigin.label}
+          </span>
+        ) : null}
         <span
           className={cn(
             "rounded-panel border px-1.5 py-0.5",

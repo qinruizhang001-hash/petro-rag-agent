@@ -290,6 +290,44 @@ is why the numeric fallback is not optional.
 
 ---
 
+## Status — what is real, what is a scaffold
+
+<!-- 中文注释：这一节存在的理由只有一条：**脚手架不可怕，脚手架不说自己
+     是脚手架才可怕**。读者看到「捕集率 86.8 · 警告线 88 · 低 1.2」，
+     会默认那条 88 是这个项目的设计限值。本地跑的时候它是示例文件里的
+     占位值 —— 读数对、余量对、分级对，判据是假的。所以下面这张表不是
+     免责声明，是读数的一部分。 -->
+
+The retrieval side is real. The operations side is a scaffold with a working
+engine behind it. Both statements are checkable, so both are stated.
+
+**Real, with numbers behind them**
+
+| | Evidence |
+|---|---|
+| Corpus and graph | 24 papers on disk → 874 chunks · 4,988 entities · 5,128 relations · 1,982 Chroma vectors |
+| Retrieval | One query really runs LightRAG: **12 chunks from 6 papers in ~12 s**, every chunk carrying a `file_path` back to the PDF |
+| Alarm grading, attribution, ruling-out | Deterministic. 18 sensors graded, each alarm carrying `rationale` + `attribution` + `ruled_out_reason` |
+| Numbers in answers | 40 of 40 numbers in a condition answer appear verbatim in the fact block — the UI refuses to submit a report whose numbers cannot be traced back |
+| Report drafting + approval state machine | `draft → submitted → approved/rejected`, driven end-to-end against the real backend |
+
+**Scaffold — the logic runs, the data source does not exist yet**
+
+| | Why |
+|---|---|
+| **Readings** | Replayed from one captured sample, not sampled. There is no OPC UA / Modbus / historian connection. `/api/ops/*` is stateless — the caller supplies the readings, so the backend cannot be "live" in the SCADA sense. The status bar says `读数采样回放` for exactly this reason. |
+| **Thresholds** | `config/ops_thresholds.json` is not in the repo (it holds one project's design limits). The example file has `【替换】` in **every** `source` field. The arithmetic is right; the lines are placeholders. The status bar now says `阈值 18/18 项为占位值`. |
+| **Cross-section** | Placeholder geometry. The caption says so on the canvas: 未接储层模拟 · 未接本场地测井/地震解释. It answers "which layer, how far from the caprock", not "what will the plume do". |
+| **Auth, multi-user, real-time push** | Not done. Auth is off by default (`API_TOKEN` unset → warning at startup). The WebSocket channel is wired but connects to nothing unless `VITE_OPS_WS` is set. |
+
+A scaffold is fine — this is a first-year student's project, not a commissioning
+package. **A scaffold that does not announce itself is not fine**: the reader
+will price every number as if it came out of a real well. That is why the status
+bar carries three separate chips — data source, threshold origin, backend
+reachability — instead of one "system OK" light. When all three are honest, a
+number that looks wrong can be traced; when they are collapsed into one green
+dot, nothing can.
+
 ## Quick start
 
 > **只想打开界面看看？不用 Docker，一条命令。**
