@@ -72,6 +72,9 @@ _BREAKDOWN_PATTERNS = [
     # 也不该混进 dependency-backed（那边装的是 openai/ragas 那条评估链）。
     # 分组一多，分项之和最容易漏 —— 而这个脚本正是为了拦住"改了总数忘了分项"。
     ("ops-API", r"(\d+) ops-API"),
+    # 语音接口单独一组：它要 numpy 但**不要** sherpa-onnx —— 那正是这个 job
+    # 存在的理由（「模型没下载」这条路径只有在没模型的机器上才测得到）。
+    ("asr-API", r"(\d+) ASR-API"),
     ("dependency-backed", r"(\d+) dependency-backed"),
     ("gate/graph", r"(\d+) gate/graph"),
     ("chart/UI", r"(\d+) chart/UI"),

@@ -2,7 +2,6 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { Citation } from "../lib/chat";
 import type { FocusDoc } from "../lib/kb-types";
 import { cn } from "../lib/utils";
-import { DialogPanel } from "./dialog/DialogPanel";
 import { KnowledgePanel } from "./kb/KnowledgePanel";
 import { Panel } from "./Panel";
 /**
@@ -17,6 +16,21 @@ import { Panel } from "./Panel";
  */
 const ApprovalPanel = lazy(() =>
   import("./reports/ApprovalPanel").then((m) => ({ default: m.ApprovalPanel })),
+);
+
+/**
+ * 对话面板也走懒加载。
+ *
+ * 它是这个文件里最大的一块（611 行 + 引用角标 + 语音按钮），而默认页签是
+ * 「知识库」—— 打开界面只想看告警的人，不该先下载对话面板的代码。
+ *
+ * 加语音之前首屏余量是 7.0 KB，加完只剩 1.6 KB：一个 226 行的麦克风按钮
+ * 就把守卫线顶到"任何改动都红"。按 CI 里写好的规矩（撞线先找原因，不要
+ * 改数字）查出真原因 —— 语音代码本身没问题，问题是它被静态 import 进了
+ * 首屏，而它所在的整个面板本来就不该在首屏。
+ */
+const DialogPanel = lazy(() =>
+  import("./dialog/DialogPanel").then((m) => ({ default: m.DialogPanel })),
 );
 
 type Tab = "kb" | "dialog" | "reports";
@@ -81,6 +95,18 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
   const [reportsMounted, setReportsMounted] = useState(tab === "reports");
   useEffect(() => {
     if (tab === "reports") setReportsMounted(true);
+  }, [tab]);
+
+  /*
+   * 对话面板同理：**代码**延迟到首次激活才下载，但一旦挂载就一直留着。
+   *
+   * 两件事必须分开 —— 卸载会丢对话历史（见下面那段注释），而"不下载代码"
+   * 只是首屏的事。用 mounted 标志而不是 `tab === "dialog" &&`，就是把
+   * 这两件事分开：切走时它还在，只是 hidden。
+   */
+  const [dialogMounted, setDialogMounted] = useState(tab === "dialog");
+  useEffect(() => {
+    if (tab === "dialog") setDialogMounted(true);
   }, [tab]);
 
   /**
@@ -161,9 +187,13 @@ export function RightRail({ onCollapse }: { onCollapse?: () => void }) {
       <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "kb" && "hidden")}>
         <KnowledgePanel focusDoc={focusDoc} />
       </div>
-      <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "dialog" && "hidden")}>
-        <DialogPanel onOpenCitation={jumpToCitation} />
-      </div>
+      {dialogMounted && (
+        <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "dialog" && "hidden")}>
+          <Suspense fallback={<p className="text-2xs text-ink-2">载入对话面板…</p>}>
+            <DialogPanel onOpenCitation={jumpToCitation} />
+          </Suspense>
+        </div>
+      )}
       {reportsMounted && (
         <div className={cn("flex min-h-0 flex-1 flex-col", tab !== "reports" && "hidden")}>
           <Suspense

@@ -120,6 +120,19 @@ echo   ?tab=chain      full chain view
 echo   ?rail=dialog    chat panel
 echo   ?kb=search      knowledge base search
 echo.
+
+rem Voice: ask the download script rather than re-testing the model files here.
+rem The model name and "which files count as complete" must have one definition.
+"%PY%" scripts\fetch_asr_model.py --check >nul 2>&1
+if errorlevel 1 (
+  echo   voice  local model NOT downloaded - voice still works, but it falls
+  echo          back to the browser's cloud recogniser and the recording
+  echo          leaves this machine. Get the local model with:
+  echo            "%PY%" scripts\fetch_asr_model.py
+) else (
+  echo   voice  local ASR ready - audio never leaves this machine
+)
+echo.
 start "" "%URL%"
 exit /b 0
 

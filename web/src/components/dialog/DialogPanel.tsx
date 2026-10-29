@@ -12,9 +12,11 @@ import type { AskStage, ChatMessage, Citation } from "../../lib/chat";
 import { groupCitations } from "../../lib/citations";
 import { fetchKbDocument } from "../../lib/kb";
 import { cn } from "../../lib/utils";
+import { VOICE_PRIVACY_NOTE, mergeTranscript } from "../../lib/voice";
 import { StrengthChip } from "../kb/StrengthChip";
 import { ChunkPeek } from "./ChunkPeek";
 import { CitationText } from "./CitationText";
+import { VoiceButton } from "./VoiceButton";
 
 /**
  * 对话（基础版）。
@@ -48,6 +50,8 @@ export function DialogPanel({
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  /** 语音识别中"还没定下来"的那半句。只显示，不进 input。 */
+  const [interim, setInterim] = useState("");
   const [busy, setBusy] = useState(false);
   /** 当前真的在跑的那一步。`null` = 没在跑。文案直接取 `STAGE_LABEL`，不另编 */
   const [stage, setStage] = useState<AskStage | null>(null);
@@ -281,6 +285,37 @@ export function DialogPanel({
         >
           {busy ? "处理中" : "发送"}
         </button>
+      </div>
+
+      {/*
+        语音。**它只往输入框里塞字** —— 没有发送能力，也不需要。
+        理由在 `lib/voice.ts` 顶部：识别错一个测点名，系统会给出一个数值
+        正确、对象错误的回答，而提问的人已经走了。
+      */}
+      <div className="mt-1 flex items-start justify-end gap-2">
+        {interim && (
+          <p className="min-w-0 flex-1 text-right text-2xs leading-tight text-ink-2">
+            <span className="italic">「{interim}」</span>
+            <span className="ml-1">识别中，未确认</span>
+            {/*
+              说的时候才显示"音频去哪了"。常驻会占掉一行、被读成噪音；
+              而只在文档里写，按按钮的人不会翻文档。
+            */}
+            <span
+              className="ml-1 border-b border-dashed border-line-strong"
+              title={VOICE_PRIVACY_NOTE}
+            >
+              · 云端识别
+            </span>
+          </p>
+        )}
+        <div className={cn("ml-auto", interim ? "" : "flex-1")}>
+          <VoiceButton
+            onCommit={(text) => setInput((prev) => mergeTranscript(prev, text))}
+            onInterim={(t) => setInterim(t ?? "")}
+            disabled={busy}
+          />
+        </div>
       </div>
     </div>
   );
@@ -516,8 +551,10 @@ function NotDone() {
           长回答要等几秒，期间只有一句"正在取数与检索"。
         </li>
         <li>
-          <span className="text-ink-1">语音输入</span>：状态环只有三个形态，
-          麦克风与 ASR 都还没接。
+          <span className="text-ink-1">流式语音</span>：本地识别是一次说完才出字
+          （模型本身是流式的，接口没做增量），录音期间只显示时长。不用它换
+          「边说边出半句」是因为：`井口压力` 先显示成 `景口压力` 再改对，
+          读者已经读过错的那一遍了。
         </li>
       </ul>
     </details>

@@ -182,3 +182,108 @@ test("live 模式：读数采样文件存在且非空", () => {
     assert.ok(key in raw[0], `读数缺少 ${key} 字段`);
   }
 });
+
+test("语音：状态环仍然不可交互", () => {
+  /*
+   * `VoiceRing` 的注释写死了"环上没有任何可点的元素"，理由是：把状态环
+   * 做成按钮，会有人对着它说话然后以为说完了就执行了。
+   *
+   * 接了语音输入之后，这条最容易被破坏 —— 麦克风图标画在环上、或者给环
+   * 挂一个 onClick，都是"顺手"就能做出来的事，而且**渲染出来更好看**。
+   * 所以用源码守卫把它钉住：可以点的按钮在 `VoiceButton.tsx` 里，
+   * 那个环永远只是显示。
+   */
+  const ring = read("src/components/VoiceRing.tsx");
+  assert.ok(!/onClick|onKeyDown|<button|role="button"|tabIndex/.test(ring), "VoiceRing 不许可交互");
+  // 麦克风按钮必须是一个独立的组件文件，不是一个挂在环上的回调
+  assert.ok(read("src/components/dialog/VoiceButton.tsx").includes("<button"));
+});
+
+test("语音：识别结果不许直接发送", () => {
+  /*
+   * `lib/voice.ts` 是纯文本处理，它不该知道"发送"这件事存在。
+   * 一旦它 import 了 `askStream` 或拿到 `send`，就出现一条"说一句话就提交
+   * 一个问题"的路径 —— 而识别错一个测点名，系统会给出一个数值正确、
+   * 对象错误的回答。
+   */
+  const voice = read("src/lib/voice.ts");
+  assert.ok(!/askStream|send\(/.test(voice), "语音模块不许碰发送");
+
+  // 接入点必须走 mergeTranscript → setInput，而不是 send(...)
+  const panel = read("src/components/dialog/DialogPanel.tsx");
+  assert.match(
+    panel,
+    /onCommit=\{\(text\) => setInput\(\(prev\) => mergeTranscript\(prev, text\)\)\}/,
+    "识别结果必须并进输入框（不覆盖），不能直接发出去",
+  );
+});
+
+test("语音：隐私说明写清了音频会离开本机", () => {
+  /*
+   * 这个项目自称 local-first，而浏览器自带的语音识别是云端识别 ——
+   * 它是整个系统里唯一一个把现场录音送出本机的功能。
+   *
+   * 这条断言守的是"说了"，不是"说了哪几个字"：换措辞不会红，
+   * 把这段说明删掉会红。
+   */
+  const voice = read("src/lib/voice.ts");
+  assert.match(voice, /云端识别/);
+  assert.match(voice, /唯一例外/);
+  assert.match(voice, /涉密/);
+});
+
+test("语音：隐私说明跟着引擎走，不能写死一条", () => {
+  /*
+   * 加了本地识别之后，「音频去哪了」有两个答案。把其中一条写死在
+   * 按钮的 title 里，另一条路就会显示错的那一句 —— 而这一句恰好是
+   * 用户唯一能看到的告知。
+   *
+   * 所以守的是结构：title 里必须出现 `route.note`，而 `route.note` 由
+   * `pickVoiceRoute` 按引擎给出（那部分由 test-voice.mjs 覆盖）。
+   */
+  const btn = read("src/components/dialog/VoiceButton.tsx");
+  assert.match(btn, /route\.note/, "隐私说明必须来自路由，不能写死");
+  assert.match(btn, /route\.degraded/, "回落原因必须显示，不能悄悄回落");
+  // 角标用两种形状区分，不只靠颜色
+  assert.match(btn, /border-dashed/, "云端角标要与本地角标形状不同");
+});
+
+test("语音：本地识别模块同样不许碰发送", () => {
+  const asr = read("src/lib/asr.ts");
+  assert.ok(!/askStream|send\(/.test(asr), "asr.ts 只负责录音与上传");
+});
+
+test("语音：录音格式的契约两端都在", () => {
+  /*
+   * 服务端只认 16 kHz（`np.frombuffer(dtype="<f4")`），前端必须自报
+   * 采样率，服务端必须校验。任何一端单独改都会让识别结果变成乱码 ——
+   * 而乱码不报错。
+   */
+  const asr = read("src/lib/asr.ts");
+  assert.match(asr, /X-Sample-Rate/);
+  assert.match(asr, /TARGET_RATE = 16000/);
+});
+
+test("语音：asr 模块不许进首屏", () => {
+  /*
+   * `lib/asr.ts` 一被首屏静态引用，录音管线（含 AudioContext 相关代码）
+   * 就会进主分块。它只在对话面板里用，而对话面板是 lazy 的。
+   *
+   * 只查 dialog 目录之外的引用 —— 那是唯一应该 import 它的地方。
+   */
+  const files = [
+    "src/App.tsx",
+    "src/components/LeftRail.tsx",
+    "src/components/StatusBar.tsx",
+    "src/components/RightRail.tsx",
+  ];
+  for (const f of files) {
+    let src;
+    try {
+      src = read(f);
+    } catch {
+      continue;
+    }
+    assert.ok(!/lib\/asr/.test(src), `${f} 不该静态引用 lib/asr`);
+  }
+});

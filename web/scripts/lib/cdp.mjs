@@ -89,6 +89,17 @@ export async function openPage(url, { port = 9222, readyExpr = "true", timeoutMs
   }
 
   const profile = mkdtempSync(join(tmpdir(), "ccus-cdp-"));
+  /*
+   * 额外的启动参数从 `CDP_EXTRA_ARGS` 读（空格分隔）。
+   *
+   * 存在的理由是语音：`getUserMedia` 在无头/无人值守的机器上没有麦克风，
+   * 而"点一下麦克风按钮"这件事本身（授权 → 录音 → 解码 → 上传 → 渲染结果）
+   * 不该只能靠人肉点。Chrome 的两个开关能给一个合成音源：
+   * `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`，
+   * 于是整条管线可以在 CI 里跑一遍，只是识别结果一定是空文本
+   * （合成音不是人话）—— 那正好也验证了"没听清"那条分支。
+   */
+  const extra = (process.env.CDP_EXTRA_ARGS || "").split(/\s+/).filter(Boolean);
   const child = spawn(
     exe,
     [
@@ -99,6 +110,7 @@ export async function openPage(url, { port = 9222, readyExpr = "true", timeoutMs
       "--disable-extensions",
       "--no-proxy-server",
       "--window-size=1680,1000",
+      ...extra,
       url,
     ],
     { stdio: "ignore", detached: false },

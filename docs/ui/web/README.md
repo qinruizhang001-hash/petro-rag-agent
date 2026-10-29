@@ -54,6 +54,15 @@ node scripts/cdp-shot.mjs --out ../docs/ui/web/dialog.png \
   --url "http://127.0.0.1:4173/?mode=deck&source=live&rail=dialog" \
   --ready "!!document.querySelector('[aria-label=\"向系统提问\"]')" \
   --ask "过去 4 小时井筒和管道有什么异常"
+
+# 语音：按下去之后的状态（录音计时 + 引擎角标）。
+# 没有麦克风的机器上要加两个 Chrome 开关，否则 getUserMedia 直接被拒 ——
+# 那不是脚本坏了，是这台机器没有录音设备。
+CDP_EXTRA_ARGS="--use-fake-device-for-media-stream --use-fake-ui-for-media-stream" \
+node scripts/cdp-shot.mjs --out ../docs/ui/web/dialog-voice.png \
+  --url "http://127.0.0.1:4173/?mode=deck&source=live&rail=dialog" \
+  --ready "!!document.querySelector('[aria-label=\"向系统提问\"]')" \
+  --voice
 ```
 
 `--kb-search` / `--ask` 是这两个脚本参数，因为这两屏**只有先点一次才会出现**。

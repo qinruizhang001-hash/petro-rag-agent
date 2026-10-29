@@ -28,6 +28,12 @@
  * **等按钮从「检索中」回到「检索」**（等状态而不是等时长），再拍。
  * 命令里带着问句，重拍就是同一次检索。
  *
+ * `--voice` 拍的是语音按钮按下去之后的状态。它要等**按钮变成「停止」**
+ * 而不是等一个固定时长 —— 授权弹窗、起 AudioContext、起 MediaRecorder
+ * 的耗时不固定，固定 sleep 会拍到「授权中」那一帧，看起来像卡住了。
+ * 没有麦克风的机器上加 `--use-fake-device-for-media-stream`（见
+ * `lib/cdp.mjs` 的 CDP_EXTRA_ARGS）就能跑完这条管线。
+ *
  * `--ask "<问句>"` 同理，拍的是对话面板的回答。它比检索多一步：正文
  * 由模板生成（几秒），引用来自检索（十几秒），两者不是同一个完成时刻。
  * 只等按钮回到「发送」会拍到「数字依据 / 原文证据」还空着的中间态 ——
@@ -54,6 +60,7 @@ const ready = arg(
 );
 const kbSearch = arg("kb-search", "");
 const ask = arg("ask", "");
+const voice = process.argv.includes("--voice");
 
 const page = await openPage(url, { readyExpr: ready });
 try {
@@ -148,6 +155,41 @@ try {
       throw new Error(`对话没能完成：${res ? res.why : "脚本返回空"}`);
     }
     console.log(`对话完成：${res.nums ?? "-"} · 证据 ${res.evidence ?? "-"}`);
+  }
+
+  if (voice) {
+    const res = await page.evaluate(`(async () => {
+      const sleep = (ms) => new Promise((s) => setTimeout(s, ms));
+      const btn = [...document.querySelectorAll("button")].find((b) => b.innerText.trim() === "语音");
+      if (!btn) return { ok: false, why: "找不到语音按钮（URL 里缺 ?rail=dialog？）" };
+      if (btn.disabled) return { ok: false, why: "语音按钮是 disabled：" + (btn.title || "") };
+      const badgeOf = () =>
+        [...document.querySelectorAll("span")].map((s) => s.innerText).find((t) => /识别/.test(t)) || null;
+      const badge = badgeOf();
+      btn.click();
+      // 等状态，不等时长：授权 + 起 AudioContext + 起 MediaRecorder 的耗时
+      // 不固定，固定 sleep 会拍到「授权中」那一帧。
+      let live = false;
+      for (let i = 0; i < 120; i++) {
+        await sleep(250);
+        if (btn.innerText.trim() === "停止") { live = true; break; }
+        if (/需要 https|不支持|不可用/.test(btn.innerText)) break;
+      }
+      // 录满 2 秒以上，计时器才有东西可显示。
+      if (live) await sleep(2400);
+      const body = btn.closest("div").parentElement;
+      return {
+        ok: live,
+        why: live ? "" : "按钮没有进入录音状态，停在：" + btn.innerText.trim(),
+        badge,
+        text: body ? body.innerText.slice(0, 200) : null,
+      };
+    })()`);
+    if (!res || !res.ok) {
+      throw new Error(`语音没能进入录音状态：${res ? res.why : "脚本返回空"}`);
+    }
+    console.log(`语音引擎：${res.badge ?? "(未取到角标)"}`);
+    console.log(`录音面板：${(res.text || "").replace(/\n+/g, " | ")}`);
   }
 
   const { data } = await page.send("Page.captureScreenshot", { format: "png" });

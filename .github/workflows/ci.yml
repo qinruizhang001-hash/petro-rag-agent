@@ -435,6 +435,39 @@ jobs:
       - name: Run knowledge base API tests
         run: python -m unittest -v tests.test_api_kb tests.test_kb_evidence
 
+  # 中文注释：本地语音识别接口（api_asr）单独一个 job，因为它要 numpy 而
+  # 上面那个 job 只装 fastapi + httpx —— 混进去会破坏它"装得越少越能证明
+  # 没被重模型拖累"的契约。
+  #
+  # 这里**故意不装 sherpa-onnx、也不下载 74 MB 模型**：那是换机器、清缓存、
+  # 跑 CI 时的常态。「模型没下载」必须返回 200 + 下载命令而不是 500，这条
+  # 路径只有在没有模型的机器上才测得到。
+  #
+  # 这组能跑起来本身也是一个断言：api_asr 一旦在模块顶层
+  # `import sherpa_onnx`，这个 job 会在 import 阶段就炸。
+  unit-asr:
+    name: Unit tests · ASR API (fastapi + numpy, no sherpa-onnx)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install API dependencies
+        run: python -m pip install --quiet "fastapi>=0.110.0" httpx numpy
+
+      - name: Confirm sherpa-onnx is absent (the point of this job)
+        run: |
+          python - <<'PY'
+          import importlib.util as u
+          print("sherpa_onnx:", "present" if u.find_spec("sherpa_onnx") else "absent (expected)")
+          PY
+
+      - name: Run ASR API tests
+        run: python -m unittest -v tests.test_api_asr
+
   unit-deps:
     name: Unit tests · eval & config (real deps, no torch)
     runs-on: ubuntu-latest
@@ -672,7 +705,7 @@ jobs:
       # 改成静态 import，首屏 chunk 会直接涨到 800 KB 以上。
       #
       # 体积线是 320 KB。**它是"有没有大东西被静态 import 进来"的警报，不是
-      # 一条需要贴着走的线** —— 当前首屏 312,992 字节（余量 7.0 KB），所以
+      # 一条需要贴着走的线** —— 当前首屏 295,232 字节（余量 24.8 KB），所以
       # 下一次小改动不至于撞线。撞线时先找原因（多半是某个重面板/大 JSON 被
       # 静态 import 了），**不要直接把数字改大**：改了之后 three 泄漏进来时
       # 它也不会再红。修法通常是 `React.lazy` + 首次激活才挂载，或把只在某个
@@ -714,8 +747,9 @@ jobs:
       # 中文注释：知识库的文献清单（9.2 KB）与总览（0.9 KB）是**动态 import** 的，
       # 切到「知识库」页签才拉。它们原本是静态 import：`lib/kb.ts` 被
       # `DialogPanel` 引了一个 `fetchKbDocument`，整份清单就跟着上了首屏。
-      # 改回静态不会报错，只会让首屏从 312,992 涨到 319,899 —— 余量从 7.0 KB
-      # 缩到 101 字节，那条 320 KB 的线随即变成"任何改动都红"。
+      # 改回静态不会报错，只会让首屏涨约 6.9 KB。当时余量只有 7.0 KB，
+      # 于是那条 320 KB 的线当场变成"任何改动都红" —— 一个余量小于一次正常
+      # 改动的守卫，等于没有守卫。
       # 与 `KbGapForm` / `SensorTable` 同一条道理：首屏看不见的东西不占首屏预算。
       - name: KB document list is still code-split
         working-directory: web
@@ -770,6 +804,22 @@ jobs:
             exit 1
           fi
           echo "approval chunk: $(ls dist/assets/ApprovalPanel-*.js | head -1)"
+
+      # 中文注释：对话面板同理。它是 611 行 + 引用角标 + 语音按钮，而默认
+      # 页签是「知识库」—— 打开界面只想看告警的人不该先下载对话面板。
+      #
+      # 加语音时这条线被踩过：一个 226 行的麦克风按钮把首屏从 312,992 顶到
+      # 318,374，距 320,000 只剩 1.6 KB，守卫线随即变成"任何改动都红"。
+      # 改成 lazy 之后 295,232（余量 24.8 KB）。
+      - name: Dialog panel is still code-split
+        working-directory: web
+        run: |
+          set -e
+          if ! ls dist/assets/DialogPanel-*.js >/dev/null 2>&1; then
+            echo "::error::no separate DialogPanel chunk — the chat panel is being imported statically again (first-paint chunk goes back over 320 KB)"
+            exit 1
+          fi
+          echo "dialog chunk: $(ls dist/assets/DialogPanel-*.js | head -1)"
 
       # 中文注释：许可证审查。这不是"文档里写一句 MIT"能解决的事 ——
       # GPL 的传染性判断看的是整个依赖树，而这个项目有 143 个包（直接依赖只有 13 个）。

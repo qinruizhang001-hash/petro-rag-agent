@@ -95,6 +95,12 @@ ollama_ok() {
   probe "http://127.0.0.1:11434/api/tags"
 }
 
+# 语音模型在不在。直接问那个下载脚本（`--check`），不在这儿再写一遍
+# 判据 —— 模型名与「哪几个文件算齐」只该有一处定义。
+asr_ready() {
+  "$PY" scripts/fetch_asr_model.py --check >/dev/null 2>&1
+}
+
 status() {
   step "当前状态"
   if ollama_ok; then ok "Ollama  127.0.0.1:11434"; else bad "Ollama  未启动"; fi
@@ -108,6 +114,15 @@ status() {
     bad "后端    未启动"
   fi
   if web_ok; then ok "前端    127.0.0.1:$WEB_PORT"; else bad "前端    未启动"; fi
+
+  # 语音这一格不影响服务能不能起，但影响「local-first」这句话是真的还是
+  # 假的：模型不在，界面会回落到浏览器云端识别，录音出网。界面自己会说，
+  # 这里也说一遍 —— 命令行是唯一能在打开浏览器之前看到它的地方。
+  if asr_ready; then
+    ok "语音    本地识别就绪（录音不出本机）"
+  else
+    warn "语音    本地模型未下载 —— 会回落到浏览器云端识别（录音出网）"
+  fi
 }
 
 stop_all() {
@@ -258,6 +273,10 @@ cat <<'HINT'
     ?rail=dialog          右栏对话
     ?kb=search            右栏知识库检索
     ?rail=off             收起右栏（窄屏）
+
+  语音识别（可选）
+    python scripts/fetch_asr_model.py    下 74 MB 中文模型；不下也能用语音，
+                                         但会走浏览器云端识别，录音会出网
 
   看状态   ./start-local.sh --status
   停       ./start-local.sh --stop

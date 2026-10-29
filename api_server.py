@@ -107,6 +107,10 @@ from api_ops import router as ops_router
 # 首屏就要渲染语料清单与建图状态，让它等重排模型不合理；检索端点自己做懒加载。
 from api_kb import router as kb_router
 
+# 本地语音识别（sherpa-onnx）拆在 api_asr.py。同样是为了能在零依赖环境里
+# 测「模型没下载时会不会崩」—— 那条路径换机器就会走到，最需要反复验证。
+from api_asr import router as asr_router
+
 from utils.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -817,6 +821,10 @@ api.include_router(ops_router, dependencies=[Depends(require_token)])
 # 知识库接口同样由这里施加鉴权（api_kb.py 也不能反向导入 require_token）。
 # 知识库响应里有论文题录与切片原文，属于业务数据，必须与 /api/ops/* 同级保护。
 api.include_router(kb_router, dependencies=[Depends(require_token)])
+
+# 语音识别。音频本身是现场录音，比论文题录更敏感，必须同级保护 ——
+# 而它恰恰是最容易被写成「本地服务不用鉴权」的一个。
+api.include_router(asr_router, dependencies=[Depends(require_token)])
 
 
 if __name__ == "__main__":
