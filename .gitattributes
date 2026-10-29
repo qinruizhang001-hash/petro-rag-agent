@@ -1,2 +1,12 @@
 *.pdf filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+
+# 行尾必须钉死，否则"clone 下来就能跑"是个运气问题。
+#
+# 这台机器 core.autocrlf 是 true，git 会在 checkout 时把 .sh 写成 CRLF。
+# 一个 CRLF 的 shell 脚本在 Git Bash / Linux 里报的是
+# `$'\r': command not found`，而且报在**第一行** —— 看起来像 shebang 写错，
+# 实际每一行都带了个 \r。.bat 反过来：cmd 对 LF 的容忍度不保证，
+# 而 Windows 编辑器写出来就是 CRLF，钉住它省掉一类"在我这儿好好的"。
+*.sh text eol=lf
+*.bat text eol=crlf
